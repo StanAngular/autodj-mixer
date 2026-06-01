@@ -250,6 +250,53 @@ def detect_mix_artefacts(mono, sr, stamps=None):
         artefacts.append({'t': d*hop_sf/sr, 'type':'spectral_discontinuity',
                           'severity':'high' if sf_arr[d]>sm*10 else 'mid',
                           'detail':f'flux={sf_arr[d]:.3f}x median'})
+
+    # ── 3f. RMS dip detect ──────────────────────────────────────────────────
+    # 100ms windows, flag any window where RMS < 50% of neighbors' median.
+    # Catches phase-cancellation volume drops inside crossfades.
+    hop_dip = int(0.1*sr); n_dip = max(1, len(mono)//hop_dip)
+    rms_dip = np.array([np.sqrt(np.mean(mono[i*hop_dip:(i+1)*hop_dip]**2)) for i in range(n_dip)])
+    med_dip = np.median(rms_dip)
+    for i in range(2, n_dip-2):
+        if rms_dip[i] < med_dip * 0.5 and rms_dip[i] < np.median(rms_dip[max(0,i-2):i+3]) * 0.6:
+            artefacts.append({'t': i*hop_dip/sr, 'type': 'rms_dip',
+                              'severity': 'high' if rms_dip[i] < med_dip * 0.3 else 'mid',
+                              'detail': f'rms={rms_dip[i]:.4f} (med={med_dip:.4f})'})
+
+    # ── 3g. Onset correlation stability ──────────────────────────────────────
+    # Check if consecutive 500ms onset profiles have low correlation,
+    # which indicates beat drift during the crossfade.
+    hop_oc = int(0.5*sr); win_oc = int(0.5*sr)
+    n_oc = max(1, len(mono)//hop_oc - 1)
+    oe_full = librosa.onset.onset_strength(y=mono, sr=sr, hop_length=256)
+    for i in range(n_oc-1):
+        a = oe_full[i*hop_oc//256:(i+1)*hop_oc//256]
+        b = oe_full[(i+1)*hop_oc//256:(i+2)*hop_oc//256]
+        if len(a) < 3 or len(b) < 3: continue
+        mn = min(len(a), len(b))
+        corr = np.corrcoef(a[:mn], b[:mn])[0,1]
+        if corr < 0.3:
+            artefacts.append({'t': i*hop_oc/sr, 'type': 'onset_stability',
+                              'severity': 'high' if corr < 0.15 else 'mid',
+                              'detail': f'onset_corr={corr:.3f}'})
+
+    # ── 3h. Crossfade endpoint check ────────────────────────────────────────
+    # For each stamp, compute spectral flux at the endpoint (where crossfade
+    # meets ramp).  High flux = phase discontinuity.
+    if stamps:
+        for s in stamps:
+            t_end = s['t'] + s.get('dur', 16*240.0/120)
+            s_frame = int(t_end * sr)
+            if s_frame + hop_sf*2 >= len(mono): continue
+            pre = mono[s_frame-hop_sf:s_frame]
+            post = mono[s_frame:s_frame+hop_sf]
+            if len(pre) < 2 or len(post) < 2: continue
+            sp = np.abs(np.fft.rfft(pre)); sp2 = np.abs(np.fft.rfft(post))
+            endpoint_flux = np.sqrt(np.mean((sp-sp2)**2))/(np.mean(sp)+1e-12)
+            if endpoint_flux > sm * 3:
+                artefacts.append({'t': t_end, 'type': 'harsh_endpoint',
+                                  'severity': 'high' if endpoint_flux > sm * 5 else 'mid',
+                                  'detail': f'endpoint_flux={endpoint_flux:.3f}x median'})
     return artefacts
 
 def cross_reference(mix_arts, source_infos, stamps, sr=SR):
@@ -300,6 +347,21 @@ def generate_feedback(transitions, mix_artefacts):
         recs.append({'severity':'high','parameter':'RAMP_MIN_RMS / entry_point',
                      'suggestion':f"The slave track at {_ts(q['t'])} enters too quietly (RMS={q.get('detail','?')}). "
                                    f"Increase RAMP_MIN_RMS or shift entry point to a louder section (+{int(q.get('suggest_delay',15))}s)"})
+    # Onset stability — beat drift inside crossfade
+    os_issues = [a for a in mx if a['type']=='onset_stability']
+    if len(os_issues) > 2:
+        recs.append({'severity':'high','parameter':'onset_micro_align(max_shift_sec/downbeat_weight)',
+                     'suggestion':f'{len(os_issues)} onset stability events — downbeat-weighted alignment may need tighter window'})
+    # RMS dip — phase cancellation volume drop
+    rd = [a for a in mx if a['type']=='rms_dip']
+    if rd:
+        recs.append({'severity':'high','parameter':'build_cf_lr4 RMS stabilizer / LR4 polarity check',
+                     'suggestion':f'{len(rd)} RMS dip events — phase cancellation in crossfade. Check LR4 band polarity or widen dip stabilizer threshold'})
+    # Harsh endpoint — crossfade→ramp boundary
+    he = [a for a in mx if a['type']=='harsh_endpoint']
+    if he:
+        recs.append({'severity':'mid','parameter':'build_cf_lr4 blend→ramp crossfade',
+                     'suggestion':f'{len(he)} harsh endpoint(s) — 50ms blend→ramp crossfade should fix these'})
     pk = [a for a in mx if a['type']=='transient_spike']
     if len(pk) > 2: recs.append({'severity':'mid','parameter':'mix_tracks(headroom_db)',
                                   'suggestion':f"Increase headroom -1→-2dB ({len(pk)} spikes)"})
