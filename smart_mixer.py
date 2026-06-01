@@ -182,7 +182,60 @@ def first_active(secs, mn=8):
             return s
     return 0
 
-# ---- Onset & Phase Micro-alignment ---------------------------------------
+# ---- Key / Camelot --------------------------------------------------------
+
+CAMELOT = {
+    'C maj':'8B','C# maj':'3B','D maj':'10B','D# maj':'5B','E maj':'12B',
+    'F maj':'7B','F# maj':'2B','G maj':'9B','G# maj':'4B','A maj':'11B',
+    'A# maj':'6B','B maj':'1B',
+    'C min':'5A','C# min':'12A','D min':'7A','D# min':'2A','E min':'9A',
+    'F min':'4A','F# min':'11A','G min':'6A','G# min':'1A','A min':'8A',
+    'A# min':'3A','B min':'10A',
+}
+KEYS = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
+MAJ_P = np.array([6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88])
+MIN_P = np.array([6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17])
+
+def detect_key(audio_mono, sr=SR):
+    """Detect key via chroma + Krumhansl-Kessler profiles."""
+    chroma = librosa.feature.chroma_cqt(y=audio_mono.astype(np.float32), sr=sr)
+    prof = chroma.mean(axis=1)
+    best_c = -1; best_k = "?"
+    for s in range(12):
+        r = np.roll(prof, -s)
+        cm = np.corrcoef(r, MAJ_P)[0,1]; cn = np.corrcoef(r, MIN_P)[0,1]
+        if cm > best_c: best_c = cm; best_k = f"{KEYS[s]} maj"
+        if cn > best_c: best_c = cn; best_k = f"{KEYS[s]} min"
+    return best_k
+
+def key_score(k1, k2):
+    """Camelot compatibility 0-1."""
+    c1 = CAMELOT.get(k1); c2 = CAMELOT.get(k2)
+    if not c1 or not c2: return 0.5
+    n1, t1 = int(c1[:-1]), c1[-1]; n2, t2 = int(c2[:-1]), c2[-1]
+    if c1 == c2: return 1.0
+    if n1 == n2 and t1 != t2: return 0.8
+    if t1 == t2 and abs(n1-n2) in (1, 11): return 0.9
+    return 0.3
+
+def reorder_by_key(tracks, wav_dir, sr=SR):
+    """Reorder tracks for optimal Camelot key progression."""
+    from itertools import permutations
+    keys = {}
+    for name, wav_file, _ in tracks:
+        audio, _ = sf.read(os.path.join(wav_dir, wav_file), always_2d=True)
+        keys[name] = detect_key(audio.mean(1).astype(np.float32), sr)
+    if len(tracks) > 7:
+        return tracks  # too many for exhaustive search
+    best_score = -1; best_order = tracks[:]
+    for perm in permutations(tracks):
+        score = sum(key_score(keys[perm[i][0]], keys[perm[i+1][0]]) for i in range(len(perm)-1))
+        if score > best_score:
+            best_score = score; best_order = list(perm)
+    print(f"\n  Camelot-optimized order (score={best_score:.1f}):")
+    for i, (n, _, _) in enumerate(best_order):
+        print(f"    {i+1}. {n:20s}  Key={keys[n]:8s}")
+    return best_order
 
 def onset_micro_align(m_mono, s_mono, bpm, sr=SR, max_shift_sec=0.2, m_db_zone=None, s_db_zone=None):
     """
@@ -432,6 +485,20 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
         blended_mid = m_mid * fo[:, None] + s_mid * fi[:, None]
         blended_high = m_high * fo[:, None] + s_high * fi[:, None]
 
+        # ── Bass polarity check ──────────────────────────────────────────
+        # If the two tracks' low bands are in opposing polarity, the bass
+        # swap creates audible cancellation (the "tape chew" effect).
+        # Check correlation of the first ~1s of low band; if negative,
+        # invert the slave's low band to keep them in phase.
+        low_corr = float(np.corrcoef(
+            m_low.mean(1)[:sr], s_low.mean(1)[:sr]
+        )[0, 1])
+        if low_corr < -0.3:
+            s_low = -s_low
+            print(f"    Bass polarity inverted (corr={low_corr:.2f})")
+        else:
+            print(f"    Bass polarity OK (corr={low_corr:.2f})")
+
         bar_samples = int(bar_s(m_bpm) * sr)
         swap_center = cf_len // 2
         trans_width = int(1.5 * bar_samples)
@@ -454,24 +521,36 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
     if pk > 0.99:
         blended *= 0.99 / pk
 
-    # ── RMS dip stabilizer ────────────────────────────────────────────────
-    # After blending, check 100ms windows for unplanned volume dips >5dB
-    # relative to neighbors.  This catches phase-cancellation dips inside
-    # the crossfade (e.g. two kicks in opposing polarity).
+    # ── RMS dip stabilizer (smooth gain envelope) ────────────────────────
+    # Check 100ms windows for unplanned volume dips inside the crossfade.
+    # Instead of per-window gain boosts (which create pumping artifacts),
+    # compute a smooth gain envelope via Hann-convolution.
     dip_window = int(0.1 * sr)
     n_dip = max(1, len(blended) // dip_window - 2)
     dip_rms = np.array([np.sqrt(np.mean(blended[i*dip_window:(i+1)*dip_window]**2))
                         for i in range(n_dip)])
     dip_med = np.median(dip_rms)
-    dip_thresh = dip_med * 0.5  # -6dB from median
+    dip_thresh = dip_med * 0.5
+    raw_gains = np.ones(n_dip)
     for i in range(1, n_dip - 1):
         if dip_rms[i] < dip_thresh:
-            # Smooth raise: pull toward median of neighbors
             local_med = max(np.median(dip_rms[max(0,i-2):i+3]), 1e-12)
             if local_med > dip_rms[i] * 1.5:
-                gain = min(2.0, local_med / (dip_rms[i] + 1e-12))
-                blended[i*dip_window:(i+1)*dip_window] *= gain
-                print(f"    RMS dip fix @ {i*dip_window/SR:.1f}s: {dip_rms[i]:.4f}→{dip_rms[i]*gain:.4f} (gain={gain:.2f})")
+                raw_gains[i] = min(2.0, local_med / (dip_rms[i] + 1e-12))
+    n_fixed = int((raw_gains > 1.01).sum())
+    if n_fixed:
+        # Smooth gain envelope with Hann window (7 taps)
+        kernel = np.hanning(7)
+        kernel /= kernel.sum()
+        smooth_gains = np.convolve(raw_gains, kernel, mode='same')
+        # Interpolate to sample-level gain curve
+        gain_envelope = np.interp(
+            np.arange(len(blended)),
+            np.arange(0, n_dip * dip_window, dip_window) + dip_window // 2,
+            smooth_gains
+        )[:len(blended)]
+        blended *= gain_envelope[:, None].astype(np.float32)
+        print(f"    RMS dip fix (smooth): {n_fixed} windows | max_gain={smooth_gains.max():.2f}")
 
     # ── Tail fade: smooth master exit at crossfade endpoint ────────────
     # Last TAIL_FADE_BARS of master get a gentle fade-out so the transition
@@ -506,8 +585,12 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         bitrate: MP3 bitrate (default "320k")
         sr: sample rate (default 44100)
     """
-    print(f"=== Smart Mixer v7: Bar-by-Bar Warp + LR4 Crossover ===\n")
+    print("=== Smart Mixer v10: Bar-by-Bar Warp + LR4 + Camelot + Phrase ===\n")
     t_start = time.time()
+
+    # Camelot-optimized track order
+    print("\\nReordering tracks for optimal key progression...")
+    tracks = reorder_by_key(tracks, wav_dir, sr)
 
     # Load + analyze tracks
     print("Loading and preparing tracks...")
@@ -576,15 +659,24 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         else:
             total = len(cur['db']) - 1
             exit_bar = max(0, total - CF_BARS - 4); mode = 'hpss'
+        # Round to phrase boundary (16 bars) — DJs mix on phrase starts
+        PHRASE = 16
+        exit_bar = max(PHRASE, (exit_bar // PHRASE) * PHRASE)
+        if exit_bar >= len(cur['db']) - 1:
+            exit_bar = cur['qe'] if cur['qe'] is not None else max(PHRASE, len(cur['db']) - CF_BARS - 4)
 
         exit_samp = int(cur['db'][min(exit_bar, len(cur['db']) - 1)])
         body = cur['audio'][cur_off:exit_samp]
-        print(f"    Master exit bar {exit_bar} ({exit_samp / sr:.1f}s)  mode={mode}")
+        print(f"    Master exit bar {exit_bar} ({exit_samp / sr:.1f}s)  mode={mode}  phrase=bar{exit_bar//PHRASE}")
 
         m_cf = cur['audio'][exit_samp:exit_samp + cf_len + sr * 3]
         m_cf_db = cur['db'][cur['db'] >= exit_samp] - exit_samp
 
         s_entry = nxt['fa']
+        # Round slave entry to phrase boundary
+        s_entry = max(0, (s_entry // PHRASE) * PHRASE)
+        if s_entry >= len(nxt['db']) - 4:
+            s_entry = nxt['fa']  # fallback if phrase pushes too far
         s_samp = int(nxt['db'][min(s_entry, len(nxt['db']) - 1)])
         s_cf = nxt['audio'][s_samp:]
         s_cf_db = nxt['db'][nxt['db'] >= s_samp] - s_samp
@@ -611,13 +703,13 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         ramp_db = nxt['db'][nxt['db'] >= ramp_off] - ramp_off
         ramp_result, ramp_consumed = ramp_to_native(ramp_audio, ramp_db, mb, sb, sr, ramp_sec=RAMP_SEC, slave_entry_rms=entry_rms)
 
-        # ── Crossfade blended → ramp (50ms) ─────────────────────────────
+        # ── Crossfade blended → ramp (500ms) ─────────────────────────────
         # Prevents a hard phase discontinuity at the crossfade endpoint.
-        # The equal-power fade leaves master at zero, but phase may still
-        # jump.  A tiny 50ms blend between the end of the crossfade and
-        # the start of the ramp smooths this over completely.
+        # The equal-power fade leaves master at zero, but the warped→original
+        # boundary at ramp_start has sub-sample timing shifts that cause a
+        # brief phase jump.  A 500ms overlap smooths this completely.
         if ramp_result is not None and len(blended) > 0 and len(ramp_result) > 0:
-            xfade_len = min(int(0.05 * sr), len(blended) // 4, len(ramp_result) // 4)
+            xfade_len = min(int(0.50 * sr), len(blended) // 2, len(ramp_result) // 2)
             if xfade_len > 0:
                 xfade_out = np.linspace(1.0, 0.0, xfade_len).astype(np.float32)
                 xfade_in  = np.linspace(0.0, 1.0, xfade_len).astype(np.float32)
