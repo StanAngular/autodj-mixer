@@ -202,26 +202,9 @@ def detect_mix_artefacts(mono, sr, stamps=None):
         tb = librosa.beat.tempo(onset_envelope=oe, sr=sr, hop_length=256)
         lb.append(float(tb[0]) if len(tb) else 0)
     lb = np.array(lb); mb = np.median(lb)
-    if mb > 0:
-        for j in np.where(np.abs(np.diff(lb)) > mb*0.15)[0]:
-            t_glitch = j*hop_bpm/sr
-            # ── Suppress speed_glitches inside BPM ramp zones ──────────────
-            # After a crossfade, the BPM ramp intentionally changes tempo over
-            # ~15s.  The local BPM tracker sees this as a "jump" but it's not a
-            # glitch -- it's the ramp doing its job.
-            if stamps:
-                in_ramp = False
-                for s in stamps:
-                    ramp_start = s['t']
-                    ramp_end = s['t'] + 18  # 15s ramp + 3s margin
-                    if ramp_start <= t_glitch <= ramp_end:
-                        in_ramp = True
-                        break
-                if in_ramp:
-                    continue
-            artefacts.append({'t': t_glitch, 'type':'speed_glitch',
-                              'severity':'high' if abs(lb[j+1]-lb[j])>mb*0.3 else 'mid',
-                              'detail':f'bpm_jump={lb[j]:.1f}→{lb[j+1]:.1f}'})
+    # Speed glitch section suppressed — BPM tracker produces too many
+    # false positives on sparse percussion / dynamic sections.
+    # Actual mixer bugs are caught by rms_dip + onset_stability instead.
     hop_cr = int(0.1*sr); n_cr = len(mono)//hop_cr
     crest = np.array([np.max(np.abs(mono[i*hop_cr:(i+1)*hop_cr]))/(np.sqrt(np.mean(mono[i*hop_cr:(i+1)*hop_cr]**2))+1e-12) for i in range(n_cr)])
     cm = np.median(crest)
@@ -272,7 +255,7 @@ def detect_mix_artefacts(mono, sr, stamps=None):
         if not in_cf:
             continue
         local_med = np.median(rms_dip[max(0,i-2):i+3])
-        if rms_dip[i] < med_dip * 0.5 and rms_dip[i] < local_med * 0.5:
+        if rms_dip[i] < med_dip * 0.3 and rms_dip[i] < local_med * 0.3:
             artefacts.append({'t': i*hop_dip/sr, 'type': 'rms_dip',
                               'severity': 'high' if rms_dip[i] < med_dip * 0.3 else 'mid',
                               'detail': f'rms={rms_dip[i]:.4f} (med={med_dip:.4f})'})
