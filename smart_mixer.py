@@ -184,14 +184,51 @@ def first_active(secs, mn=8):
 
 # ---- Onset & Phase Micro-alignment ---------------------------------------
 
-def onset_micro_align(m_mono, s_mono, bpm, sr=SR, max_shift_sec=0.2):
+def onset_micro_align(m_mono, s_mono, bpm, sr=SR, max_shift_sec=0.2, m_db_zone=None, s_db_zone=None):
     """
     Sub-bar transient alignment using onset strength cross-correlation.
     Uses scipy.signal.fftconvolve for O(N log N) speed.
+
+    If m_db_zone/s_db_zone are provided (downbeat sample positions),
+    the onset strength is weighted by downbeat proximity (1.0 at downbeat,
+    0.3 off-beat) so correlation prefers aligning downbeats, not snares/hi-hats.
     """
     hop = 128
     mo = librosa.onset.onset_strength(y=m_mono.astype(np.float32), sr=sr, hop_length=hop)
     so = librosa.onset.onset_strength(y=s_mono.astype(np.float32), sr=sr, hop_length=hop)
+
+    # ── Downbeat-weighted onset correlation ─────────────────────────────
+    # Weight onset strength so downbeats dominate the correlation peak.
+    # This prevents the aligner from pulling to off-beat snares/hi-hats.
+    if m_db_zone is not None and len(m_db_zone) > 1:
+        w_m = np.full_like(mo, 0.3)
+        for db_sample in m_db_zone:
+            db_frame = int(db_sample / hop)
+            if 0 <= db_frame < len(w_m):
+                w_m[db_frame] = 1.0
+                # Decay over ~80ms around downbeat
+                spread = int(0.08 * sr / hop)
+                for j in range(1, spread + 1):
+                    if db_frame - j >= 0:
+                        w_m[db_frame - j] = max(w_m[db_frame - j], 0.7)
+                    if db_frame + j < len(w_m):
+                        w_m[db_frame + j] = max(w_m[db_frame + j], 0.7)
+        mo *= w_m
+
+    if s_db_zone is not None and len(s_db_zone) > 1:
+        w_s = np.full_like(so, 0.3)
+        for db_sample in s_db_zone:
+            db_frame = int(db_sample / hop)
+            if 0 <= db_frame < len(w_s):
+                w_s[db_frame] = 1.0
+                spread = int(0.08 * sr / hop)
+                for j in range(1, spread + 1):
+                    if db_frame - j >= 0:
+                        w_s[db_frame - j] = max(w_s[db_frame - j], 0.7)
+                    if db_frame + j < len(w_s):
+                        w_s[db_frame + j] = max(w_s[db_frame + j], 0.7)
+        so *= w_s
+
     mo /= (mo.max() + 1e-8)
     so /= (so.max() + 1e-8)
 
@@ -355,6 +392,9 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
 
     if not use_barwarp:
         # Fallback: single global stretch
+        m_db_zone = None
+        s_db_zone = None
+        # Fallback: single global stretch
         rate = m_bpm / s_bpm
         native_len = int(CF_BARS * bar_s(s_bpm) * sr) + sr * 2
         s_raw = pt(s_cf, native_len)
@@ -372,7 +412,8 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
     # 2. Residual micro-align (+/-50ms window)
     mm = m_zone.mean(1)
     sm = s_zone.mean(1)
-    shift = onset_micro_align(mm, sm, m_bpm, sr=sr, max_shift_sec=0.05)
+    shift = onset_micro_align(mm, sm, m_bpm, sr=sr, max_shift_sec=0.05,
+                              m_db_zone=m_db_zone, s_db_zone=s_db_zone)
     print(f"    Residual shift after warp: {shift/sr*1000:.1f}ms")
     if abs(shift) > 0:
         if int(shift) > 0:
@@ -412,6 +453,25 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
     pk = np.max(np.abs(blended))
     if pk > 0.99:
         blended *= 0.99 / pk
+
+    # ── RMS dip stabilizer ────────────────────────────────────────────────
+    # After blending, check 100ms windows for unplanned volume dips >5dB
+    # relative to neighbors.  This catches phase-cancellation dips inside
+    # the crossfade (e.g. two kicks in opposing polarity).
+    dip_window = int(0.1 * sr)
+    n_dip = max(1, len(blended) // dip_window - 2)
+    dip_rms = np.array([np.sqrt(np.mean(blended[i*dip_window:(i+1)*dip_window]**2))
+                        for i in range(n_dip)])
+    dip_med = np.median(dip_rms)
+    dip_thresh = dip_med * 0.5  # -6dB from median
+    for i in range(1, n_dip - 1):
+        if dip_rms[i] < dip_thresh:
+            # Smooth raise: pull toward median of neighbors
+            local_med = max(np.median(dip_rms[max(0,i-2):i+3]), 1e-12)
+            if local_med > dip_rms[i] * 1.5:
+                gain = min(2.0, local_med / (dip_rms[i] + 1e-12))
+                blended[i*dip_window:(i+1)*dip_window] *= gain
+                print(f"    RMS dip fix @ {i*dip_window/SR:.1f}s: {dip_rms[i]:.4f}→{dip_rms[i]*gain:.4f} (gain={gain:.2f})")
 
     # ── Tail fade: smooth master exit at crossfade endpoint ────────────
     # Last TAIL_FADE_BARS of master get a gentle fade-out so the transition
@@ -542,8 +602,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         })
 
         parts.append(body)
-        parts.append(blended)
-        mix_pos += len(body) + len(blended)
+        mix_pos += len(body)
 
         cur = nxt
         ramp_off = s_samp + consumed
@@ -551,6 +610,23 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         ramp_audio = nxt['audio'][ramp_off:]
         ramp_db = nxt['db'][nxt['db'] >= ramp_off] - ramp_off
         ramp_result, ramp_consumed = ramp_to_native(ramp_audio, ramp_db, mb, sb, sr, ramp_sec=RAMP_SEC, slave_entry_rms=entry_rms)
+
+        # ── Crossfade blended → ramp (50ms) ─────────────────────────────
+        # Prevents a hard phase discontinuity at the crossfade endpoint.
+        # The equal-power fade leaves master at zero, but phase may still
+        # jump.  A tiny 50ms blend between the end of the crossfade and
+        # the start of the ramp smooths this over completely.
+        if ramp_result is not None and len(blended) > 0 and len(ramp_result) > 0:
+            xfade_len = min(int(0.05 * sr), len(blended) // 4, len(ramp_result) // 4)
+            if xfade_len > 0:
+                xfade_out = np.linspace(1.0, 0.0, xfade_len).astype(np.float32)
+                xfade_in  = np.linspace(0.0, 1.0, xfade_len).astype(np.float32)
+                blended[-xfade_len:] *= xfade_out[:, None]
+                ramp_result[:xfade_len] *= xfade_in[:, None]
+                print(f"    Crossfade blend→ramp: {xfade_len/SR*1000:.0f}ms")
+
+        parts.append(blended)
+        mix_pos += len(blended)
         if ramp_result is not None:
             parts.append(ramp_result)
             mix_pos += len(ramp_result)
