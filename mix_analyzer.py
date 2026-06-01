@@ -254,11 +254,25 @@ def detect_mix_artefacts(mono, sr, stamps=None):
     # ── 3f. RMS dip detect ──────────────────────────────────────────────────
     # 100ms windows, flag any window where RMS < 50% of neighbors' median.
     # Catches phase-cancellation volume drops inside crossfades.
+    # Only analyzes within crossfade zones to avoid false positives from
+    # natural dynamic changes in the music.
     hop_dip = int(0.1*sr); n_dip = max(1, len(mono)//hop_dip)
     rms_dip = np.array([np.sqrt(np.mean(mono[i*hop_dip:(i+1)*hop_dip]**2)) for i in range(n_dip)])
     med_dip = np.median(rms_dip)
     for i in range(2, n_dip-2):
-        if rms_dip[i] < med_dip * 0.5 and rms_dip[i] < np.median(rms_dip[max(0,i-2):i+3]) * 0.6:
+        t_dip = i*hop_dip/sr
+        in_cf = False
+        if stamps:
+            for s in stamps:
+                cf_start = s['t'] - 2
+                cf_end = s['t'] + s.get('dur', 30) + 5
+                if cf_start <= t_dip <= cf_end:
+                    in_cf = True
+                    break
+        if not in_cf:
+            continue
+        local_med = np.median(rms_dip[max(0,i-2):i+3])
+        if rms_dip[i] < med_dip * 0.5 and rms_dip[i] < local_med * 0.5:
             artefacts.append({'t': i*hop_dip/sr, 'type': 'rms_dip',
                               'severity': 'high' if rms_dip[i] < med_dip * 0.3 else 'mid',
                               'detail': f'rms={rms_dip[i]:.4f} (med={med_dip:.4f})'})
@@ -266,17 +280,31 @@ def detect_mix_artefacts(mono, sr, stamps=None):
     # ── 3g. Onset correlation stability ──────────────────────────────────────
     # Check if consecutive 500ms onset profiles have low correlation,
     # which indicates beat drift during the crossfade.
+    # Only analyzed within crossfade zones to avoid false positives
+    # from natural BPM changes between tracks.
     hop_oc = int(0.5*sr); win_oc = int(0.5*sr)
     n_oc = max(1, len(mono)//hop_oc - 1)
     oe_full = librosa.onset.onset_strength(y=mono, sr=sr, hop_length=256)
     for i in range(n_oc-1):
+        t_oc = i*hop_oc/sr
+        # Only check within crossfade zones (±3s margin)
+        in_cf = False
+        if stamps:
+            for s in stamps:
+                cf_start = s['t'] - 3
+                cf_end = s['t'] + s.get('dur', 30) + 3
+                if cf_start <= t_oc <= cf_end:
+                    in_cf = True
+                    break
+        if not in_cf:
+            continue
         a = oe_full[i*hop_oc//256:(i+1)*hop_oc//256]
         b = oe_full[(i+1)*hop_oc//256:(i+2)*hop_oc//256]
         if len(a) < 3 or len(b) < 3: continue
         mn = min(len(a), len(b))
         corr = np.corrcoef(a[:mn], b[:mn])[0,1]
-        if corr < 0.3:
-            artefacts.append({'t': i*hop_oc/sr, 'type': 'onset_stability',
+        if corr < 0.3 and not (np.isnan(corr) or np.isinf(corr)):
+            artefacts.append({'t': t_oc, 'type': 'onset_stability',
                               'severity': 'high' if corr < 0.15 else 'mid',
                               'detail': f'onset_corr={corr:.3f}'})
 
