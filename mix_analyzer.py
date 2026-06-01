@@ -204,7 +204,22 @@ def detect_mix_artefacts(mono, sr, stamps=None):
     lb = np.array(lb); mb = np.median(lb)
     if mb > 0:
         for j in np.where(np.abs(np.diff(lb)) > mb*0.15)[0]:
-            artefacts.append({'t': j*hop_bpm/sr, 'type':'speed_glitch',
+            t_glitch = j*hop_bpm/sr
+            # ── Suppress speed_glitches inside BPM ramp zones ──────────────
+            # After a crossfade, the BPM ramp intentionally changes tempo over
+            # ~15s.  The local BPM tracker sees this as a "jump" but it's not a
+            # glitch -- it's the ramp doing its job.
+            if stamps:
+                in_ramp = False
+                for s in stamps:
+                    ramp_start = s['t']
+                    ramp_end = s['t'] + 18  # 15s ramp + 3s margin
+                    if ramp_start <= t_glitch <= ramp_end:
+                        in_ramp = True
+                        break
+                if in_ramp:
+                    continue
+            artefacts.append({'t': t_glitch, 'type':'speed_glitch',
                               'severity':'high' if abs(lb[j+1]-lb[j])>mb*0.3 else 'mid',
                               'detail':f'bpm_jump={lb[j]:.1f}→{lb[j+1]:.1f}'})
     hop_cr = int(0.1*sr); n_cr = len(mono)//hop_cr
@@ -279,6 +294,12 @@ def generate_feedback(transitions, mix_artefacts):
     sp = [a for a in mx if a['type']=='speed_glitch']
     if sp: recs.append({'severity':'high','parameter':'ramp_to_native(ramp_sec)',
                          'suggestion':'Ramp too aggressive — increase RAMP_SEC or skip for <1 BPM diff'})
+    # Quiet entry detection — low-energy slave entries prone to rubberband artefacts
+    qe = [a for a in mix_artefacts if a.get('type')=='quiet_slave_entry']
+    for q in qe[:3]:
+        recs.append({'severity':'high','parameter':'RAMP_MIN_RMS / entry_point',
+                     'suggestion':f"The slave track at {_ts(q['t'])} enters too quietly (RMS={q.get('detail','?')}). "
+                                   f"Increase RAMP_MIN_RMS or shift entry point to a louder section (+{int(q.get('suggest_delay',15))}s)"})
     pk = [a for a in mx if a['type']=='transient_spike']
     if len(pk) > 2: recs.append({'severity':'mid','parameter':'mix_tracks(headroom_db)',
                                   'suggestion':f"Increase headroom -1→-2dB ({len(pk)} spikes)"})
@@ -323,8 +344,28 @@ def analyze(mix_path, wav_dir, ann_dir, tracks=None, feedback=False):
             tr['master_name']=fn; tr['slave_name']=tn; transitions.append(tr)
             ic = "✅" if abs(tr['reported_shift_ms'])<5 else "⚠️" if abs(tr['reported_shift_ms'])<10 else "❌"
             print(f"  {ic} {fn:15s} → {tn:15s}  @ {_ts(s['t'])}  drift={tr['reported_shift_ms']:.1f}ms  LUFS={tr['lufs_jump_db']:+.1f}dB")
+
+    # ── Quiet entry detection ──────────────────────────────────────────────
+    # Check stamps for low-energy slave entries that can cause ramp artefacts
+    quiet_entries = []
+    for s in stamps:
+        entry_rms = s.get('entry_rms', 1.0)
+        if entry_rms < 0.08:
+            quiet_entries.append({
+                't': s['t'], 'type': 'quiet_slave_entry',
+                'severity': 'high',
+                'detail': f'{entry_rms:.3f}',
+                'suggest_delay': int(15 * (0.08 / max(entry_rms, 0.01)))
+            })
+    if quiet_entries:
+        print(f"\n  ⚠️ Quiet slave entries ({len(quiet_entries)}):")
+        for q in quiet_entries:
+            print(f"    @ {_ts(q['t'])}  entry RMS={q['detail']}")
+
     print(f"\n── Phase 3: Mix Artefact Scan ──\n  Scanning...", end=' ', flush=True)
     ma = detect_mix_artefacts(mono, SR, stamps)
+    # Append quiet entries to mix artefacts for feedback
+    ma.extend(quiet_entries)
     print(f"{len(ma)} events\n")
     print(f"── Phase 4: Source vs Mixer ──\n")
     ma = cross_reference(ma, si, stamps, SR)
