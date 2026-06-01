@@ -88,3 +88,69 @@ Edit constants at top of `smart_mixer.py`:
 ## License
 
 MIT
+
+
+## Mix Analyzer
+
+`mix_analyzer.py` — comprehensive post-mix quality diagnostics.
+
+```bash
+python3 mix_analyzer.py --mix /tmp/mix.mp3 --wav-dir ./wav --ann-dir ./annotations
+python3 mix_analyzer.py --mix /tmp/mix.mp3 --config mix_config.py --feedback
+```
+
+### 5-phase analysis pipeline
+
+| Phase | What | Details |
+|-------|------|---------|
+| 1. Source Analysis | Key (Camelot), BPM, source artefacts | Detects pre-existing glitches in originals |
+| 2. Transition Analysis | Beat drift, LUFS consistency, centroid shift | Each crossfade zone individually |
+| 3. Mix Artefact Scan | Stutter, speed glitch, transients, HF noise, spectral discontinuity | Full-mix sweep |
+| 4. Source vs Mixer | Cross-reference | Distinguishes source issues from mixer-induced |
+| 5. Feedback | Tuning recommendations | Concrete parameter suggestions |
+
+### Artefact types detected
+
+| Artefact | Detection method | Threshold |
+|----------|-----------------|-----------|
+| **Stutter** (repeated frame) | Auto-correlation of 50ms windows | corr > 0.999 |
+| **Speed glitch** | Local BPM in 4s windows | >15% jump |
+| **Transient spike** | Crest factor per 100ms | >5x median |
+| **HF noise** (rubberband artifacts) | Energy >16kHz | >8x median |
+| **Spectral discontinuity** | Spectral flux (FFT frame diff) | >5x median |
+| **Beat drift** | Onset cross-correlation on transition | >5ms flagged |
+
+### Feedback mode
+
+With `--feedback`, the analyzer outputs specific parameter changes:
+```
+🔴 [warp_to_grid(rate_threshold)] Reduce rate_threshold 0.002→0.001 (12 stutters)
+🟡 [ramp_to_native(ramp_sec)] Increase RAMP_SEC 15→20 (7 HF noise events)
+🟡 [build_cf_lr4(max_shift_sec)] Increase to 0.073 (drift=5.3ms)
+```
+
+## Pipeline
+
+`run_pipeline.py` — mix + analyze in one command.
+
+```bash
+# Full pipeline
+python3 run_pipeline.py --config mix_config.py
+
+# Analyze only (skip mixing)
+python3 run_pipeline.py --config mix_config.py --analyze-only
+
+# With feedback
+python3 run_pipeline.py --config mix_config.py --feedback
+```
+
+## Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `smart_mixer.py` | DJ mix engine (bar-by-bar warp, LR4 crossover) |
+| `mix_analyzer.py` | Post-mix quality diagnostics |
+| `run_pipeline.py` | Mix + analyze in one command |
+| `scripts/analyze_order.py` | Optimal track order (BPM, key, energy) |
+| `scripts/analyze_zone.py` | Detailed zone inspection (BPM trace, RMS) |
+| `scripts/generate_annotations.py` | madmom beat/downbeat annotation |
