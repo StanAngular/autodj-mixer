@@ -24,6 +24,8 @@ import pyloudnorm as pyln
 SR = 44100
 CF_BARS = 16                # Crossfade duration in bars
 RAMP_SEC = 15               # Post-crossfade BPM ramp-back duration (seconds)
+RAMP_MIN_RMS = 0.08         # Min slave entry RMS for BPM ramp; below this => volume fade only
+TAIL_FADE_BARS = 2          # Extra fade-out bars at end of crossfade (smoother endpoint)
 TARGET_LUFS = -14.0         # Loudness normalization target
 BPM_DIFF_LIMIT = 0.08      # Max BPM difference ratio for crossfade (8%)
 
@@ -252,15 +254,31 @@ def warp_to_grid(slave_audio, s_db, m_db, sr):
 
 # ---- BPM Ramp-back -------------------------------------------------------
 
-def ramp_to_native(slave_audio, s_db, m_bpm, s_bpm, sr, ramp_sec=RAMP_SEC):
+def ramp_to_native(slave_audio, s_db, m_bpm, s_bpm, sr, ramp_sec=RAMP_SEC, slave_entry_rms=1.0):
     """
     After crossfade, the slave was warped to master BPM.
     Smoothly ramp it back to native BPM over ramp_sec seconds.
     Linear interpolation: bar length goes from master-bar to native-bar.
+
+    If slave_entry_rms < RAMP_MIN_RMS: BPM stretch on silence creates audible
+    artefacts (rubberband distortion, tape-chew effect). Instead apply a
+    volume fade-in over the same duration — no stretch, just gain ramp.
     """
     bpm_diff = abs(m_bpm - s_bpm)
     if bpm_diff < 0.5:
         return None, 0
+
+    # ── Quiet entry guard: volume fade instead of BPM stretch ──────────
+    if slave_entry_rms < RAMP_MIN_RMS:
+        print(f"    Slave entry RMS={slave_entry_rms:.3f} < {RAMP_MIN_RMS}: volume fade instead of BPM ramp")
+        fade_samples = int(ramp_sec * sr)
+        fade = np.linspace(0.0, 1.0, fade_samples).astype(np.float32)
+        n_bars = min(int(ramp_sec / bar_s(s_bpm)) + 1, len(s_db) - 1)
+        consumed = int(s_db[min(n_bars, len(s_db)-1)]) if len(s_db) > 1 else 0
+        fade_out = pt(slave_audio[:fade_samples], fade_samples)
+        result = (fade_out * fade[:, None]).astype(np.float32)
+        print(f"    Volume fade: {len(result)/sr:.1f}s")
+        return result, consumed
 
     m_bar_samp = bar_s(m_bpm) * sr
     s_bar_samp = bar_s(s_bpm) * sr
@@ -395,6 +413,23 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
     if pk > 0.99:
         blended *= 0.99 / pk
 
+    # ── Tail fade: smooth master exit at crossfade endpoint ────────────
+    # Last TAIL_FADE_BARS of master get a gentle fade-out so the transition
+    # doesn't end with a hard amplitude cut.  Only applies to the master
+    # side — the slave is already fully faded in at this point.
+    tail_bars_samp = int(TAIL_FADE_BARS * bar_s(m_bpm) * sr)
+    if tail_bars_samp < cf_len:
+        tail_fade = np.linspace(1.0, 0.0, tail_bars_samp).astype(np.float32)
+        # Compute master-only contribution at the tail: blended = master * fo + slave
+        # We need to apply the fade on top of whatever master component remains.
+        # Safest: apply fade on the entire blended signal's last tail, but only
+        # on a small enough window that slave is dominant.
+        fo, fi = eq_power_fades(cf_len)
+        master_frac = fo[-tail_bars_samp:]  # master fade curve at tail
+        fade_amount = master_frac * tail_fade + (1.0 - master_frac)
+        blended[-tail_bars_samp:] *= fade_amount[:, None]
+        print(f"    Tail fade: {TAIL_FADE_BARS} bars ({tail_bars_samp/SR:.1f}s)")
+
     return blended, shift, consumed
 
 # ---- Main Mixing Pipeline ------------------------------------------------
@@ -493,7 +528,9 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         s_samp = int(nxt['db'][min(s_entry, len(nxt['db']) - 1)])
         s_cf = nxt['audio'][s_samp:]
         s_cf_db = nxt['db'][nxt['db'] >= s_samp] - s_samp
-        print(f"    Slave entry bar {s_entry} ({s_samp / sr:.1f}s)")
+        # Measure slave entry RMS for smart ramp decision
+        entry_rms = float(np.sqrt(np.mean(s_cf[:min(int(sr), len(s_cf))]**2)))
+        print(f"    Slave entry bar {s_entry} ({s_samp / sr:.1f}s)  entry_rms={entry_rms:.3f}")
 
         blended, shift, consumed = build_cf_lr4(m_cf, s_cf, mb, sb, m_cf_db, s_cf_db, mode, sr)
 
@@ -501,7 +538,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         stamps.append({
             'from': cur['name'], 'to': nxt['name'],
             't': ts, 'dur': CF_BARS * bar_s(mb), 'mode': mode,
-            'shift': shift / sr
+            'shift': shift / sr, 'entry_rms': entry_rms
         })
 
         parts.append(body)
@@ -513,7 +550,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
 
         ramp_audio = nxt['audio'][ramp_off:]
         ramp_db = nxt['db'][nxt['db'] >= ramp_off] - ramp_off
-        ramp_result, ramp_consumed = ramp_to_native(ramp_audio, ramp_db, mb, sb, sr)
+        ramp_result, ramp_consumed = ramp_to_native(ramp_audio, ramp_db, mb, sb, sr, ramp_sec=RAMP_SEC, slave_entry_rms=entry_rms)
         if ramp_result is not None:
             parts.append(ramp_result)
             mix_pos += len(ramp_result)
