@@ -568,6 +568,9 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
 
     total_t = time.time() - t_start
     print(f"\nCompleted in {total_t:.1f}s")
+    # Save stamps for mix_analyzer
+    stamps_path = output_mp3.replace('.mp3', '_stamps.npy').replace('.wav', '_stamps.npy')
+    np.save(stamps_path, np.array(stamps, dtype=object))
     return stamps
 
 # ---- CLI ------------------------------------------------------------------
