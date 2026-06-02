@@ -56,7 +56,7 @@ jobs:
       - name: Install all deps (includes audio libs)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --fix-missing ffmpeg libsndfile1
+          sudo apt-get install -y --fix-missing ffmpeg libsndfile1 rubberband-cli
           # madmom requires Cython + native build -- skip in CI since
           # integration tests use synthetic annotations (no madmom needed)
           grep -v madmom requirements.txt | pip install -r /dev/stdin
