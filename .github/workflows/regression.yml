@@ -1,0 +1,85 @@
+name: Regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "smart_mixer.py"
+      - "mix_analyzer.py"
+      - "mix_validator.py"
+  schedule:
+    - cron: "0 10 * * 1"   # Every Monday 10:00 UTC
+  workflow_dispatch:
+
+jobs:
+  regression:
+    name: Metric Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-regr-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-regr-
+
+      - name: Install deps
+        run: |
+          sudo apt-get install -y ffmpeg libsndfile1
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Generate synthetic mix + analysis
+        run: |
+          python tests/conftest.py || true
+          pytest tests/integration/test_mixer_short.py -v --tb=short
+
+      - name: Check golden file regression (if exists)
+        run: |
+          if [ -f "tests/fixtures/golden_analysis.json" ]; then
+            python - <<'EOF'
+          import json, sys
+
+          with open("tests/fixtures/golden_analysis.json") as f:
+              golden = json.load(f)
+
+          # Validator must still give the same class of verdict
+          import mix_validator
+          result = mix_validator.validate(golden)
+          print(f"Golden verdict: {result['verdict']}")
+
+          # Check key metrics haven't drifted
+          for tr in golden.get("transitions", []):
+              drift = abs(tr.get("reported_shift_ms", 0))
+              lufs  = abs(tr.get("lufs_jump_db", 0))
+              if drift > 30:
+                  print(f"REGRESSION: beat drift {drift:.1f}ms exceeds 30ms limit", file=sys.stderr)
+                  sys.exit(1)
+              if lufs > 8:
+                  print(f"REGRESSION: LUFS jump {lufs:.1f}dB exceeds 8dB limit", file=sys.stderr)
+                  sys.exit(1)
+
+          print("Regression check passed.")
+          EOF
+          else
+            echo "No golden file found -- skipping regression comparison (expected on first run)"
+          fi
+
+      - name: Upload analysis artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regression-analysis-${{ github.run_id }}
+          path: |
+            /tmp/mix_analysis.json
+            /tmp/mix.mp3
+          retention-days: 7

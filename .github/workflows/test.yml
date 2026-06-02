@@ -1,0 +1,64 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-unit-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-unit-
+
+      - name: Install core deps (no heavy audio libs)
+        run: pip install numpy scipy pytest
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v --tb=short
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-int-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-int-
+
+      - name: Install all deps (includes audio libs)
+        run: |
+          sudo apt-get install -y ffmpeg libsndfile1
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run integration tests
+        run: pytest tests/integration/ -v --tb=short -x
+        # -x: stop on first failure (integration tests are slower)
