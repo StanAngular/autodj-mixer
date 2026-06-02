@@ -181,28 +181,57 @@ def calc_bpm(db, sr=SR):
 
 def fix_ht(db, bpm):
     """
-    Fix half-time (or double-time) BPM detection by checking beat-to-beat
-    distance ratios against expected 4-beat-bar spacing.
-    """
-    if len(db) < 8:
-        return db, bpm
-    ns = int(db[8]) - int(db[4])
-    if ns <= 0:
-        return db, bpm
-    ratio = ns / max(int(bar_s(bpm) * SR / 4), 1)
+    Fix half-time / double-time / quarter-beat BPM detection.
 
-    if 1.9 < ratio < 2.1:
-        # Half-time detected: skip every other downbeat to go from 1 every 2 beats → 1 per beat
-        db = db[::2]
-    elif 2.9 < ratio < 3.1:
-        # Third-time detected
-        db = db[::3]
-    elif 0.45 < ratio < 0.55:
-        # Double-time detected: insert a downbeat midway between each pair
-        dl = []
-        for d in db:
-            dl.extend([d, d + (db[1] - db[0]) // 2])
-        db = np.array(dl, dtype=int)
+    Uses median inter-downbeat interval (absolute seconds) to decide if
+    entries represent actual bars, half-bars, individual beats, or multi-bars.
+
+    Plausible 4/4 bar range: ~1.0 s (240 BPM) to ~4.0 s (60 BPM).
+    Anything outside is corrected by decimating or interpolating.
+    """
+    if len(db) < 3:
+        return db, bpm
+
+    intervals = np.diff(db.astype(float)) / SR          # seconds
+    intervals = intervals[intervals > 0.1]               # drop zero/noise
+    if len(intervals) < 2:
+        return db, bpm
+
+    med = float(np.median(intervals))
+
+    # --- Plausible single-bar bounds (4/4 time) ---
+    BAR_LO = 1.0    # 240 BPM -- hard floor
+    BAR_HI = 4.0    # 60 BPM  -- hard ceiling
+
+    if med < BAR_LO * 0.35:
+        # ~0.3 s  -> individual beats (4 per bar).  Decimate x4.
+        if len(db) >= 16:
+            db = db[::4]
+
+    elif med < BAR_LO * 0.65:
+        # ~0.5-0.6 s  -> half-bar intervals.  Decimate x2.
+        if len(db) >= 8:
+            db = db[::2]
+
+    elif med > BAR_HI * 2.2:
+        # >8.8 s  -> 3-4+ bars per entry.  Split each gap into N equal parts.
+        n_split = max(2, round(med / 2.0))               # assume ~2 s bars
+        new_db = []
+        for i in range(len(db) - 1):
+            gap = db[i + 1] - db[i]
+            for j in range(n_split):
+                new_db.append(int(db[i] + j * gap / n_split))
+        new_db.append(db[-1])
+        db = np.array(new_db, dtype=int)
+
+    elif med > BAR_HI * 1.3:
+        # >5.2 s  -> 2 bars per entry.  Insert midpoint between each pair.
+        new_db = []
+        for i in range(len(db) - 1):
+            new_db.append(db[i])
+            new_db.append((db[i] + db[i + 1]) // 2)
+        new_db.append(db[-1])
+        db = np.array(new_db, dtype=int)
 
     return db, calc_bpm(db)
 
