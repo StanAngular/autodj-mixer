@@ -458,9 +458,9 @@ def ramp_to_native(slave_audio, s_db, m_bpm, s_bpm, sr, ramp_sec=RAMP_SEC, ser=1
 def rms_stabilizer_lookahead(blended, cf_len):
     """
     Narrow RMS stabilizer + lookahead:
-    Only boosts dips < 0.5*median with a sharp drop (>30%) and quick recovery.
+    Only boosts dips < 0.3*median with a sharp drop (>30%) and quick recovery.
     Also checks next 3 windows for a recovery >2x (lookahead).
-    Uses Hann kernel size=5 for smoothing.
+    Uses Hann kernel size=3 for shorter smoothing.
     """
     dw = int(0.1 * SR)
     nd = max(1, cf_len // dw - 2)
@@ -472,7 +472,7 @@ def rms_stabilizer_lookahead(blended, cf_len):
     dc = 0
 
     for j in range(1, nd - 1):
-        if rms[j] < 0.5 * med:
+        if rms[j] < 0.3 * med:
             # Check sharp drop
             sharp = rms[j-1] > 0 and (rms[j-1] - rms[j]) / rms[j-1] > 0.3
             qr = False
@@ -484,21 +484,21 @@ def rms_stabilizer_lookahead(blended, cf_len):
             if sharp and qr:
                 lm = max(np.median(rms[max(0, j-2):j+3]), 1e-12)
                 if lm > rms[j] * 1.5:
-                    ge[j] = min(2.0, lm / (rms[j] + 1e-12))
+                    ge[j] = min(1.3, lm / (rms[j] + 1e-12))
                     dc += 1
             # Lookahead: dips that precede a big rise
-            elif rms[j] < 0.5 * med:
+            elif rms[j] < 0.3 * med:
                 for k in range(j + 1, min(j + 4, nd)):
                     if rms[k] > rms[j] * 2.0:
                         lm = max(np.median(rms[max(0, j-2):j+3]), 1e-12)
                         if lm > rms[j] * 1.5:
-                            ge[j] = min(2.0, lm / (rms[j] + 1e-12))
+                            ge[j] = min(1.3, lm / (rms[j] + 1e-12))
                             dc += 1
                         break
 
     if dc:
         from scipy.signal.windows import hann
-        k = hann(5)
+        k = hann(3)
         k /= k.sum()
         ge = np.convolve(ge, k, mode='same')
         for j in range(nd):
