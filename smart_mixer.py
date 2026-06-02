@@ -37,8 +37,59 @@ BPM_DIFF_LIMIT = 0.08       # Max BPM difference ratio for crossfade (8%)
 
 
 # ============================================================
-# 3-Band Linkwitz-Riley Filter
+# Key Detection + Camelot Wheel (from analyze_order.py)
 # ============================================================
+
+CAMELOT = {
+    'C maj':'8B','C# maj':'3B','D maj':'10B','D# maj':'5B','E maj':'12B',
+    'F maj':'7B','F# maj':'2B','G maj':'9B','G# maj':'4B','A maj':'11B',
+    'A# maj':'6B','B maj':'1B',
+    'C min':'5A','C# min':'12A','D min':'7A','D# min':'2A','E min':'9A',
+    'F min':'4A','F# min':'11A','G min':'6A','G# min':'1A','A min':'8A',
+    'A# min':'3A','B min':'10A',
+}
+
+KEYS = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
+MAJ_PROFILE = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88]
+MIN_PROFILE = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17]
+
+def detect_key(audio_mono, sr):
+    """Detect musical key via chroma CQT + Krumhansl-Schmuckler profiles."""
+    chroma = librosa.feature.chroma_cqt(y=audio_mono, sr=sr)
+    profile = chroma.mean(axis=1)
+    best_corr = -1
+    best_key = "?"
+    for shift in range(12):
+        rolled = np.roll(profile, -shift)
+        cm = np.corrcoef(rolled, MAJ_PROFILE)[0, 1]
+        cn = np.corrcoef(rolled, MIN_PROFILE)[0, 1]
+        if cm > best_corr:
+            best_corr = cm
+            best_key = f"{KEYS[shift]} maj"
+        if cn > best_corr:
+            best_corr = cn
+            best_key = f"{KEYS[shift]} min"
+    return best_key
+
+def camelot_code(key_str):
+    """Convert key string to Camelot code (e.g. 'D maj' → '10B')."""
+    return CAMELOT.get(key_str, '?')
+
+def key_compat(k1, k2):
+    """Camelot compatibility score: 1.0 (same), 0.9 (adjacent), 0.8 (relative), 0.3 (bad)."""
+    c1 = camelot_code(k1)
+    c2 = camelot_code(k2)
+    if '?' in (c1, c2):
+        return 0.5
+    n1, t1 = int(c1[:-1]), c1[-1]
+    n2, t2 = int(c2[:-1]), c2[-1]
+    if c1 == c2:
+        return 1.0
+    if t1 == t2 and abs(n1 - n2) in (1, 11):
+        return 0.9
+    if n1 == n2 and t1 != t2:
+        return 0.8
+    return 0.3
 
 def three_band_split(audio, low_cut, high_cut, sr):
     """
@@ -628,6 +679,13 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         db, bpm = fix_ht(db, raw)
         print(f"    Detected BPM: {bpm:.1f} (in {time.time()-t0:.1f}s)")
 
+        # Key detection + Camelot
+        t_key = time.time()
+        mono = audio.mean(1) if audio.ndim == 2 else audio
+        key = detect_key(mono, sr)
+        cam = camelot_code(key)
+        print(f"    Key: {key:8s}  Camelot: {cam}  (in {time.time()-t_key:.1f}s)")
+
         secs = sections(audio, db, sr, name=name)
         act = [(s, e) for s, e, l in secs if l in ('ACTIVE', 'DROP')]
         if act:
@@ -652,8 +710,18 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
 
         TD.append({
             'name': name, 'audio': at, 'db': dbt, 'bpm': bpm,
+            'key': key, 'cam': cam,
             'secs': st, 'qe': qe, 'fa': fa
         })
+
+    # Print Camelot overview
+    print(f"\n  === Camelot Wheel Overview ===")
+    for td in TD:
+        print(f"    {td['name']:15s}  {td['bpm']:5.1f} BPM  {td['key']:8s}  {td['cam']}")
+    for i in range(len(TD) - 1):
+        kc = key_compat(TD[i]['key'], TD[i+1]['key'])
+        label = "SAME" if kc == 1.0 else "ADJ" if kc >= 0.9 else "REL" if kc >= 0.8 else "POOR"
+        print(f"    {TD[i]['cam']} → {TD[i+1]['cam']}: compat={kc:.1f}  [{label}]")
 
     # Build the continuous mix
     print(f"\n\nBuilding mix ({CF_BARS}-bar crossfades)...\n")
@@ -712,6 +780,8 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         ts = (mix_pos + len(body)) / sr
         stamps.append({
             'from': cur['name'], 'to': nxt['name'],
+            'from_key': cur.get('cam', '?'), 'to_key': nxt.get('cam', '?'),
+            'key_compat': key_compat(cur.get('key', '?'), nxt.get('key', '?')),
             't': ts, 'dur': CF_BARS * bar_s(mb), 'mode': mode,
             'shift': shift / sr, 'entry_rms': entry_rms
         })
@@ -782,10 +852,13 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         s = int(st['t'] % 60)
         m2 = int((st['t'] + st['dur']) // 60)
         s2 = int((st['t'] + st['dur']) % 60)
+        kc = st.get('key_compat', 0)
+        kc_label = "SAME" if kc >= 1.0 else "ADJ" if kc >= 0.9 else "REL" if kc >= 0.8 else "POOR"
         print(
             f"  {m:02d}:{s:02d}-{m2:02d}:{s2:02d}  "
             f"{st['from']} -> {st['to']}  "
             f"[{'BASS SWAP' if st['mode'] == 'hpss' else 'QUIET CROSS'}]  "
+            f"{st.get('from_key','?')}→{st.get('to_key','?')} [{kc_label}]  "
             f"micro_shift={st['shift'] * 1000:.1f}ms  "
             f"entry_rms={st.get('entry_rms', 0):.4f}"
         )
