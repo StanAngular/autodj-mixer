@@ -57,6 +57,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --fix-missing ffmpeg libsndfile1
+          pip install cython numpy          # madmom needs Cython at build time
           pip install -r requirements.txt
           pip install pytest
 
