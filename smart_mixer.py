@@ -32,7 +32,7 @@ SR = 44100
 CF_BARS = 16                # Crossfade duration in bars
 RAMP_SEC = 15               # Post-crossfade BPM ramp-back duration (seconds)
 RAMP_MIN_RMS = 0.08         # If entry RMS below this, volume-only fade instead of BPM ramp
-TAIL_FADE_BARS = 2          # Fade out last N bars of crossfade output
+TAIL_FADE_BARS = 0          # Redundant with seamless blend→ramp (17th bar warp bridge)
 TARGET_LUFS = -14.0         # Loudness normalization target
 BPM_DIFF_LIMIT = 0.08       # Max BPM difference ratio for crossfade (8%)
 
@@ -523,7 +523,7 @@ def eq_pow(n):
 # Crossfade Builder (v13: bass polarity, warp_extra, narrow RMS)
 # ============================================================
 
-def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
+def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR, stabilizer=True):
     """
     Build crossfade with LR4 3-band bass swap.
 
@@ -630,14 +630,15 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
         blended = blended_low + blended_mid + blended_high
 
         # Narrow RMS stabilizer with lookahead
-        blended = rms_stabilizer_lookahead(blended, cf_len)
+        if stabilizer:
+            blended = rms_stabilizer_lookahead(blended, cf_len)
     else:
         fo, fi = eq_pow(cf_len)
         blended = m_zone * fo[:, None] + s_zone * fi[:, None]
 
-    # Tail fade (TAIL_FADE_BARS)
+    # Tail fade (TAIL_FADE_BARS) — redundant with seamless blend→ramp, disabled by default
     tbs = int(TAIL_FADE_BARS * bar_s(m_bpm) * sr)
-    if tbs < cf_len:
+    if tbs > 0 and tbs < cf_len:
         tf = np.linspace(1.0, 0.0, tbs).astype("float32")
         blended[-tbs:] *= (fo[-tbs:] * tf + (1.0 - fo[-tbs:]))[:, None]
 
@@ -653,7 +654,8 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
 # ============================================================
 
 def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
-               style=None, author=None):
+               style=None, author=None,
+               use_quiet_exit=False, stabilizer=True):
     """
     Main entry point. Mix a list of tracks into a continuous DJ mix.
 
@@ -759,9 +761,13 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         cf_len = int(CF_BARS * bar_s(mb) * sr)
 
         # Determine exit point — align to bar grid
-        total = len(cur['db']) - 1
-        exit_bar = max(0, total - CF_BARS - 4)
-        exit_bar = (exit_bar // 16) * 16
+        if use_quiet_exit and cur['qe'] is not None:
+            exit_bar = cur['qe']
+            print(f"    Quiet exit at bar {exit_bar}")
+        else:
+            total = len(cur['db']) - 1
+            exit_bar = max(0, total - CF_BARS - 4)
+            exit_bar = (exit_bar // 16) * 16
         mode = 'hpss'
 
         exit_samp = int(cur['db'][min(exit_bar, len(cur['db']) - 1)])
@@ -783,7 +789,8 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         entry_rms = float(np.sqrt(np.mean(entry_segment**2)))
 
         blended, shift, consumed, warp_extra = build_cf_lr4(
-            m_cf, s_cf, mb, sb, m_cf_db, s_cf_db, mode, sr
+            m_cf, s_cf, mb, sb, m_cf_db, s_cf_db, mode, sr,
+            stabilizer=stabilizer
         )
 
         ts = (mix_pos + len(body)) / sr
@@ -899,6 +906,8 @@ if __name__ == "__main__":
     parser.add_argument("--author", default=None, help="DJ/artist name for metadata")
     parser.add_argument("--bitrate", default="320k", help="MP3 bitrate (default: 320k)")
     parser.add_argument("--config", help="Python config file with TRACKS list")
+    parser.add_argument("--use-quiet-exit", action="store_true", help="Exit on QUIET/BUILD section (shorter mix)")
+    parser.add_argument("--no-stabilizer", action="store_true", help="Disable RMS stabilizer (may increase dips, less pumping)")
     args = parser.parse_args()
 
     # Auto-generate output filename if not provided
@@ -933,4 +942,5 @@ if __name__ == "__main__":
             sys.exit(1)
 
     mix_tracks(tracks, args.wav_dir, args.ann_dir, args.output, args.bitrate,
-               style=args.style, author=args.author)
+               style=args.style, author=args.author,
+               use_quiet_exit=args.use_quiet_exit, stabilizer=not args.no_stabilizer)
