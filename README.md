@@ -84,6 +84,10 @@ Edit constants at top of `smart_mixer.py`:
 | v5b | ClaudeClaw | HPSS separation, equal-power fades, onset correlation |
 | v6 | Hermes | LR4 3-band crossover, bass swap, FFT correlation, fast LUFS |
 | v7 | ClaudeClaw+Hermes | Bar-by-bar warp, BPM ramp-back, micro-align +/-50ms |
+| v10 | Hermes | RMS stabilizer (full blend), power-law fades, downbeat-weighted alignment, exit phrase rounding, endpoint 500ms crossfade, bass polarity check, tail fade 2 bars, RAMP_MIN_RMS=0.08 quiet entry |
+| v11 | Hermes | HPSS only, endpoint crossfade replaced with gain-match, RMS stabilizer restricted to LOW band |
+| v12 | Hermes | Narrow RMS stabilizer + look-ahead gain, reverted LOW-band-only to full blend |
+| v13 | Hermes | **Seamless blend→ramp** — warp_extra (17th bar) saved and prepended to ramp_result. No more -9.6dB endpoint drops. Endpoint consistency: +2.3dB max spread |
 
 ## License
 

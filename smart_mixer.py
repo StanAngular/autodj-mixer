@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
-Smart Mixer v7 (Bar-by-Bar Warp + LR4 Crossover)
-Developed by Hermes & Stas. Beat alignment fix by ClaudeClaw.
-
-Bar-by-bar warping: each bar of slave is individually stretched to match
-the corresponding master bar length. Eliminates phase drift over 16-bar crossfades.
+Smart Mixer v7+v13 (Bar-by-Bar Warp + LR4 Crossover + Narrow RMS + Seamless blend→ramp)
+Combines v7 argparse/track-loading with v13 algorithm improvements.
 
 Usage:
   python3 smart_mixer.py --wav-dir ./wav --ann-dir ./annotations --output mix.mp3
@@ -12,24 +9,36 @@ Usage:
 Or configure via a Python config file:
   python3 smart_mixer.py --config mix_config.py
 """
+
 import sys, os, time, subprocess, argparse
 
 import numpy as np
+np.float = np.float64
+np.int = np.int64
+np.complex = np.complex128
+np.bool = np.bool_
+
 import soundfile as sf
 import scipy.signal as signal
 import pyrubberband as pyrb
 import librosa
 import pyloudnorm as pyln
 
+# Ensure rubberband is in PATH
+os.environ['PATH'] = '/tmp/rubberband-extract/usr/bin:' + os.environ.get('PATH', '')
+
 SR = 44100
 CF_BARS = 16                # Crossfade duration in bars
 RAMP_SEC = 15               # Post-crossfade BPM ramp-back duration (seconds)
-RAMP_MIN_RMS = 0.08         # Min slave entry RMS for BPM ramp; below this => volume fade only
-TAIL_FADE_BARS = 2          # Extra fade-out bars at end of crossfade (smoother endpoint)
+RAMP_MIN_RMS = 0.08         # If entry RMS below this, volume-only fade instead of BPM ramp
+TAIL_FADE_BARS = 2          # Fade out last N bars of crossfade output
 TARGET_LUFS = -14.0         # Loudness normalization target
-BPM_DIFF_LIMIT = 0.08      # Max BPM difference ratio for crossfade (8%)
+BPM_DIFF_LIMIT = 0.08       # Max BPM difference ratio for crossfade (8%)
 
-# ---- 3-Band Linkwitz-Riley Filter ----------------------------------------
+
+# ============================================================
+# 3-Band Linkwitz-Riley Filter
+# ============================================================
 
 def three_band_split(audio, low_cut, high_cut, sr):
     """
@@ -51,23 +60,30 @@ def three_band_split(audio, low_cut, high_cut, sr):
     mid = audio - low - high
     return low, mid, high
 
-# ---- Audio Helpers --------------------------------------------------------
+
+# ============================================================
+# Audio Helpers
+# ============================================================
 
 def load_stereo(path, sr=SR):
+    """Load stereo WAV, convert mono to stereo, resample if needed."""
     data, file_sr = sf.read(path, always_2d=True)
     if data.shape[1] == 1:
         data = np.hstack([data, data])
     if file_sr != sr:
         tmp = f"/tmp/_rs_{os.path.basename(path)}.wav"
-        subprocess.run(["ffmpeg", "-y", "-i", path, "-ar", str(sr), "-ac", "2", tmp],
-                       capture_output=True)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", path, "-ar", str(sr), "-ac", "2", tmp],
+            capture_output=True
+        )
         data, _ = sf.read(tmp, always_2d=True)
         os.unlink(tmp)
     return data.astype("float32")
 
+
 def norm_lufs(audio, target=TARGET_LUFS, sr=SR):
+    """Loudness normalize to target LUFS. Analyzes first 30s for speed."""
     meter = pyln.Meter(sr)
-    # Fast: analyze only first 30s (representative of track energy)
     sample = audio[:int(min(30 * sr, len(audio)))]
     loud = meter.integrated_loudness(sample.astype("float64"))
     if loud == float('-inf'):
@@ -78,48 +94,71 @@ def norm_lufs(audio, target=TARGET_LUFS, sr=SR):
         n *= 0.99 / pk
     return n
 
+
 def pt(a, n):
     """Pad or trim array to length n."""
     if len(a) >= n:
         return a[:n]
-    sh = list(a.shape); sh[0] = n - len(a)
+    sh = list(a.shape)
+    sh[0] = n - len(a)
     return np.concatenate([a, np.zeros(sh, dtype=a.dtype)])
+
 
 def bar_s(bpm):
     """Duration of one bar (4 beats) in seconds."""
     return 240.0 / bpm
+
 
 def load_dbeats(ann_path, sr=SR):
     """Load downbeat positions from madmom annotation file."""
     beats = np.loadtxt(ann_path)
     return np.array([int(r[0] * sr) for r in beats if round(r[1]) == 1], dtype=int)
 
+
 def calc_bpm(db, sr=SR):
-    """Calculate BPM from downbeat array."""
+    """Calculate BPM from downbeat array using IQR-based outlier rejection."""
     if len(db) < 4:
         return 120.0
     iv = np.diff(db.astype(float)) / sr
     iv = iv[iv > 0.3]
     if not len(iv):
         return 120.0
-    p25 = np.percentile(iv, 25)
-    r = iv[iv <= p25 * 1.3]
-    if not len(r):
-        r = iv
-    return 4 * 60.0 / np.mean(r)
+    p25, p75 = np.percentile(iv, [25, 75])
+    ok = iv[(iv >= p25 - 1.5 * (p75 - p25)) & (iv <= p75 + 1.5 * (p75 - p25))]
+    return 4 * 60.0 / np.mean(ok) if len(ok) else 120.0
+
 
 def fix_ht(db, bpm):
-    """Fix half-time BPM detection by doubling downbeat density."""
-    if bpm >= 90:
+    """
+    Fix half-time (or double-time) BPM detection by checking beat-to-beat
+    distance ratios against expected 4-beat-bar spacing.
+    """
+    if len(db) < 8:
         return db, bpm
-    new = []
-    for i in range(len(db) - 1):
-        new.append(db[i])
-        new.append((db[i] + db[i+1]) // 2)
-    new.append(db[-1])
-    return np.array(new, dtype=int), bpm * 2
+    ns = int(db[8]) - int(db[4])
+    if ns <= 0:
+        return db, bpm
+    ratio = ns / max(int(bar_s(bpm) * SR / 4), 1)
 
-# ---- Structural Analysis -------------------------------------------------
+    if 1.9 < ratio < 2.1:
+        # Half-time detected: skip every other downbeat to go from 1 every 2 beats → 1 per beat
+        db = db[::2]
+    elif 2.9 < ratio < 3.1:
+        # Third-time detected
+        db = db[::3]
+    elif 0.45 < ratio < 0.55:
+        # Double-time detected: insert a downbeat midway between each pair
+        dl = []
+        for d in db:
+            dl.extend([d, d + (db[1] - db[0]) // 2])
+        db = np.array(dl, dtype=int)
+
+    return db, calc_bpm(db)
+
+
+# ============================================================
+# Structural Analysis
+# ============================================================
 
 def sections(audio, db, sr=SR, name=""):
     """Classify bars as QUIET/BUILD/ACTIVE/DROP based on RMS energy + bass ratio."""
@@ -128,28 +167,38 @@ def sections(audio, db, sr=SR, name=""):
     if n < 4:
         return [(0, n, "ACTIVE")]
 
-    br = np.array([np.sqrt(np.mean(mono[db[i]:db[i+1]]**2))
-                    if db[i+1] > db[i] else 0.0 for i in range(n)])
+    br = np.array([
+        np.sqrt(np.mean(mono[db[i]:db[i+1]]**2))
+        if db[i+1] > db[i] else 0.0 for i in range(n)
+    ])
 
     b_low, a_low = signal.butter(2, 200.0 / (0.5 * sr), btype='low')
     mono_low = signal.filtfilt(b_low, a_low, mono)
 
-    bl = np.array([np.sqrt(np.mean(mono_low[db[i]:db[i+1]]**2))
-                    if db[i+1] > db[i] else 0.0 for i in range(n)])
-    bl = bl / (br + 1e-12)
+    bl = np.array([
+        np.sqrt(np.mean(mono_low[db[i]:db[i+1]]**2)) / (br[i] + 1e-12)
+        if db[i+1] > db[i] else 0.0 for i in range(n)
+    ])
 
     k = np.ones(4) / 4
     de = np.convolve(br, k, 'same') * np.convolve(bl, k, 'same')
     med = np.median(de[de > 0]) if np.any(de > 0) else 1e-12
 
-    lb = ['DROP' if e > med * 1.2 else 'ACTIVE' if e > med * 0.5
-          else 'BUILD' if e > med * 0.2 else 'QUIET' for e in de]
+    lb = [
+        'DROP' if e > med * 1.2 else
+        'ACTIVE' if e > med * 0.5 else
+        'BUILD' if e > med * 0.2 else 'QUIET'
+        for e in de
+    ]
 
-    sc = []; cur = lb[0]; s = 0
+    sc = []
+    cur = lb[0]
+    s = 0
     for i in range(1, n):
         if lb[i] != cur:
             sc.append((s, i, cur))
-            cur = lb[i]; s = i
+            cur = lb[i]
+            s = i
     sc.append((s, n, cur))
 
     # Merge short sections (<4 bars) into neighbors
@@ -162,18 +211,23 @@ def sections(audio, db, sr=SR, name=""):
 
     if name:
         for s, e, l in mg:
-            t1 = db[s] / sr; t2 = db[min(e, len(db) - 1)] / sr
-            print(f"    {int(t1 // 60)}:{int(t1 % 60):02d}-{int(t2 // 60)}:{int(t2 % 60):02d}  "
-                  f"bars {s:3d}-{e:3d} ({e-s:2d})  {l}")
+            t1 = db[s] / sr
+            t2 = db[min(e, len(db) - 1)] / sr
+            print(
+                f"    {int(t1 // 60)}:{int(t1 % 60):02d}-"
+                f"{int(t2 // 60)}:{int(t2 % 60):02d}  "
+                f"bars {s:3d}-{e:3d} ({e-s:2d})  {l}"
+            )
     return mg
+
 
 def quiet_exit(secs):
     """Find a quiet/build section in the second half suitable for exit."""
-    total = secs[-1][1]
     for s, e, l in secs:
-        if s >= total * 0.55 and l in ('QUIET', 'BUILD') and e - s >= 8:
+        if l in ('QUIET', 'BUILD') and e - s >= 8:
             return s
     return None
+
 
 def first_active(secs, mn=8):
     """Find first active/drop section with at least mn bars."""
@@ -182,105 +236,39 @@ def first_active(secs, mn=8):
             return s
     return 0
 
-# ---- Key / Camelot --------------------------------------------------------
 
-CAMELOT = {
-    'C maj':'8B','C# maj':'3B','D maj':'10B','D# maj':'5B','E maj':'12B',
-    'F maj':'7B','F# maj':'2B','G maj':'9B','G# maj':'4B','A maj':'11B',
-    'A# maj':'6B','B maj':'1B',
-    'C min':'5A','C# min':'12A','D min':'7A','D# min':'2A','E min':'9A',
-    'F min':'4A','F# min':'11A','G min':'6A','G# min':'1A','A min':'8A',
-    'A# min':'3A','B min':'10A',
-}
-KEYS = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
-MAJ_P = np.array([6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88])
-MIN_P = np.array([6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17])
+# ============================================================
+# Onset & Phase Micro-alignment (v13: downbeat-weighted)
+# ============================================================
 
-def detect_key(audio_mono, sr=SR):
-    """Detect key via chroma + Krumhansl-Kessler profiles."""
-    chroma = librosa.feature.chroma_cqt(y=audio_mono.astype(np.float32), sr=sr)
-    prof = chroma.mean(axis=1)
-    best_c = -1; best_k = "?"
-    for s in range(12):
-        r = np.roll(prof, -s)
-        cm = np.corrcoef(r, MAJ_P)[0,1]; cn = np.corrcoef(r, MIN_P)[0,1]
-        if cm > best_c: best_c = cm; best_k = f"{KEYS[s]} maj"
-        if cn > best_c: best_c = cn; best_k = f"{KEYS[s]} min"
-    return best_k
-
-def key_score(k1, k2):
-    """Camelot compatibility 0-1."""
-    c1 = CAMELOT.get(k1); c2 = CAMELOT.get(k2)
-    if not c1 or not c2: return 0.5
-    n1, t1 = int(c1[:-1]), c1[-1]; n2, t2 = int(c2[:-1]), c2[-1]
-    if c1 == c2: return 1.0
-    if n1 == n2 and t1 != t2: return 0.8
-    if t1 == t2 and abs(n1-n2) in (1, 11): return 0.9
-    return 0.3
-
-def reorder_by_key(tracks, wav_dir, sr=SR):
-    """Reorder tracks for optimal Camelot key progression."""
-    from itertools import permutations
-    keys = {}
-    for name, wav_file, _ in tracks:
-        audio, _ = sf.read(os.path.join(wav_dir, wav_file), always_2d=True)
-        keys[name] = detect_key(audio.mean(1).astype(np.float32), sr)
-    if len(tracks) > 7:
-        return tracks  # too many for exhaustive search
-    best_score = -1; best_order = tracks[:]
-    for perm in permutations(tracks):
-        score = sum(key_score(keys[perm[i][0]], keys[perm[i+1][0]]) for i in range(len(perm)-1))
-        if score > best_score:
-            best_score = score; best_order = list(perm)
-    print(f"\n  Camelot-optimized order (score={best_score:.1f}):")
-    for i, (n, _, _) in enumerate(best_order):
-        print(f"    {i+1}. {n:20s}  Key={keys[n]:8s}")
-    return best_order
-
-def onset_micro_align(m_mono, s_mono, bpm, sr=SR, max_shift_sec=0.2, m_db_zone=None, s_db_zone=None):
+def onset_micro_align(m_mono, s_mono, bpm, max_shift_sec=0.05,
+                      m_db_zone=None, s_db_zone=None, sr=SR):
     """
     Sub-bar transient alignment using onset strength cross-correlation.
-    Uses scipy.signal.fftconvolve for O(N log N) speed.
+    Downbeat frames weighted at 1.0, others at 0.3 for sharper alignment.
 
-    If m_db_zone/s_db_zone are provided (downbeat sample positions),
-    the onset strength is weighted by downbeat proximity (1.0 at downbeat,
-    0.3 off-beat) so correlation prefers aligning downbeats, not snares/hi-hats.
+    Args:
+        m_db_zone, s_db_zone: downbeat sample positions for weighting
     """
     hop = 128
     mo = librosa.onset.onset_strength(y=m_mono.astype(np.float32), sr=sr, hop_length=hop)
     so = librosa.onset.onset_strength(y=s_mono.astype(np.float32), sr=sr, hop_length=hop)
 
-    # ── Downbeat-weighted onset correlation ─────────────────────────────
-    # Weight onset strength so downbeats dominate the correlation peak.
-    # This prevents the aligner from pulling to off-beat snares/hi-hats.
+    # Downbeat-weight: frames at downbeat positions get 1.0, others 0.3
     if m_db_zone is not None and len(m_db_zone) > 1:
-        w_m = np.full_like(mo, 0.3)
-        for db_sample in m_db_zone:
-            db_frame = int(db_sample / hop)
-            if 0 <= db_frame < len(w_m):
-                w_m[db_frame] = 1.0
-                # Decay over ~80ms around downbeat
-                spread = int(0.08 * sr / hop)
-                for j in range(1, spread + 1):
-                    if db_frame - j >= 0:
-                        w_m[db_frame - j] = max(w_m[db_frame - j], 0.7)
-                    if db_frame + j < len(w_m):
-                        w_m[db_frame + j] = max(w_m[db_frame + j], 0.7)
-        mo *= w_m
-
+        wm = np.full_like(mo, 0.3)
+        for db_s in m_db_zone:
+            df = int(db_s / hop)
+            if 0 <= df < len(wm):
+                wm[df] = 1.0
+        mo *= wm
     if s_db_zone is not None and len(s_db_zone) > 1:
-        w_s = np.full_like(so, 0.3)
-        for db_sample in s_db_zone:
-            db_frame = int(db_sample / hop)
-            if 0 <= db_frame < len(w_s):
-                w_s[db_frame] = 1.0
-                spread = int(0.08 * sr / hop)
-                for j in range(1, spread + 1):
-                    if db_frame - j >= 0:
-                        w_s[db_frame - j] = max(w_s[db_frame - j], 0.7)
-                    if db_frame + j < len(w_s):
-                        w_s[db_frame + j] = max(w_s[db_frame + j], 0.7)
-        so *= w_s
+        ws = np.full_like(so, 0.3)
+        for db_s in s_db_zone:
+            df = int(db_s / hop)
+            if 0 <= df < len(ws):
+                ws[df] = 1.0
+        so *= ws
 
     mo /= (mo.max() + 1e-8)
     so /= (so.max() + 1e-8)
@@ -295,7 +283,10 @@ def onset_micro_align(m_mono, s_mono, bpm, sr=SR, max_shift_sec=0.2, m_db_zone=N
     best = np.argmax(corr[lo:hi]) + lo - center
     return best * hop
 
-# ---- Bar-by-Bar Warp -----------------------------------------------------
+
+# ============================================================
+# Bar-by-Bar Warp (v13: CF_BARS+1 for extra bar)
+# ============================================================
 
 def warp_to_grid(slave_audio, s_db, m_db, sr):
     """
@@ -342,33 +333,30 @@ def warp_to_grid(slave_audio, s_db, m_db, sr):
         return None, 0
     return np.concatenate(bars), consumed
 
-# ---- BPM Ramp-back -------------------------------------------------------
 
-def ramp_to_native(slave_audio, s_db, m_bpm, s_bpm, sr, ramp_sec=RAMP_SEC, slave_entry_rms=1.0):
+# ============================================================
+# BPM Ramp-back
+# ============================================================
+
+def ramp_to_native(slave_audio, s_db, m_bpm, s_bpm, sr, ramp_sec=RAMP_SEC, ser=1.0):
     """
     After crossfade, the slave was warped to master BPM.
     Smoothly ramp it back to native BPM over ramp_sec seconds.
     Linear interpolation: bar length goes from master-bar to native-bar.
 
-    If slave_entry_rms < RAMP_MIN_RMS: BPM stretch on silence creates audible
-    artefacts (rubberband distortion, tape-chew effect). Instead apply a
-    volume fade-in over the same duration — no stretch, just gain ramp.
+    If ser (entry RMS) is below RAMP_MIN_RMS, do a simple volume fade instead.
     """
     bpm_diff = abs(m_bpm - s_bpm)
     if bpm_diff < 0.5:
         return None, 0
 
-    # ── Quiet entry guard: volume fade instead of BPM stretch ──────────
-    if slave_entry_rms < RAMP_MIN_RMS:
-        print(f"    Slave entry RMS={slave_entry_rms:.3f} < {RAMP_MIN_RMS}: volume fade instead of BPM ramp")
-        fade_samples = int(ramp_sec * sr)
-        fade = np.linspace(0.0, 1.0, fade_samples).astype(np.float32)
-        n_bars = min(int(ramp_sec / bar_s(s_bpm)) + 1, len(s_db) - 1)
-        consumed = int(s_db[min(n_bars, len(s_db)-1)]) if len(s_db) > 1 else 0
-        fade_out = pt(slave_audio[:fade_samples], fade_samples)
-        result = (fade_out * fade[:, None]).astype(np.float32)
-        print(f"    Volume fade: {len(result)/sr:.1f}s")
-        return result, consumed
+    if ser < RAMP_MIN_RMS:
+        fs = int(ramp_sec * sr)
+        fs = min(fs, len(slave_audio))
+        fd = np.linspace(0.0, 1.0, fs).astype("float32")
+        faded = slave_audio[:fs].copy().astype("float32") * fd[:, None]
+        print(f"    Volume fade (quiet rms={ser:.4f}): {fs/sr:.1f}s")
+        return faded, fs
 
     m_bar_samp = bar_s(m_bpm) * sr
     s_bar_samp = bar_s(s_bpm) * sr
@@ -402,7 +390,7 @@ def ramp_to_native(slave_audio, s_db, m_bpm, s_bpm, sr, ramp_sec=RAMP_SEC, slave
         if len(warped) >= target_len:
             bars.append(warped[:target_len])
         else:
-            pad = np.zeros((target_len - len(warped), slave_audio.shape[1]), dtype="float32")
+            pad = np.zeros((target_len - len(warped), bar.shape[1]), dtype="float32")
             bars.append(np.concatenate([warped, pad]))
         consumed = s_end
 
@@ -412,12 +400,77 @@ def ramp_to_native(slave_audio, s_db, m_bpm, s_bpm, sr, ramp_sec=RAMP_SEC, slave
     print(f"    BPM ramp: {m_bpm:.1f}->{s_bpm:.1f} over {len(result)/sr:.1f}s ({n_bars} bars)")
     return result, consumed
 
-# ---- Transitions ----------------------------------------------------------
 
-def eq_power_fades(n):
-    """Equal-power fade shapes (fo^2 + fi^2 = 1 at all points)."""
-    t = np.linspace(0, np.pi/2, n).astype("float32")
+# ============================================================
+# RMS Stabilizer with Lookahead (v13: narrow + lookahead)
+# ============================================================
+
+def rms_stabilizer_lookahead(blended, cf_len):
+    """
+    Narrow RMS stabilizer + lookahead:
+    Only boosts dips < 0.5*median with a sharp drop (>30%) and quick recovery.
+    Also checks next 3 windows for a recovery >2x (lookahead).
+    Uses Hann kernel size=5 for smoothing.
+    """
+    dw = int(0.1 * SR)
+    nd = max(1, cf_len // dw - 2)
+    rms = np.array([
+        np.sqrt(np.mean(blended[j*dw:(j+1)*dw]**2)) for j in range(nd)
+    ])
+    med = np.median(rms)
+    ge = np.ones(nd)
+    dc = 0
+
+    for j in range(1, nd - 1):
+        if rms[j] < 0.5 * med:
+            # Check sharp drop
+            sharp = rms[j-1] > 0 and (rms[j-1] - rms[j]) / rms[j-1] > 0.3
+            qr = False
+            for k in range(j + 1, min(j + 4, nd)):
+                if rms[k] > rms[j] * 1.5:
+                    qr = True
+                    break
+
+            if sharp and qr:
+                lm = max(np.median(rms[max(0, j-2):j+3]), 1e-12)
+                if lm > rms[j] * 1.5:
+                    ge[j] = min(2.0, lm / (rms[j] + 1e-12))
+                    dc += 1
+            # Lookahead: dips that precede a big rise
+            elif rms[j] < 0.5 * med:
+                for k in range(j + 1, min(j + 4, nd)):
+                    if rms[k] > rms[j] * 2.0:
+                        lm = max(np.median(rms[max(0, j-2):j+3]), 1e-12)
+                        if lm > rms[j] * 1.5:
+                            ge[j] = min(2.0, lm / (rms[j] + 1e-12))
+                            dc += 1
+                        break
+
+    if dc:
+        from scipy.signal.windows import hann
+        k = hann(5)
+        k /= k.sum()
+        ge = np.convolve(ge, k, mode='same')
+        for j in range(nd):
+            blended[j*dw:(j+1)*dw] *= ge[j]
+        print(f"    RMS stabilizer: {dc} dips (narrow+lookahead)")
+
+    return blended
+
+
+# ============================================================
+# Equal-Power Fade Shapes
+# ============================================================
+
+def eq_pow(n):
+    """Return cos²/sin² fade curves (power-law fades, fo²+fi²=1 at all points)."""
+    t = np.linspace(0, np.pi / 2, n).astype("float32")
     return np.cos(t), np.sin(t)
+
+
+# ============================================================
+# Crossfade Builder (v13: bass polarity, warp_extra, narrow RMS)
+# ============================================================
 
 def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
     """
@@ -425,13 +478,18 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
 
     mode='hpss': LR4 bass swap (bass switches instantly, mids/highs crossfade)
     mode='quiet': simple equal-power crossfade
+
+    Returns:
+        blended, shift, consumed, warp_extra
+        warp_extra: saved 17th bar of warp for seamless blend→ramp transition
     """
     cf_len = int(CF_BARS * bar_s(m_bpm) * sr)
 
-    # 1. Bar-by-bar warp (primary method)
+    # 1. Bar-by-bar warp (primary method) — use CF_BARS+1 for extra bar
     n_m = min(CF_BARS + 1, len(m_db))
     n_s = min(CF_BARS + 1, len(s_db))
     use_barwarp = (n_m >= CF_BARS and n_s >= CF_BARS)
+    warp_extra = None
 
     if use_barwarp:
         m_db_zone = m_db[:CF_BARS + 1]
@@ -440,13 +498,13 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
         if warped is not None:
             print(f"    Bar-by-bar warp: {n_m-1} bars | consumed {consumed/sr:.1f}s slave audio")
             s_zone = pt(warped, cf_len)
+            # Save 17th bar for seamless blend→ramp transition
+            warp_extra = warped[cf_len:] if len(warped) > cf_len else None
         else:
             use_barwarp = False
+            warp_extra = None
 
     if not use_barwarp:
-        # Fallback: single global stretch
-        m_db_zone = None
-        s_db_zone = None
         # Fallback: single global stretch
         rate = m_bpm / s_bpm
         native_len = int(CF_BARS * bar_s(s_bpm) * sr) + sr * 2
@@ -459,14 +517,19 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
             s_zone = s_raw
         s_zone = pt(s_zone, cf_len)
         consumed = int(CF_BARS * bar_s(s_bpm) * sr)
+        warp_extra = None
 
     m_zone = pt(m_cf, cf_len)
 
-    # 2. Residual micro-align (+/-50ms window)
+    # 2. Residual micro-align (+/-50ms window, downbeat-weighted)
     mm = m_zone.mean(1)
     sm = s_zone.mean(1)
-    shift = onset_micro_align(mm, sm, m_bpm, sr=sr, max_shift_sec=0.05,
-                              m_db_zone=m_db_zone, s_db_zone=s_db_zone)
+    shift = onset_micro_align(
+        mm, sm, m_bpm, max_shift_sec=0.05,
+        m_db_zone=m_db[:CF_BARS + 1] if n_m >= CF_BARS else None,
+        s_db_zone=s_db[:CF_BARS + 1] if n_s >= CF_BARS else None,
+        sr=sr
+    )
     print(f"    Residual shift after warp: {shift/sr*1000:.1f}ms")
     if abs(shift) > 0:
         if int(shift) > 0:
@@ -475,103 +538,68 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
             pad_n = -int(shift)
             s_zone = np.concatenate([np.zeros((pad_n, 2), dtype="float32"), s_zone[:-pad_n]])
 
-    # 3. LR4 3-Band blend
+    # 3. LR4 3-Band blend with bass polarity check
     if mode == 'hpss':
-        print(f"    LR4 3-Band split & Bass Swap...", flush=True)
+        print("    LR4 3-Band split & Bass Swap...", flush=True)
         m_low, m_mid, m_high = three_band_split(m_zone, 150.0, 3000.0, sr)
         s_low, s_mid, s_high = three_band_split(s_zone, 150.0, 3000.0, sr)
 
-        fo, fi = eq_power_fades(cf_len)
+        # Bass polarity check — invert if negatively correlated
+        bar_samples = int(bar_s(m_bpm) * sr)
+        swap_center = cf_len // 2
+        bw = int(0.10 * SR)
+        aw = m_low[swap_center - bw:swap_center + bw].flatten()
+        bl2 = s_low[swap_center - bw:swap_center + bw].flatten()
+        if len(aw) == len(bl2) and len(aw) > 0:
+            co = np.corrcoef(aw, bl2)[0, 1]
+            print(f"    Bass polarity: corr={co:.2f}", end='')
+            if co < -0.3:
+                s_low = -s_low
+                print(" → INVERTED")
+            else:
+                print(" → OK")
+
+        fo, fi = eq_pow(cf_len)
         blended_mid = m_mid * fo[:, None] + s_mid * fi[:, None]
         blended_high = m_high * fo[:, None] + s_high * fi[:, None]
 
-        # ── Bass polarity check ──────────────────────────────────────────
-        # If the two tracks' low bands are in opposing polarity, the bass
-        # swap creates audible cancellation (the "tape chew" effect).
-        # Check correlation of the first ~1s of low band; if negative,
-        # invert the slave's low band to keep them in phase.
-        low_corr = float(np.corrcoef(
-            m_low.mean(1)[:sr], s_low.mean(1)[:sr]
-        )[0, 1])
-        if low_corr < -0.3:
-            s_low = -s_low
-            print(f"    Bass polarity inverted (corr={low_corr:.2f})")
-        else:
-            print(f"    Bass polarity OK (corr={low_corr:.2f})")
-
-        bar_samples = int(bar_s(m_bpm) * sr)
-        swap_center = cf_len // 2
         trans_width = int(1.5 * bar_samples)
         swap_start = max(0, swap_center - trans_width // 2)
         swap_end = min(cf_len, swap_center + trans_width // 2)
         actual_width = swap_end - swap_start
 
-        sfo, sfi = eq_power_fades(actual_width)
+        sfo, sfi = eq_pow(actual_width)
         blended_low = np.zeros_like(m_low)
         blended_low[:swap_start] = m_low[:swap_start]
-        blended_low[swap_start:swap_end] = (m_low[swap_start:swap_end] * sfo[:, None] +
-                                             s_low[swap_start:swap_end] * sfi[:, None])
+        blended_low[swap_start:swap_end] = (
+            m_low[swap_start:swap_end] * sfo[:, None] +
+            s_low[swap_start:swap_end] * sfi[:, None]
+        )
         blended_low[swap_end:] = s_low[swap_end:]
         blended = blended_low + blended_mid + blended_high
+
+        # Narrow RMS stabilizer with lookahead
+        blended = rms_stabilizer_lookahead(blended, cf_len)
     else:
-        fo, fi = eq_power_fades(cf_len)
+        fo, fi = eq_pow(cf_len)
         blended = m_zone * fo[:, None] + s_zone * fi[:, None]
+
+    # Tail fade (TAIL_FADE_BARS)
+    tbs = int(TAIL_FADE_BARS * bar_s(m_bpm) * sr)
+    if tbs < cf_len:
+        tf = np.linspace(1.0, 0.0, tbs).astype("float32")
+        blended[-tbs:] *= (fo[-tbs:] * tf + (1.0 - fo[-tbs:]))[:, None]
 
     pk = np.max(np.abs(blended))
     if pk > 0.99:
         blended *= 0.99 / pk
 
-    # ── RMS dip stabilizer (smooth gain envelope) ────────────────────────
-    # Check 100ms windows for unplanned volume dips inside the crossfade.
-    # Instead of per-window gain boosts (which create pumping artifacts),
-    # compute a smooth gain envelope via Hann-convolution.
-    dip_window = int(0.1 * sr)
-    n_dip = max(1, len(blended) // dip_window - 2)
-    dip_rms = np.array([np.sqrt(np.mean(blended[i*dip_window:(i+1)*dip_window]**2))
-                        for i in range(n_dip)])
-    dip_med = np.median(dip_rms)
-    dip_thresh = dip_med * 0.5
-    raw_gains = np.ones(n_dip)
-    for i in range(1, n_dip - 1):
-        if dip_rms[i] < dip_thresh:
-            local_med = max(np.median(dip_rms[max(0,i-2):i+3]), 1e-12)
-            if local_med > dip_rms[i] * 1.5:
-                raw_gains[i] = min(2.0, local_med / (dip_rms[i] + 1e-12))
-    n_fixed = int((raw_gains > 1.01).sum())
-    if n_fixed:
-        # Smooth gain envelope with Hann window (7 taps)
-        kernel = np.hanning(7)
-        kernel /= kernel.sum()
-        smooth_gains = np.convolve(raw_gains, kernel, mode='same')
-        # Interpolate to sample-level gain curve
-        gain_envelope = np.interp(
-            np.arange(len(blended)),
-            np.arange(0, n_dip * dip_window, dip_window) + dip_window // 2,
-            smooth_gains
-        )[:len(blended)]
-        blended *= gain_envelope[:, None].astype(np.float32)
-        print(f"    RMS dip fix (smooth): {n_fixed} windows | max_gain={smooth_gains.max():.2f}")
+    return blended, shift, consumed, warp_extra
 
-    # ── Tail fade: smooth master exit at crossfade endpoint ────────────
-    # Last TAIL_FADE_BARS of master get a gentle fade-out so the transition
-    # doesn't end with a hard amplitude cut.  Only applies to the master
-    # side — the slave is already fully faded in at this point.
-    tail_bars_samp = int(TAIL_FADE_BARS * bar_s(m_bpm) * sr)
-    if tail_bars_samp < cf_len:
-        tail_fade = np.linspace(1.0, 0.0, tail_bars_samp).astype(np.float32)
-        # Compute master-only contribution at the tail: blended = master * fo + slave
-        # We need to apply the fade on top of whatever master component remains.
-        # Safest: apply fade on the entire blended signal's last tail, but only
-        # on a small enough window that slave is dominant.
-        fo, fi = eq_power_fades(cf_len)
-        master_frac = fo[-tail_bars_samp:]  # master fade curve at tail
-        fade_amount = master_frac * tail_fade + (1.0 - master_frac)
-        blended[-tail_bars_samp:] *= fade_amount[:, None]
-        print(f"    Tail fade: {TAIL_FADE_BARS} bars ({tail_bars_samp/SR:.1f}s)")
 
-    return blended, shift, consumed
-
-# ---- Main Mixing Pipeline ------------------------------------------------
+# ============================================================
+# Main Mixing Pipeline
+# ============================================================
 
 def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
     """
@@ -585,12 +613,8 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         bitrate: MP3 bitrate (default "320k")
         sr: sample rate (default 44100)
     """
-    print("=== Smart Mixer v10: Bar-by-Bar Warp + LR4 + Camelot + Phrase ===\n")
+    print("=== Smart Mixer: Bar-by-Bar Warp + LR4 + Narrow RMS + Seamless blend→ramp ===\n")
     t_start = time.time()
-
-    # Camelot-optimized track order
-    print("\\nReordering tracks for optimal key progression...")
-    tracks = reorder_by_key(tracks, wav_dir, sr)
 
     # Load + analyze tracks
     print("Loading and preparing tracks...")
@@ -633,7 +657,9 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
 
     # Build the continuous mix
     print(f"\n\nBuilding mix ({CF_BARS}-bar crossfades)...\n")
-    parts = []; stamps = []; mix_pos = 0
+    parts = []
+    stamps = []
+    mix_pos = 0
     cur = TD[0]
     cur_off = 0
 
@@ -649,42 +675,39 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
             body = cur['audio'][cur_off:]
             parts.append(body)
             mix_pos += len(body)
-            cur = nxt; cur_off = 0
+            cur = nxt
+            cur_off = 0
             continue
 
         cf_len = int(CF_BARS * bar_s(mb) * sr)
 
-        if cur['qe'] is not None:
-            exit_bar = cur['qe']; mode = 'quiet'
-        else:
-            total = len(cur['db']) - 1
-            exit_bar = max(0, total - CF_BARS - 4); mode = 'hpss'
-        # Round to phrase boundary (16 bars) — DJs mix on phrase starts
-        PHRASE = 16
-        exit_bar = max(PHRASE, (exit_bar // PHRASE) * PHRASE)
-        if exit_bar >= len(cur['db']) - 1:
-            exit_bar = cur['qe'] if cur['qe'] is not None else max(PHRASE, len(cur['db']) - CF_BARS - 4)
+        # Determine exit point — align to bar grid
+        total = len(cur['db']) - 1
+        exit_bar = max(0, total - CF_BARS - 4)
+        exit_bar = (exit_bar // 16) * 16
+        mode = 'hpss'
 
         exit_samp = int(cur['db'][min(exit_bar, len(cur['db']) - 1)])
         body = cur['audio'][cur_off:exit_samp]
-        print(f"    Master exit bar {exit_bar} ({exit_samp / sr:.1f}s)  mode={mode}  phrase=bar{exit_bar//PHRASE}")
+        print(f"    Master exit bar {exit_bar} ({exit_samp / sr:.1f}s)  mode={mode}")
 
         m_cf = cur['audio'][exit_samp:exit_samp + cf_len + sr * 3]
         m_cf_db = cur['db'][cur['db'] >= exit_samp] - exit_samp
 
         s_entry = nxt['fa']
-        # Round slave entry to phrase boundary
-        s_entry = max(0, (s_entry // PHRASE) * PHRASE)
-        if s_entry >= len(nxt['db']) - 4:
-            s_entry = nxt['fa']  # fallback if phrase pushes too far
         s_samp = int(nxt['db'][min(s_entry, len(nxt['db']) - 1)])
         s_cf = nxt['audio'][s_samp:]
         s_cf_db = nxt['db'][nxt['db'] >= s_samp] - s_samp
-        # Measure slave entry RMS for smart ramp decision
-        entry_rms = float(np.sqrt(np.mean(s_cf[:min(int(sr), len(s_cf))]**2)))
-        print(f"    Slave entry bar {s_entry} ({s_samp / sr:.1f}s)  entry_rms={entry_rms:.3f}")
+        print(f"    Slave entry bar {s_entry} ({s_samp / sr:.1f}s)")
 
-        blended, shift, consumed = build_cf_lr4(m_cf, s_cf, mb, sb, m_cf_db, s_cf_db, mode, sr)
+        # Calculate entry RMS for ramp decision
+        ec = int(2 * bar_s(sb) * sr)
+        entry_segment = nxt['audio'][s_samp:s_samp + ec] if ec < len(nxt['audio'][s_samp:]) else nxt['audio'][s_samp:]
+        entry_rms = float(np.sqrt(np.mean(entry_segment**2)))
+
+        blended, shift, consumed, warp_extra = build_cf_lr4(
+            m_cf, s_cf, mb, sb, m_cf_db, s_cf_db, mode, sr
+        )
 
         ts = (mix_pos + len(body)) / sr
         stamps.append({
@@ -694,32 +717,23 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         })
 
         parts.append(body)
-        mix_pos += len(body)
+        parts.append(blended)
+        mix_pos += len(body) + len(blended)
 
         cur = nxt
         ramp_off = s_samp + consumed
 
         ramp_audio = nxt['audio'][ramp_off:]
         ramp_db = nxt['db'][nxt['db'] >= ramp_off] - ramp_off
-        ramp_result, ramp_consumed = ramp_to_native(ramp_audio, ramp_db, mb, sb, sr, ramp_sec=RAMP_SEC, slave_entry_rms=entry_rms)
+        ramp_result, ramp_consumed = ramp_to_native(
+            ramp_audio, ramp_db, mb, sb, sr, ser=entry_rms
+        )
 
-        # ── Crossfade blended → ramp (500ms) ─────────────────────────────
-        # Prevents a hard phase discontinuity at the crossfade endpoint.
-        # The equal-power fade leaves master at zero, but the warped→original
-        # boundary at ramp_start has sub-sample timing shifts that cause a
-        # brief phase jump.  A 500ms overlap smooths this completely.
-        if ramp_result is not None and len(blended) > 0 and len(ramp_result) > 0:
-            xfade_len = min(int(0.50 * sr), len(blended) // 2, len(ramp_result) // 2)
-            if xfade_len > 0:
-                xfade_out = np.linspace(1.0, 0.0, xfade_len).astype(np.float32)
-                xfade_in  = np.linspace(0.0, 1.0, xfade_len).astype(np.float32)
-                blended[-xfade_len:] *= xfade_out[:, None]
-                ramp_result[:xfade_len] *= xfade_in[:, None]
-                print(f"    Crossfade blend→ramp: {xfade_len/SR*1000:.0f}ms")
-
-        parts.append(blended)
-        mix_pos += len(blended)
         if ramp_result is not None:
+            # Seamless blend→ramp: prepend saved warp_extra (17th bar, already at master BPM)
+            if warp_extra is not None:
+                ramp_result = np.concatenate([warp_extra, ramp_result])
+            print(f"    blend->ramp: seamless {warp_extra is not None}")
             parts.append(ramp_result)
             mix_pos += len(ramp_result)
             cur_off = ramp_off + ramp_consumed
@@ -764,24 +778,29 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
 
     print("\n=== TRANSITIONS ===")
     for st in stamps:
-        m = int(st['t'] // 60); s = int(st['t'] % 60)
-        m2 = int((st['t'] + st['dur']) // 60); s2 = int((st['t'] + st['dur']) % 60)
-        print(f"  {m:02d}:{s:02d}-{m2:02d}:{s2:02d}  "
-              f"{st['from']} -> {st['to']}  "
-              f"[{'BASS SWAP' if st['mode'] == 'hpss' else 'QUIET CROSS'}]  "
-              f"micro_shift={st['shift'] * 1000:.1f}ms")
+        m = int(st['t'] // 60)
+        s = int(st['t'] % 60)
+        m2 = int((st['t'] + st['dur']) // 60)
+        s2 = int((st['t'] + st['dur']) % 60)
+        print(
+            f"  {m:02d}:{s:02d}-{m2:02d}:{s2:02d}  "
+            f"{st['from']} -> {st['to']}  "
+            f"[{'BASS SWAP' if st['mode'] == 'hpss' else 'QUIET CROSS'}]  "
+            f"micro_shift={st['shift'] * 1000:.1f}ms  "
+            f"entry_rms={st.get('entry_rms', 0):.4f}"
+        )
 
     total_t = time.time() - t_start
     print(f"\nCompleted in {total_t:.1f}s")
-    # Save stamps for mix_analyzer
-    stamps_path = output_mp3.replace('.mp3', '_stamps.npy').replace('.wav', '_stamps.npy')
-    np.save(stamps_path, np.array(stamps, dtype=object))
     return stamps
 
-# ---- CLI ------------------------------------------------------------------
+
+# ============================================================
+# CLI
+# ============================================================
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AutoDJ Smart Mixer v7")
+    parser = argparse.ArgumentParser(description="AutoDJ Smart Mixer (v7+v13)")
     parser.add_argument("--wav-dir", required=True, help="Directory with WAV files")
     parser.add_argument("--ann-dir", required=True, help="Directory with madmom annotation files")
     parser.add_argument("--output", default="mix.mp3", help="Output MP3 path")
