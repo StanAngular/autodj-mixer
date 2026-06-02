@@ -11,6 +11,7 @@ Or configure via a Python config file:
 """
 
 import sys, os, time, subprocess, argparse
+from datetime import datetime
 
 import numpy as np
 np.float = np.float64
@@ -651,7 +652,8 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR):
 # Main Mixing Pipeline
 # ============================================================
 
-def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
+def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
+               style=None, author=None):
     """
     Main entry point. Mix a list of tracks into a continuous DJ mix.
 
@@ -662,8 +664,16 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
         output_mp3: output MP3 path
         bitrate: MP3 bitrate (default "320k")
         sr: sample rate (default 44100)
+        style: genre/style name for metadata
+        author: DJ/artist name for metadata
     """
-    print("=== Smart Mixer: Bar-by-Bar Warp + LR4 + Narrow RMS + Seamless blend→ramp ===\n")
+    today = time.strftime("%Y-%m-%d")
+    print(f"=== Smart Mixer: Bar-by-Bar Warp + LR4 + Narrow RMS + Seamless blend→ramp ===\n")
+    if style:
+        print(f"  Style: {style}  |  Date: {today}")
+    if author:
+        print(f"  Author: {author}")
+    print()
     t_start = time.time()
 
     # Load + analyze tracks
@@ -829,12 +839,20 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
     print("Exporting WAV...")
     sf.write(wav_out, mix, sr, subtype="PCM_24")
 
+    # Build title + metadata
+    today = time.strftime("%Y-%m-%d")
+    mp3_title = f"AutoDJ Mix"
+    mp3_artist = "AutoDJ Mixer"
+    if style:
+        mp3_title = f"{style} Mix"
+    if author:
+        mp3_artist = author
     print(f"Encoding MP3 ({bitrate})...")
     r = subprocess.run([
         "ffmpeg", "-y", "-i", wav_out, "-b:a", bitrate,
         "-id3v2_version", "3",
-        "-metadata", "title=AutoDJ Mix",
-        "-metadata", "artist=AutoDJ Mixer",
+        "-metadata", f"title={mp3_title}",
+        "-metadata", f"artist={mp3_artist}",
         output_mp3
     ], capture_output=True, text=True)
 
@@ -876,10 +894,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AutoDJ Smart Mixer (v7+v13)")
     parser.add_argument("--wav-dir", required=True, help="Directory with WAV files")
     parser.add_argument("--ann-dir", required=True, help="Directory with madmom annotation files")
-    parser.add_argument("--output", default="mix.mp3", help="Output MP3 path")
+    parser.add_argument("--output", default=None, help="Output MP3 path (default: auto-generated from style+date)")
+    parser.add_argument("--style", default=None, help="Genre/style name (e.g. 'Melodic House', 'Techno')")
+    parser.add_argument("--author", default=None, help="DJ/artist name for metadata")
     parser.add_argument("--bitrate", default="320k", help="MP3 bitrate (default: 320k)")
     parser.add_argument("--config", help="Python config file with TRACKS list")
     args = parser.parse_args()
+
+    # Auto-generate output filename if not provided
+    if args.output is None:
+        today = datetime.now().strftime("%Y-%m-%d")
+        base = today
+        if args.style:
+            base = f"{args.style} Mix {today}"
+        args.output = base.replace(" ", "_") + ".mp3"
 
     if args.config:
         import importlib.util
@@ -904,4 +932,5 @@ if __name__ == "__main__":
             print("No tracks found. Provide WAV files in --wav-dir with matching .txt annotations in --ann-dir")
             sys.exit(1)
 
-    mix_tracks(tracks, args.wav_dir, args.ann_dir, args.output, args.bitrate)
+    mix_tracks(tracks, args.wav_dir, args.ann_dir, args.output, args.bitrate,
+               style=args.style, author=args.author)

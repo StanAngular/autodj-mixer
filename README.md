@@ -41,12 +41,51 @@ for f in *.flac; do ffmpeg -y -i "$f" -ar 44100 -ac 2 "wav/${f%.flac}.wav"; done
 # 2. Generate beat annotations
 python3 scripts/generate_annotations.py --wav-dir wav --ann-dir annotations
 
-# 3. Find optimal track order
+# 3. Find optimal track order (BPM + Camelot key compatibility)
 python3 scripts/analyze_order.py --wav-dir wav --ann-dir annotations
 
-# 4. Mix!
-python3 smart_mixer.py --wav-dir wav --ann-dir annotations --output mix.mp3
+# 4. Mix with style and author info!
+python3 smart_mixer.py --wav-dir wav --ann-dir annotations --style "Melodic House" --author "Hermes DJ"
+# Output: Melodic_House_Mix_2026-06-02.mp3 (auto-named)
 ```
+
+## CLI options
+
+```bash
+python3 smart_mixer.py --wav-dir ./wav --ann-dir ./annotations [options]
+
+Options:
+  --style STYLE    Genre/style name (e.g. "Melodic House", "Techno")
+                   → auto-generates filename: Melodic_House_Mix_2026-06-02.mp3
+  --author AUTHOR  DJ/artist name → embedded in MP3 metadata
+  --config FILE    Python config with TRACKS list (for custom order)
+  --output FILE    Output MP3 path (default: auto from --style + date)
+  --bitrate RATE   MP3 bitrate (default: 320k)
+```
+
+## Camelot Wheel integration
+
+Each track is analyzed for musical key (chroma CQT + Krumhansl-Schmuckler) and mapped to the Camelot Wheel (24-key system). The mixer prints:
+
+- Per-track: BPM, Key (e.g. D maj), Camelot (e.g. 10B)
+- Per-transition: Camelot transition + compatibility label
+  - `SAME` (1.0) — same key
+  - `ADJ` (0.9) — adjacent on wheel
+  - `REL` (0.8) — relative major/minor
+  - `POOR` (0.3) — no direct harmonic relationship
+
+## Quality chain
+
+```
+Source WAV (24-bit/44.1kHz)
+  → float32 processing (lossless)
+  → LUFS normalization (full track)
+  → Warp + Crossover (float64→float32)
+  → WAV PCM_24 master (archival quality)
+  → MP3 320kbps (final delivery)
+```
+
+The 24-bit WAV master is preserved alongside the MP3 output.
 
 ## Analysis tools
 
@@ -88,6 +127,7 @@ Edit constants at top of `smart_mixer.py`:
 | v11 | Hermes | HPSS only, endpoint crossfade replaced with gain-match, RMS stabilizer restricted to LOW band |
 | v12 | Hermes | Narrow RMS stabilizer + look-ahead gain, reverted LOW-band-only to full blend |
 | v13 | Hermes | **Seamless blend→ramp** — warp_extra (17th bar) saved and prepended to ramp_result. No more -9.6dB endpoint drops. Endpoint consistency: +2.3dB max spread |
+| v13+ | Hermes | Key detection (chroma CQT + Krumhansl-Schmuckler), Camelot wheel integration, PCM_24 export, full-track LUFS, RMS stabilizer anti-pumping (threshold 0.3, gain 1.3, kernel 3), auto-filename with style+date, MP3 metadata (title/artist) |
 
 ## License
 
