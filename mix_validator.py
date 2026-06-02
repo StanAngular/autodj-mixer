@@ -140,7 +140,7 @@ def validate(analysis: dict, strict: bool = False) -> dict:
         k1 = source_info[names[i]].get('key', '?')
         k2 = source_info[names[i+1]].get('key', '?')
         compat = _key_compat_score(k1, k2)
-        if compat < thr['key_compat_fail']:
+        if compat <= thr['key_compat_fail']:
             downgrade('FAIL')
             issues.append(f"[FAIL] key clash: {names[i]}({k1}) -> {names[i+1]}({k2}) "
                           f"score={compat:.1f}")
