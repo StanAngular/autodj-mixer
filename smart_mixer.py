@@ -133,10 +133,9 @@ def load_stereo(path, sr=SR):
 
 
 def norm_lufs(audio, target=TARGET_LUFS, sr=SR):
-    """Loudness normalize to target LUFS. Analyzes first 30s for speed."""
+    """Loudness normalize to target LUFS using full audio."""
     meter = pyln.Meter(sr)
-    sample = audio[:int(min(30 * sr, len(audio)))]
-    loud = meter.integrated_loudness(sample.astype("float64"))
+    loud = meter.integrated_loudness(audio.astype("float64"))
     if loud == float('-inf'):
         return audio
     n = pyln.normalize.loudness(audio.astype("float64"), loud, target).astype("float32")
@@ -828,7 +827,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
 
     wav_out = output_mp3.replace('.mp3', '.wav')
     print("Exporting WAV...")
-    sf.write(wav_out, mix, sr, subtype="PCM_16")
+    sf.write(wav_out, mix, sr, subtype="PCM_24")
 
     print(f"Encoding MP3 ({bitrate})...")
     r = subprocess.run([
@@ -842,9 +841,10 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR):
     if r.returncode:
         print(f"  FFmpeg error: {r.stderr[-300:]}")
     else:
-        os.unlink(wav_out)
         sz = os.path.getsize(output_mp3) / 1e6
-        print(f"  Output: {output_mp3} ({sz:.1f} MB)")
+        print(f"  MP3: {output_mp3} ({sz:.1f} MB)")
+        sz_wav = os.path.getsize(wav_out) / 1e6
+        print(f"  WAV (24-bit master): {wav_out} ({sz_wav:.1f} MB)")
 
     print("\n=== TRANSITIONS ===")
     for st in stamps:
