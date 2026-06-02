@@ -477,8 +477,8 @@ def analyze(mix_path, wav_dir, ann_dir, tracks=None, feedback=False):
         ic="✅" if sc>=0.8 else "⚠️" if sc>=0.5 else "❌"
         print(f"  {ic} {names[i]:15s} ({k1:8s}) → {names[i+1]:15s} ({k2:8s})  score={sc:.1f}  {desc}")
     print(f"\n── Phase 5: Feedback ──\n")
+    recs = generate_feedback(transitions, ma)
     if feedback:
-        recs = generate_feedback(transitions, ma)
         if recs:
             for r in recs:
                 ic = "🔴" if r['severity']=='high' else "🟡"
@@ -486,12 +486,30 @@ def analyze(mix_path, wav_dir, ann_dir, tracks=None, feedback=False):
         else: print("  ✅ No adjustments needed.\n")
     else: print("  (Run with --feedback for recommendations)\n")
     print(f"Analysis completed in {time.time()-ts:.1f}s")
-    return {'source_info':si,'transitions':transitions,'mix_artefacts':ma,'source_issues':src_i,'mixer_issues':mix_i}
+    return {'source_info':si,'transitions':transitions,'mix_artefacts':ma,'source_issues':src_i,'mixer_issues':mix_i,'feedback':recs}
+
+def _json_safe(obj):
+    """Recursively convert numpy scalars to Python native types for JSON serialization."""
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Mix Analyzer v1")
     p.add_argument("--mix",required=True); p.add_argument("--wav-dir"); p.add_argument("--ann-dir")
     p.add_argument("--config"); p.add_argument("--feedback",action="store_true")
+    p.add_argument("--json-out", metavar="FILE",
+                   help="Save structured analysis as JSON (for mix_validator.py)")
     a = p.parse_args()
     wd=a.wav_dir; ad=a.ann_dir; tr=None
     if a.config:
@@ -500,4 +518,9 @@ if __name__ == "__main__":
         if wd is None: wd=getattr(c,'WAV_DIR',None) or '.'
         if ad is None: ad=getattr(c,'ANN_DIR',None) or '.'
     if not wd or not ad: p.error("Need --wav-dir and --ann-dir (or --config)")
-    analyze(a.mix, wd, ad, tr, feedback=a.feedback)
+    result = analyze(a.mix, wd, ad, tr, feedback=a.feedback)
+    if a.json_out:
+        import json
+        with open(a.json_out, 'w') as f:
+            json.dump(_json_safe(result), f, indent=2)
+        print(f"\n  JSON saved → {a.json_out}")
