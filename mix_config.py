@@ -5,6 +5,14 @@
 WAV_DIR = "/opt/autodj-mixer/tracks"
 ANN_DIR = "/opt/autodj-mixer/ann"
 
+# --- Tunable params (override smart_mixer.py defaults) ---
+# Edit here instead of touching smart_mixer.py (saves ~15K tokens per session)
+TARGET_LUFS   = -14.0   # loudness target (dBLUFS)
+MAX_SHIFT_SEC = 0.05    # max micro-align phase correction (seconds)
+# RAMP_SEC    = 8       # BPM ramp-back duration (uncomment to override)
+# CF_BARS     = 8       # crossfade length in bars (uncomment to override)
+# HEADROOM_DB = -1.0    # output headroom (uncomment to override)
+
 TRACKS = [
     ("Gamgi",        "Benji, Rina, Shubostar - Gamgi (Original Mix).wav",
                      "Benji, Rina, Shubostar - Gamgi (Original Mix).txt"),
