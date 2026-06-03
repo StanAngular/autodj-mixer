@@ -116,6 +116,31 @@ class TestFixHt:
         db_out, bpm_out = fix_ht(db, bpm_raw)
         assert len(db_out) > len(db)
 
+    def test_bar_level_pop_100bpm_splits_correctly(self):
+        """Bar-level annotations at 100 BPM (2.4s per bar) must split into 4 beats.
+        This was the bug Hermes identified: abs thresholds gave n_split=5 (wrong).
+        BPM-ratio approach: musical=100, expected_beat=0.6s, ratio=4.0 → n_split=4."""
+        beat_s = 60.0 / 100.0                     # 0.6s at 100 BPM
+        bar_s = beat_s * 4                          # 2.4s per bar
+        db = make_db(bar_s, n=8)                   # 8 bars of bar-level annotations
+        bpm_raw = calc_bpm(db)                     # 4*60/2.4 = 100 (bar-level → musical BPM)
+        db_out, _ = fix_ht(db, bpm_raw)
+        # Each bar split into 4 beats: 8 bars → ~29 beat entries (7 gaps × 4 + 1 tail)
+        assert len(db_out) > len(db), "Bar-level annotations must be split into beats"
+        # Check split is into ~4 per bar (not 5 as the old hardcoded 0.5s would give)
+        expected_len = (len(db) - 1) * 4 + 1
+        assert len(db_out) == expected_len, f"Expected {expected_len} entries (4 per bar), got {len(db_out)}"
+
+    def test_bar_level_120bpm_splits_to_beats(self):
+        """Bar-level annotations at 120 BPM (2.0s per bar) split into 4 beats.
+        This is the case Hermes warned absolute thresholds only give 1 midpoint for."""
+        bar_s = 2.0   # 120 BPM bar
+        db = make_db(bar_s, n=8)
+        bpm_raw = calc_bpm(db)                     # = 120 (bar-level)
+        db_out, _ = fix_ht(db, bpm_raw)
+        expected_len = (len(db) - 1) * 4 + 1      # 29 entries
+        assert len(db_out) == expected_len, f"120 BPM bar-level: expected {expected_len} beats, got {len(db_out)}"
+
     def test_result_bpm_recalculated(self, downbeats_120bpm):
         """Return value should always be recalculated BPM, not the input."""
         db_out, bpm_out = fix_ht(downbeats_120bpm, 120.0)

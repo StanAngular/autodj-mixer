@@ -181,45 +181,54 @@ def calc_bpm(db, sr=SR):
 
 def fix_ht(db, bpm):
     """
-    Fix half-time / double-time detection.
+    Fix half-time / double-time detection using BPM-relative ratio.
 
-    The annotation array (db) may contain beat-level entries (1 per beat)
-    or bar-level entries (1 per bar), depending on how madmom was called.
-    We work with beat-level intervals:
+    calc_bpm() returns 4*60/mean_s (bar formula).  So:
+      - beat-level annotations at 120 BPM  → bpm = 480 (= 120 * 4)
+      - bar-level annotations  at 120 BPM  → bpm = 120
 
-      BEAT range: 0.25 s (240 BPM) to 1.0 s (60 BPM)
+    Dance music real BPM range: 60-200. calc_bpm for beat-level: 240-800.
+    Threshold 200: bpm > 200 means beat-level → musical_bpm = bpm / 4.
+                   bpm ≤ 200 means bar-level  → musical_bpm = bpm.
 
-    Anything outside this range is corrected by decimating or interpolating.
-    Previous version used BAR-level bounds (1.0-4.0 s) which caused beat
-    annotations (med ≈ 0.5 s) to be incorrectly halved (db[::2]).
+    ratio = med / expected_beat_s:
+      ~0.25  → 4 entries/beat (16th notes) → decimate ×4
+      ~0.5   → 2 entries/beat (8th notes)  → decimate ×2
+      ~1.0   → 1 entry/beat (correct)      → no change
+      ~2-3   → 1 entry per 2-3 beats       → insert midpoints
+      ≥4     → 1 entry per 4+ beats (bar)  → split into n beats
     """
     if len(db) < 3:
         return db, bpm
 
     intervals = np.diff(db.astype(float)) / SR          # seconds
-    intervals = intervals[intervals > 0.01]              # drop zero/noise (keeps 16th notes ≥0.05s)
+    intervals = intervals[intervals > 0.01]              # drop zero/noise
     if len(intervals) < 2:
         return db, bpm
 
     med = float(np.median(intervals))
 
-    # --- Plausible single-beat bounds (4/4 time) ---
-    BEAT_LO = 0.25   # 240 BPM -- fastest plausible DJ beat
-    BEAT_HI = 1.0    # 60 BPM  -- slowest plausible DJ beat
+    # Derive musical BPM (true beats-per-minute).
+    # calc_bpm > 200 signals beat-level annotations → divide by 4.
+    musical_bpm = float(bpm) / 4.0 if bpm > 200.0 else float(bpm)
+    musical_bpm = max(55.0, min(220.0, musical_bpm))     # safety clamp
+    expected_beat_s = 60.0 / musical_bpm
 
-    if med < BEAT_LO * 0.35:
-        # <0.09 s  → quarter-beats (16th notes).  Decimate x4.
+    ratio = med / expected_beat_s
+
+    if ratio < 0.35:
+        # ~4 entries per beat (16th notes) -- decimate x4
         if len(db) >= 16:
             db = db[::4]
 
-    elif med < BEAT_LO * 0.65:
-        # <0.16 s  → eighth-notes.  Decimate x2.
+    elif ratio < 0.65:
+        # ~2 entries per beat (8th notes) -- decimate x2
         if len(db) >= 8:
             db = db[::2]
 
-    elif med > BEAT_HI * 2.2:
-        # >2.2 s  → multiple beats per entry.  Split into estimated beats.
-        n_split = max(2, round(med / 0.5))               # assume ~0.5 s beats
+    elif ratio > 3.0:
+        # 1 entry per 3+ beats (bar-level or coarser) -- split into n beats
+        n_split = max(2, round(ratio))
         new_db = []
         for i in range(len(db) - 1):
             gap = db[i + 1] - db[i]
@@ -228,8 +237,8 @@ def fix_ht(db, bpm):
         new_db.append(db[-1])
         db = np.array(new_db, dtype=int)
 
-    elif med > BEAT_HI * 1.3:
-        # >1.3 s  → 2 beats per entry.  Insert midpoint between each pair.
+    elif ratio > 1.6:
+        # 1 entry per ~2 beats -- insert midpoints
         new_db = []
         for i in range(len(db) - 1):
             new_db.append(db[i])
@@ -237,7 +246,7 @@ def fix_ht(db, bpm):
         new_db.append(db[-1])
         db = np.array(new_db, dtype=int)
 
-    # BEAT_LO (0.25 s) to BEAT_HI (1.0 s) → correct, no adjustment
+    # 0.65 ≤ ratio ≤ 1.6 → correct, no adjustment
     return db, calc_bpm(db)
 
 
