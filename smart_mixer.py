@@ -886,7 +886,36 @@ def main():
                         help='Find quiet exit point (default: on)')
     parser.add_argument('--quick-test', action='store_true',
                         help='Use first 2 tracks only, 2-bar crossfade for fast testing')
+    parser.add_argument('--yt-urls', nargs='*', default=None,
+                        help='YouTube URLs to download then mix')
+    parser.add_argument('--yt-urls-file', default=None,
+                        help='File with YouTube URLs (one per line)')
     args = parser.parse_args()
+
+    # --- YouTube download step ---
+    yt_urls = []
+    if args.yt_urls:
+        yt_urls.extend(args.yt_urls)
+    if args.yt_urls_file:
+        with open(args.yt_urls_file) as f:
+            yt_urls.extend(line.strip() for line in f if line.strip() and not line.startswith('#'))
+
+    if yt_urls:
+        cfg_path = f'/tmp/yt_config_{os.getpid()}.py'
+        print(f"\n{'='*60}")
+        print("  Downloading tracks from YouTube...")
+        print(f"{'='*60}")
+        yt_script = Path(__file__).parent / 'yt_download.py'
+        excode = subprocess.run(
+            [sys.executable, str(yt_script)] + yt_urls +
+            ['--config-out', cfg_path],
+            timeout=600
+        ).returncode
+        if excode != 0 or not os.path.exists(cfg_path):
+            print("  ❌ YouTube download failed")
+            sys.exit(1)
+        args.config = cfg_path
+        print(f"  ✅ Downloaded, loaded config: {cfg_path}\n")
 
     # Load config if provided
     tracks = []
