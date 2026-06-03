@@ -83,3 +83,5 @@
 ### [pipeline] ClaudeClaw — 2026-06-03: mix_config.py -- документированы tunable params | причина: TARGET_LUFS/MAX_SHIFT_SEC уже читаются из config (коммит d19c6c6) но не были явно в файле -- добавил с дефолтными значениями + закомментированные RAMP_SEC/CF_BARS/HEADROOM_DB
 
 ### [infra] ClaudeClaw — 2026-06-03: smart_mixer.py синхронизирован в ~/.claude/skills/mixer/ | причина: скилл теперь использует /opt/autodj-mixer/ код (коммит d19c6c6 Hermes)
+
+### [infra] ClaudeClaw — 2026-06-03: /opt/autodj-mixer permissions fixed | причина: root выполнил chown -R root:users + chmod -R g+w на весь каталог. Оба агента (cclaw + hermes) теперь могут git push напрямую из /opt/. Workaround через /tmp/autodj-push больше не нужен
