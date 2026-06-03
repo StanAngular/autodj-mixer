@@ -64,50 +64,54 @@ class TestCalcBpm:
 # ── fix_ht ────────────────────────────────────────────────────────────────
 
 class TestFixHt:
-    def test_correct_intervals_unchanged(self, downbeats_120bpm):
-        """Clean 120 BPM downbeats should come through unchanged."""
-        db, bpm = fix_ht(downbeats_120bpm, 120.0)
-        assert abs(bpm - 120.0) < 1.0
-        assert len(db) == len(downbeats_120bpm)
+    def test_correct_intervals_unchanged(self):
+        """Beat intervals in the valid BEAT range (0.25-1.0s) pass through unchanged.
+        Tests a 0.75s beat (80 BPM) -- well inside the valid window."""
+        db = make_db(0.75, n=40)   # 0.75s/beat = valid range
+        db_out, bpm = fix_ht(db, calc_bpm(db))
+        assert len(db_out) == len(db), "Valid beat intervals must not be decimated or interpolated"
+
+    def test_beat_interval_unchanged(self):
+        """
+        Beat-level intervals (0.5s @ 120 BPM) are in the valid BEAT range
+        (BEAT_LO=0.25s .. BEAT_HI=1.0s).  Must NOT be decimated.
+        This was the regression in 99691b3 (used BAR thresholds instead).
+        """
+        db = make_db(0.5, n=40)        # 120 BPM beats
+        bpm_raw = calc_bpm(db)
+        db_out, bpm_out = fix_ht(db, bpm_raw)
+        assert len(db_out) == len(db), \
+            f"0.5s beat intervals must not be modified (got {len(db_out)} from {len(db)})"
 
     def test_too_short_returns_unchanged(self):
-        db = make_db(2.0, n=2)
+        db = make_db(0.5, n=2)
         db_out, bpm_out = fix_ht(db, 120.0)
         assert np.array_equal(db_out, db)
 
-    def test_half_bar_decimates(self):
-        """
-        Intervals of 1.0s (half of a 2s bar) should be decimated x2.
-        Result should have ~half the entries and ~120 BPM.
-        """
-        db = make_db(1.0, n=30)        # 0.5s per downbeat → "bar"? No → 1.0s < 0.65s?
-        # 1.0s: BAR_LO=1.0, 0.65*1.0=0.65 -- 1.0s > 0.65, so no fix expected
-        # Let's use 0.6s intervals (clearly half-bar territory)
-        db = make_db(0.6, n=30)
-        bpm_raw = calc_bpm(db)
-        db_out, bpm_out = fix_ht(db, bpm_raw)
-        assert len(db_out) < len(db)   # decimated
-
-    def test_beat_level_decimates_x4(self):
-        """Intervals of 0.3s (individual beats at 120 BPM) decimated x4."""
-        db = make_db(0.3, n=40)
+    def test_eighth_note_decimates_x2(self):
+        """Intervals of 0.1s (eighth notes) < BEAT_LO*0.65=0.16s → decimate x2."""
+        db = make_db(0.1, n=40)
         bpm_raw = calc_bpm(db)
         db_out, bpm_out = fix_ht(db, bpm_raw)
         assert len(db_out) < len(db)
 
-    def test_double_bar_interpolates(self):
-        """
-        Intervals of 6.0s (2 bars at 80 BPM) should be halved by interpolation.
-        Result should have roughly 2x more entries.
-        """
-        db = make_db(6.0, n=8)
+    def test_sixteenth_note_decimates_x4(self):
+        """Intervals of 0.05s (16th notes) < BEAT_LO*0.35=0.088s → decimate x4."""
+        db = make_db(0.05, n=60)
+        bpm_raw = calc_bpm(db)
+        db_out, bpm_out = fix_ht(db, bpm_raw)
+        assert len(db_out) < len(db)
+
+    def test_slow_intervals_interpolate(self):
+        """Intervals of 1.5s > BEAT_HI*1.3=1.3s → insert midpoints."""
+        db = make_db(1.5, n=10)
         bpm_raw = calc_bpm(db)
         db_out, bpm_out = fix_ht(db, bpm_raw)
         assert len(db_out) > len(db)
 
-    def test_very_long_intervals_split(self):
-        """Intervals > 8.8s get split into multiple estimated bars."""
-        db = make_db(10.0, n=6)
+    def test_very_slow_intervals_split(self):
+        """Intervals of 3.0s > BEAT_HI*2.2=2.2s → split into multiple beats."""
+        db = make_db(3.0, n=6)
         bpm_raw = calc_bpm(db)
         db_out, bpm_out = fix_ht(db, bpm_raw)
         assert len(db_out) > len(db)

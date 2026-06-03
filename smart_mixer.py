@@ -181,41 +181,45 @@ def calc_bpm(db, sr=SR):
 
 def fix_ht(db, bpm):
     """
-    Fix half-time / double-time / quarter-beat BPM detection.
+    Fix half-time / double-time detection.
 
-    Uses median inter-downbeat interval (absolute seconds) to decide if
-    entries represent actual bars, half-bars, individual beats, or multi-bars.
+    The annotation array (db) may contain beat-level entries (1 per beat)
+    or bar-level entries (1 per bar), depending on how madmom was called.
+    We work with beat-level intervals:
 
-    Plausible 4/4 bar range: ~1.0 s (240 BPM) to ~4.0 s (60 BPM).
-    Anything outside is corrected by decimating or interpolating.
+      BEAT range: 0.25 s (240 BPM) to 1.0 s (60 BPM)
+
+    Anything outside this range is corrected by decimating or interpolating.
+    Previous version used BAR-level bounds (1.0-4.0 s) which caused beat
+    annotations (med ≈ 0.5 s) to be incorrectly halved (db[::2]).
     """
     if len(db) < 3:
         return db, bpm
 
     intervals = np.diff(db.astype(float)) / SR          # seconds
-    intervals = intervals[intervals > 0.1]               # drop zero/noise
+    intervals = intervals[intervals > 0.01]              # drop zero/noise (keeps 16th notes ≥0.05s)
     if len(intervals) < 2:
         return db, bpm
 
     med = float(np.median(intervals))
 
-    # --- Plausible single-bar bounds (4/4 time) ---
-    BAR_LO = 1.0    # 240 BPM -- hard floor
-    BAR_HI = 4.0    # 60 BPM  -- hard ceiling
+    # --- Plausible single-beat bounds (4/4 time) ---
+    BEAT_LO = 0.25   # 240 BPM -- fastest plausible DJ beat
+    BEAT_HI = 1.0    # 60 BPM  -- slowest plausible DJ beat
 
-    if med < BAR_LO * 0.35:
-        # ~0.3 s  -> individual beats (4 per bar).  Decimate x4.
+    if med < BEAT_LO * 0.35:
+        # <0.09 s  → quarter-beats (16th notes).  Decimate x4.
         if len(db) >= 16:
             db = db[::4]
 
-    elif med < BAR_LO * 0.65:
-        # ~0.5-0.6 s  -> half-bar intervals.  Decimate x2.
+    elif med < BEAT_LO * 0.65:
+        # <0.16 s  → eighth-notes.  Decimate x2.
         if len(db) >= 8:
             db = db[::2]
 
-    elif med > BAR_HI * 2.2:
-        # >8.8 s  -> 3-4+ bars per entry.  Split each gap into N equal parts.
-        n_split = max(2, round(med / 2.0))               # assume ~2 s bars
+    elif med > BEAT_HI * 2.2:
+        # >2.2 s  → multiple beats per entry.  Split into estimated beats.
+        n_split = max(2, round(med / 0.5))               # assume ~0.5 s beats
         new_db = []
         for i in range(len(db) - 1):
             gap = db[i + 1] - db[i]
@@ -224,8 +228,8 @@ def fix_ht(db, bpm):
         new_db.append(db[-1])
         db = np.array(new_db, dtype=int)
 
-    elif med > BAR_HI * 1.3:
-        # >5.2 s  -> 2 bars per entry.  Insert midpoint between each pair.
+    elif med > BEAT_HI * 1.3:
+        # >1.3 s  → 2 beats per entry.  Insert midpoint between each pair.
         new_db = []
         for i in range(len(db) - 1):
             new_db.append(db[i])
@@ -233,6 +237,7 @@ def fix_ht(db, bpm):
         new_db.append(db[-1])
         db = np.array(new_db, dtype=int)
 
+    # BEAT_LO (0.25 s) to BEAT_HI (1.0 s) → correct, no adjustment
     return db, calc_bpm(db)
 
 
