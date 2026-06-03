@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 """Mix config for optimal Camelot order (#1 from analyze_order.py)."""
+
+# Shared paths -- both cclaw and hermes have write access (group: users)
+WAV_DIR = "/opt/autodj-mixer/tracks"
+ANN_DIR = "/opt/autodj-mixer/ann"
+
 TRACKS = [
     ("Gamgi",        "Benji, Rina, Shubostar - Gamgi (Original Mix).wav",
                      "Benji, Rina, Shubostar - Gamgi (Original Mix).txt"),

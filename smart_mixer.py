@@ -14,6 +14,10 @@ import pyloudnorm as pyln
 import os, sys, time, subprocess, json
 from pathlib import Path
 
+# Ensure rubberband-cli is in PATH (needed by pyrubberband)
+_rb_paths = ["/tmp/pylibs/bin", "/tmp/rubberband-extract/usr/bin"]
+os.environ["PATH"] = ":".join(_rb_paths) + ":" + os.environ.get("PATH", "")
+
 np.float = np.float64
 np.int = np.int64
 np.complex = np.complex128
@@ -117,10 +121,12 @@ def fix_ht(db, bpm, sr=SR):
         n = max(2, int(round(0.25 / med)))
         if len(db) >= n * 4:
             db = db[::n]
+        musical_bpm = calc_bpm(db, sr) / 4
 
     elif med < 1.0:
         # Beat-level spacing — correct for 60-240 BPM
-        pass
+        # Return musical BPM (divide by 4 since calc_bpm gives beat-level)
+        musical_bpm = bpm / 4.0
 
     elif med < 2.0:
         # Could be half-time (1/2-beat) OR fast bar-level (4-beat at ≥200 BPM)
@@ -146,6 +152,7 @@ def fix_ht(db, bpm, sr=SR):
                     new_db.append(int(db[i] + j * gap // n_split))
             new_db.append(db[-1])
             db = np.array(new_db, dtype=int)
+        musical_bpm = calc_bpm(db, sr) / 4.0
 
     else:
         # 1 entry per ≥4 beats (bar-level or sparser): split into beats
@@ -159,8 +166,9 @@ def fix_ht(db, bpm, sr=SR):
                 new_db.append(int(db[i] + j * gap // n_split))
         new_db.append(db[-1])
         db = np.array(new_db, dtype=int)
+        musical_bpm = calc_bpm(db, sr) / 4.0
 
-    return db, calc_bpm(db, sr)
+    return db, musical_bpm
 
 
 # ============================================================
@@ -446,13 +454,18 @@ def build_cf_lr4(master_zone, slave_zone, m_bpm, s_bpm,
     print(f"    Residual shift after warp: {shift/sr*1000:.1f}ms")
 
     if abs(shift) > 0:
-        if int(shift) > 0:
+        s_len = len(s_zone)
+        shift_int = int(shift)
+        if shift_int > 0:
+            # Shift forward: remove from start, pad at end
             s_zone = np.concatenate(
-                [s_zone[int(shift):], np.zeros((int(shift), 2), dtype=np.float32)]
+                [s_zone[shift_int:], np.zeros((shift_int, 2), dtype=np.float32)]
             )
         else:
+            # Shift backward: prepend zeros, remove from end
+            pad = -shift_int
             s_zone = np.concatenate(
-                [np.zeros((-int(shift), 2), dtype=np.float32), s_zone[:-int(shift)]]
+                [np.zeros((pad, 2), dtype=np.float32), s_zone[:s_len - pad]]
             )
 
     # 3. LR4 3-band split & bass swap
@@ -478,21 +491,28 @@ def build_cf_lr4(master_zone, slave_zone, m_bpm, s_bpm,
 
         # ---- Bass swap + mid/high power crossfade ----
         fo, fi = eq_pow(cf_len)
-        bm = mm * fo[:, None] + sm * fi[:, None]
-        bh = mh * fo[:, None] + sh * fi[:, None]
 
-        tw = int(1.5 * bs)
-        sw = max(0, sc - tw // 2)
-        ew = min(cf_len, sc + tw // 2)
-        aw2 = ew - sw
-        sfo, sfi = eq_pow(aw2)
+        # Safety check: warp can produce bands shorter than cf_len
+        if sm.shape[0] != cf_len or mm.shape[0] != cf_len:
+            print(f"    Band mismatch, fallback to power xfade: mm={mm.shape} sm={sm.shape} ml={ml.shape}")
+            fo, fi = eq_pow(cf_len)
+            blended = m_zone * fo[:, None] + s_zone * fi[:, None]
+        else:
+            bm = mm * fo[:, None] + sm * fi[:, None]
+            bh = mh * fo[:, None] + sh * fi[:, None]
 
-        bl_new = np.zeros_like(ml)
-        bl_new[:sw] = ml[:sw]
-        bl_new[sw:ew] = ml[sw:ew] * sfo[:, None] + sl[sw:ew] * sfi[:, None]
-        bl_new[ew:] = sl[ew:]
+            tw = int(1.5 * bs)
+            sw = max(0, sc - tw // 2)
+            ew = min(cf_len, sc + tw // 2)
+            aw2 = ew - sw
+            sfo, sfi = eq_pow(aw2)
 
-        blended = bl_new + bm + bh
+            bl_new = np.zeros_like(ml)
+            bl_new[:sw] = ml[:sw]
+            bl_new[sw:ew] = ml[sw:ew] * sfo[:, None] + sl[sw:ew] * sfi[:, None]
+            bl_new[ew:] = sl[ew:]
+
+            blended = bl_new + bm + bh
         blended = rms_stabilizer(blended, cf_len, sr)
     else:
         fo, fi = eq_pow(cf_len)
@@ -627,20 +647,23 @@ def smart_mix(tracks, sr=SR, wav_dir="", ann_dir="",
         db, bpm = fix_ht(db, raw)
         print(f"    Detected BPM: {bpm:.1f} (in {time.time()-t0:.1f}s)")
 
-        # Key detection + Camelot
+        # Key detection + Camelot (librosa chroma-based)
         t_key = time.time()
-        from essentia.standard import Key, KeyExtractor
-        import essentia
-
         mono = audio.mean(1)
-        # Estimate key via essentia
-        key_extractor = KeyExtractor(
-            profile='diy',
-            frameSize=4096,
-            hopSize=2048,
-            maximumTuningDeviation=20
-        )
-        key, scale, strength = key_extractor(mono)
+
+        # Chroma-based key estimation
+        chroma = librosa.feature.chroma_cqt(y=mono.astype(np.float64), sr=sr)
+        chroma_mean = chroma.mean(1)
+        key_idx = int(np.argmax(chroma_mean))
+        keys_major = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        keys_minor = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
+
+        # Determine if major or minor by checking 3rd (index +4) and 5th (index +7)
+        maj_strength = chroma_mean[key_idx] + chroma_mean[(key_idx + 4) % 12] * 0.5 + chroma_mean[(key_idx + 7) % 12] * 0.3
+        min_strength = chroma_mean[key_idx] + chroma_mean[(key_idx + 3) % 12] * 0.5 + chroma_mean[(key_idx + 7) % 12] * 0.3
+
+        key = keys_major[key_idx] if maj_strength >= min_strength else keys_minor[key_idx]
+        scale = 'major' if maj_strength >= min_strength else 'minor'
 
         # Map to Camelot
         camelot_map = {
