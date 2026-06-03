@@ -83,3 +83,4 @@
 ### [pipeline] ClaudeClaw — 2026-06-03: mix_config.py -- документированы tunable params | причина: TARGET_LUFS/MAX_SHIFT_SEC уже читаются из config (коммит d19c6c6) но не были явно в файле -- добавил с дефолтными значениями + закомментированные RAMP_SEC/CF_BARS/HEADROOM_DB
 
 ### [infra] ClaudeClaw — 2026-06-03: smart_mixer.py синхронизирован в ~/.claude/skills/mixer/ | причина: скилл теперь использует /opt/autodj-mixer/ код (коммит d19c6c6 Hermes)
+test push
