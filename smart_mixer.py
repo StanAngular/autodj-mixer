@@ -387,7 +387,8 @@ def warp_to_grid(slave_audio, s_db, m_db, sr=SR):
 
 
 def build_cf_lr4(master_zone, slave_zone, m_bpm, s_bpm,
-                  m_db, s_db, mode, sr=SR, cf_bars=16, tail_fade_bars=2):
+                  m_db, s_db, mode, sr=SR, cf_bars=16, tail_fade_bars=2,
+                  max_shift_sec=0.05):
     """
     Build a single crossfade transition using LR4 3-band crossover + bass swap.
 
@@ -446,7 +447,7 @@ def build_cf_lr4(master_zone, slave_zone, m_bpm, s_bpm,
     mm = m_zone.mean(1)
     sm = s_zone.mean(1)
     shift = onset_micro_align(
-        mm, sm, m_bpm, max_shift_sec=0.05,
+        mm, sm, m_bpm, max_shift_sec=max_shift_sec,
         m_db_zone=m_db[:cf_bars + 1] if n_m >= cf_bars else None,
         s_db_zone=s_db[:cf_bars + 1] if n_s >= cf_bars else None,
         sr=sr
@@ -594,7 +595,8 @@ def ramp_to_native(slave_audio, s_db, m_bpm, s_bpm, sr=SR,
 def smart_mix(tracks, sr=SR, wav_dir="", ann_dir="",
               cf_bars=16, ramp_sec=15, tail_fade_bars=2,
               use_quiet_exit=True, no_stabilizer=False,
-              style="", author=""):
+              style="", author="",
+              target_lufs=-14.0, max_shift_sec=0.05):
     """
     Run the full smart mixing pipeline over a track list.
 
@@ -683,7 +685,7 @@ def smart_mix(tracks, sr=SR, wav_dir="", ann_dir="",
         )
         if loud != float('-inf'):
             audio_out = pyln.normalize.loudness(
-                audio.astype(np.float64), loud, -14.0
+                audio.astype(np.float64), loud, target_lufs
             ).astype(np.float32)
             pk = np.max(np.abs(audio_out))
             if pk > 0.99:
@@ -783,7 +785,8 @@ def smart_mix(tracks, sr=SR, wav_dir="", ann_dir="",
         # Build crossfade
         blended, shift, consumed = build_cf_lr4(
             m_cf, s_cf, mb, sb, m_db, s_db, mode, sr,
-            cf_bars=cf_bars, tail_fade_bars=tail_fade_bars
+            cf_bars=cf_bars, tail_fade_bars=tail_fade_bars,
+            max_shift_sec=max_shift_sec
         )
 
         ts = (mix_pos + len(mix_parts[-1] if mix_parts else [])) / sr if mix_parts else 0
@@ -881,11 +884,14 @@ def main():
     parser.add_argument('--tail-fade-bars', type=int, default=2, help='Tail fade bars')
     parser.add_argument('--use-quiet-exit', action='store_true', default=True,
                         help='Find quiet exit point (default: on)')
+    parser.add_argument('--quick-test', action='store_true',
+                        help='Use first 2 tracks only, 2-bar crossfade for fast testing')
     args = parser.parse_args()
 
     # Load config if provided
     tracks = []
     sr = SR
+    config_vars = {}
 
     if args.config:
         config_path = Path(args.config)
@@ -908,8 +914,18 @@ def main():
         print("No tracks defined. Use --config or provide TRACKS list in config.")
         sys.exit(1)
 
-    wav_dir = args.wav_dir
-    ann_dir = args.ann_dir
+    # Read optional params from config (CLI overrides)
+    tgt_lufs = config_vars.get('TARGET_LUFS', -14.0)
+    max_shift = config_vars.get('MAX_SHIFT_SEC', 0.05)
+
+    # Quick-test: first 2 tracks only, 2-bar crossfade
+    if args.quick_test:
+        tracks = tracks[:2]
+        args.cf_bars = 2
+        print(f"\n⚡ QUICK TEST: 2 tracks, {args.cf_bars}-bar crossfade\n")
+
+    wav_dir = config_vars.get('WAV_DIR', args.wav_dir)
+    ann_dir = config_vars.get('ANN_DIR', args.ann_dir)
 
     # Run mix
     mix, stamps = smart_mix(
@@ -918,7 +934,8 @@ def main():
         tail_fade_bars=args.tail_fade_bars,
         use_quiet_exit=args.use_quiet_exit,
         no_stabilizer=args.no_stabilizer,
-        style=args.style, author=args.author
+        style=args.style, author=args.author,
+        target_lufs=tgt_lufs, max_shift_sec=max_shift
     )
 
     # Export
