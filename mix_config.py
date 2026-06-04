@@ -1,29 +1,15 @@
 #!/usr/bin/env python3
-"""Mix config for optimal Camelot order (#1 from analyze_order.py)."""
+"""Mix config for 5 new tracks."""
 
-# Shared paths -- both cclaw and hermes have write access (group: users)
 WAV_DIR = "/opt/autodj-mixer/tracks"
 ANN_DIR = "/opt/autodj-mixer/ann"
-
-# --- Tunable params (override smart_mixer.py defaults) ---
-# Edit here instead of touching smart_mixer.py (saves ~15K tokens per session)
-TARGET_LUFS   = -14.0   # loudness target (dBLUFS)
-MAX_SHIFT_SEC = 0.05    # max micro-align phase correction (seconds)
-# RAMP_SEC    = 8       # BPM ramp-back duration (uncomment to override)
-# CF_BARS     = 8       # crossfade length in bars (uncomment to override)
-# HEADROOM_DB = -1.0    # output headroom (uncomment to override)
+TARGET_LUFS = -14.0
+MAX_SHIFT_SEC = 0.05
 
 TRACKS = [
-    ("Gamgi",        "Benji, Rina, Shubostar - Gamgi (Original Mix).wav",
-                     "Benji, Rina, Shubostar - Gamgi (Original Mix).txt"),
-    ("Garden",       "Franz Matthews - Garden of Eden (Extended Mix).wav",
-                     "Franz Matthews - Garden of Eden (Extended Mix).txt"),
-    ("Lakeside",     "Carina Lawrence - Lakeside Reverie (Extended Mix).wav",
-                     "Carina Lawrence - Lakeside Reverie (Extended Mix).txt"),
-    ("Eleonora",     "Eleonora,_Flowers_on_Monday_What_If_I_Told_You_Extended_Mix.wav",
-                     "Eleonora,_Flowers_on_Monday_What_If_I_Told_You_Extended_Mix.txt"),
-    ("Fever",        "El Mundo, Tal Groenman - Fever Dreams (Extended Mix).wav",
-                     "El Mundo, Tal Groenman - Fever Dreams (Extended Mix).txt"),
-    ("GetOnMyLevel", "Sasha, Franky Wah - Get On My Level (Instrumental).wav",
-                     "Sasha, Franky Wah - Get On My Level (Instrumental).txt"),
+    ("SoulBody",     "_6Rcjkqiemc.wav",   "_6Rcjkqiemc.txt"),
+    ("YourEyes",     "qla9icjH3Ug.wav",   "qla9icjH3Ug.txt"),
+    ("Mariposa",     "p75YN7sAWFQ.wav",   "p75YN7sAWFQ.txt"),
+    ("Machines",     "r6wP3JupJjg.wav",   "r6wP3JupJjg.txt"),
+    ("Go",           "oGQjVOj6-H4.wav",   "oGQjVOj6-H4.txt"),
 ]

@@ -98,9 +98,9 @@ def detect_downbeats(wav_path, ann_path):
     act = RNNDownBeatProcessor()(wav_path)
     beats = proc(act)
 
-    # Save: sample_position beat_type (1=downbeat)
-    beats_samps = [(int(b[0] * SR), int(round(b[1]))) for b in beats if int(round(b[1])) in (1, 2, 3, 4)]
-    np.savetxt(ann_path, beats_samps, fmt="%d %d")
+    # Save: time_in_seconds beat_type (1=downbeat)
+    beats_samps = [(b[0], int(round(b[1]))) for b in beats if int(round(b[1])) in (1, 2, 3, 4)]
+    np.savetxt(ann_path, beats_samps, fmt="%.6f %d")
     n_down = sum(1 for _, bt in beats_samps if bt == 1)
     print(f"{n_down} downbeats")
 

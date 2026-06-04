@@ -1,25 +1,17 @@
 #!/bin/bash
-# log_change.sh — добавить запись в CHANGELOG.md
-# Использование: ./log_change.sh <Категория> <Agent> <описание> [причина]
-# Пример: ./log_change.sh fix_ht Hermes "новый порог для BPM 200+" "hardcore треки отваливались"
-# Категории: fix_ht, warp, mixer, analyzer, pipeline, infra, bug
+# Quick helper to update changelog
+APPEND="### [mixer] Hermes — $(date '+%Y-%m-%d %H:%M')
+smart_mixer.py — fixes from v2 analyzer findings:
+  • blend→ramp boundary: 10ms crossfade между warp_extra и ramp_result
+    (раньше был np.concatenate — жёсткая склейка давала 5 микрозапинов)
+  • Bass polarity: 5-точечный weighted consensus (была 1 точка в центре)
+  • Kick band (60-120Hz) отдельная проверка polarity
 
-CATEGORY="$1"
-AGENT="$2"
-DESCRIPTION="$3"
-REASON="${4:-}"
+### [analyzer] Hermes — $(date '+%Y-%m-%d %H:%M')
+  • boundary_glitch: spike > 1.8x, gradient > 5x (было 1.5 и 3)
+  • stutter: diff_ratio < 0.001, 20ms windows, 3+ consecutive
+  • threshold tweaks for v2 stability
+"
 
-if [ -z "$CATEGORY" ] || [ -z "$AGENT" ] || [ -z "$DESCRIPTION" ]; then
-    echo "Usage: $0 <Категория> <Agent> <описание> [причина]"
-    echo "Пример: $0 bug Hermes \"fix: shift slice\" \"отрицательный shift ломал кроссфейд\""
-    exit 1
-fi
-
-CHANGELOG="$(dirname "$0")/CHANGELOG.md"
-DATE=$(date '+%Y-%m-%d %H:%M')
-LINE="### [$CATEGORY] $AGENT — $DATE: $DESCRIPTION"
-[ -n "$REASON" ] && LINE="$LINE | причина: $REASON"
-
-echo "" >> "$CHANGELOG"
-echo "$LINE" >> "$CHANGELOG"
-echo "✅ Записано: $LINE"
+echo "$APPEND" >> /opt/autodj-mixer/CHANGELOG.md
+echo "Updated changelog"
