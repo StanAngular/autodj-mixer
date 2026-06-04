@@ -87,3 +87,57 @@
 ### [infra] ClaudeClaw — 2026-06-03: /opt/autodj-mixer permissions fixed | причина: root выполнил chown -R root:users + chmod -R g+w на весь каталог. Оба агента (cclaw + hermes) теперь могут git push напрямую из /opt/. Workaround через /tmp/autodj-push больше не нужен
 
 ### [skill] ClaudeClaw — 2026-06-03: music_tracklist_builder v1.2 | причина: додав стратегії пошуку як у діджеїв (1001tracklists, Shazam у сетах, Bandcamp fans also bought, критерії якості), розширив лейбли (Afterlife, Innervisions, Prologue і ін.), топ DJ-референси по жанрах, changelog скіла
+### [analyzer] Hermes — 2026-06-04 08:59
+mix_analyzer.py v2 — полная переработка:
+  • Стуттер: разностный метод (diff_ratio < 0.001) вместо корр. 20ms окна — 0 ложных
+  • HF noise: двойной порог (10x median AND -40dBFS abs) — 0 ложных (было 372)
+  • Speed glitch: BPM clamped к ±30% медианы, зона рампа 30с — 4 события (было 30)
+  • Spectral discontinuity: 12x median (было 5x)
+  • Beat drift: замер IOI на master-only секции до перехода, нормализация ритм. уровня
+  • Band cancellation: по-полосный анализ dips в зоне кроссфейда (5 bands: 20-60..2000-8000Hz)
+  • Source integrity: сравнение спектра mix vs source на соло-секциях до/после перехода
+  • Группировка вывода по типам событий вместо списка всех подряд
+
+### [mixer] Hermes — 2026-06-04 10:34
+smart_mixer.py — fixes from v2 analyzer findings:
+  • blend→ramp boundary: 10ms crossfade между warp_extra и ramp_result
+    (раньше был np.concatenate — жёсткая склейка давала 5 микрозапинов)
+  • Bass polarity: 5-точечный weighted consensus (была 1 точка в центре)
+  • Kick band (60-120Hz) отдельная проверка polarity
+
+### [analyzer] Hermes — 2026-06-04 10:34
+  • boundary_glitch: spike > 1.8x, gradient > 5x (было 1.5 и 3)
+  • stutter: diff_ratio < 0.001, 20ms windows, 3+ consecutive
+  • threshold tweaks for v2 stability
+
+### [warp] Hermes — 2026-06-04 12:42
+smart_mixer.py:
+  • Per-bar re-align: 8×2-bar chunks (было 4×4-bar), порог 0.2ms (был 0.5ms)
+    — ловит постепенный cumulative drift (~35-64ms на 16-bar кроссфейде)
+  • warp_to_grid: сглаживание master bar lengths (clamp ±25% от median)
+    — защита от выбросов в madmom аннотациях
+
+### [mixer] Hermes — 2026-06-04 13:42
+smart_mixer.py — fixes from v2 analyzer findings:
+  • blend→ramp boundary: 10ms crossfade между warp_extra и ramp_result
+    (раньше был np.concatenate — жёсткая склейка давала 5 микрозапинов)
+  • Bass polarity: 5-точечный weighted consensus (была 1 точка в центре)
+  • Kick band (60-120Hz) отдельная проверка polarity
+
+### [analyzer] Hermes — 2026-06-04 13:42
+  • boundary_glitch: spike > 1.8x, gradient > 5x (было 1.5 и 3)
+  • stutter: diff_ratio < 0.001, 20ms windows, 3+ consecutive
+  • threshold tweaks for v2 stability
+
+
+### [mixer] Hermes — 2026-06-04 14:00 — alignment fix: 3 бага в build_cf_lr4()
+  1. Pre-warp phase alignment (новый):
+     onset_micro_align на первые 2 бара ДО warp с окном 100ms
+     — ловит большие смещения первого даунбита (переход 1: -98.7ms!)
+  2. Chunk 0 в per-bar re-alignment:
+     range(1, n_chunks) пропускал первые 2 бара — баг
+     range(0, n_chunks) — теперь все 8 чанков корректируются
+  3. Warp_extra bridge всегда был None:
+     CF_BARS+1 downbeats = CF_BARS bars = cf_len → warp_extra пуст
+     Fix: CF_BARS+2 → 17 bars → реальный 1-bar bridge
+  Результат: blend→ramp seamless True на всех переходах, начало сведений фазово выровнено
