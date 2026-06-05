@@ -196,6 +196,73 @@ curl -s -F "reqtype=fileupload" -F "time=72h" \
 
 ---
 
+## Madmom Annotations
+
+**Всегда madmom, никогда librosa** для beat/downbeat detection. Librosa даёт drift 100-1133ms на электронике. Madmom RNN -- < 20ms.
+
+```bash
+# Batch annotate: всё из tracks/ -> ann/
+cd /opt/autodj-mixer
+.venv/bin/python batch_annotate.py
+# Пропускает уже аннотированные (incremental)
+
+# Custom dirs
+WAV_DIR=/tmp/mymix/wav ANN_DIR=/tmp/mymix/ann .venv/bin/python batch_annotate.py
+```
+
+Или inline (для одного файла):
+```python
+import numpy as np
+np.float = np.float64; np.int = np.int64  # madmom compat patch
+from madmom.features.downbeats import DBNDownBeatTrackingProcessor, RNNDownBeatProcessor
+proc = DBNDownBeatTrackingProcessor(beats_per_bar=[4], fps=100)
+act  = RNNDownBeatProcessor()("track.wav")
+beats = proc(act)  # [[time_sec, beat_num], ...]  beat_num 1=downbeat
+SR = 44100
+np.savetxt("track.txt", [[int(b[0]*SR), int(round(b[1]))] for b in beats], fmt="%d %d")
+```
+
+**Формат .txt**: `sample_position beat_number` (beat_number 1..4, 1=downbeat)
+
+**fps=100**: важно -- без этого временное разрешение 50ms вместо 10ms.
+
+**Проверка аннотаций:**
+```python
+beats = np.loadtxt("track.txt")
+downbeats = beats[beats[:,1]==1, 0]
+intervals = np.diff(downbeats) / 44100  # seconds per bar
+bpm_bars = 60.0 / (np.median(intervals) / 4)  # BPM
+print(f"Downbeats: {len(downbeats)}, BPM: {bpm_bars:.1f}")
+# Норма: intervals 1.5-4.5s (13-40 BPM bars = 55-160 BPM)
+# Аномалия: intervals < 0.5s → madmom посчитал beats как downbeats (fix_ht нужен)
+```
+
+---
+
+## Genre Detection
+
+```bash
+# Определить жанр по BPM + спектру, получить рекомендуемые параметры
+.venv/bin/python genre_detector.py --config mix_config.py
+
+# JSON для скриптов
+.venv/bin/python genre_detector.py --config mix_config.py --json
+```
+
+Жанровые профили: `genres/jazz_downtempo.md`, `genres/afro_house.md`, `genres/hard_techno.md`
+
+Каждый профиль содержит: рекомендуемые CF_BARS / MODE / RAMP_SEC + known issues + track selection tips.
+
+**Ключевые отличия по параметрам:**
+
+| Жанр | BPM | MODE | CF_BARS | Главное |
+|------|-----|------|---------|---------|
+| Jazz/Downtempo | 60-95 | `simple` | 16 | НЕ hpss -- LR4 ломает jazz bass |
+| Afro House | 118-128 | `hpss` | 16 | polyrhythm, выходить на breakdowns |
+| Hard Techno | 148-165 | `hpss` | 16 | madmom обязателен, bass swap критичен |
+
+---
+
 ## Импорт треков (YouTube / SoundCloud)
 
 ```bash
