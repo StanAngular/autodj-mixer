@@ -36,7 +36,7 @@ SPECTRAL_HINTS = {
 
 
 def load_bpms(wav_dir, ann_dir):
-    """Load BPMs from annotation files."""
+    """Load BPMs from annotation files. Auto-detects samples vs seconds format."""
     SR = 44100
     bpms = []
     for f in sorted(os.listdir(ann_dir)):
@@ -47,13 +47,17 @@ def load_bpms(wav_dir, ann_dir):
             beats = np.loadtxt(ann_path)
             if beats.ndim < 2 or len(beats) < 4:
                 continue
+            # Auto-detect: samples (> 1000) or seconds (< 1000)
+            first = beats[0, 0]
+            is_samples = first > 1000
+            times = beats[:, 0] / SR if is_samples else beats[:, 0]
             # Get downbeats only (beat position == 1)
-            downbeats = beats[beats[:, 1] == 1, 0]
+            downbeats = times[beats[:, 1] == 1]
             if len(downbeats) < 4:
                 # fallback: use all beats
-                intervals = np.diff(beats[:, 0]) / SR
+                intervals = np.diff(times)
             else:
-                intervals = np.diff(downbeats) / SR / 4  # bar -> beat
+                intervals = np.diff(downbeats) / 4  # bar -> beat
             intervals = intervals[(intervals > 0.2) & (intervals < 2.0)]
             if len(intervals) > 0:
                 bpm = 60.0 / np.median(intervals)
