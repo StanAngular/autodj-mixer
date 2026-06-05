@@ -69,9 +69,11 @@ def main():
     p.add_argument("--wav-dir", help="Source WAV directory (alternative to --config)")
     p.add_argument("--ann-dir", help="Annotation directory (alternative to --config)")
     p.add_argument("--output", default="", help="Output MP3 path (default: auto-named)")
-    p.add_argument("--style", default="", help="Mix style name")
+    p.add_argument("--style", default="", help="Mix style name (auto-detect if empty)")
+    p.add_argument("--bitrate", default="", help="MP3 bitrate (auto from genre if empty)")
     p.add_argument("--author", default="Hermes", help="Mix author")
     p.add_argument("--skip-preanalyze", action="store_true", help="Skip Step 0 pre-analysis")
+    p.add_argument("--skip-genre", action="store_true", help="Skip genre detection (Step 0.5)")
     p.add_argument("--analyze-only", action="store_true", help="Skip mixing, only analyze")
     p.add_argument("--feedback", action="store_true", help="Generate tuning recommendations")
     p.add_argument("--no-validate", action="store_true", help="Skip validation step")
@@ -82,7 +84,8 @@ def main():
     config_path = args.config
     wav_dir = args.wav_dir
     ann_dir = args.ann_dir
-    style = args.style or "Mix"
+    style = args.style
+    bitrate = args.bitrate
     author = args.author
     output = args.output
 
@@ -122,6 +125,35 @@ def main():
         tracks, wav_dir, ann_dir = [], None, None
     else:
         p.error("No valid config found")
+
+    # ─── Step 0.5: Genre Detection ──────────────────────────────────
+    if not args.skip_genre:
+        print("\n" + "=" * 55)
+        print("  Step 0.5: Genre Detection")
+        print("=" * 55)
+        genre_detector = os.path.join(SCRIPT_DIR, "genre_detector.py")
+        if os.path.exists(genre_detector) and wav_dir and ann_dir:
+            t0 = time.time()
+            result = subprocess.run(
+                [sys.executable, genre_detector,
+                 "--wav-dir", wav_dir, "--ann-dir", ann_dir, "--json"],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                try:
+                    gdata = json.loads(result.stdout)
+                    ggenre = gdata.get("genre", "")
+                    gbitrate = gdata.get("bitrate", "")
+                    if not style and ggenre:
+                        style = ggenre.replace("_", " ").title()
+                    if not bitrate and gbitrate:
+                        bitrate = gbitrate
+                except json.JSONDecodeError:
+                    pass
+            print(f"  Genre: {style or 'auto'} | Bitrate: {bitrate or 'default'}")
+            print(f"  Detection: {time.time()-t0:.1f}s")
+        else:
+            print(f"  [skip] genre_detector.py not found or no wav/ann dirs")
 
     # Determine output path
     if not output:
@@ -165,6 +197,9 @@ def main():
                "--output", output,
                "--style", style,
                "--author", author]
+
+        if bitrate:
+            cmd += ["--bitrate", bitrate]
 
         result = subprocess.run(cmd)
         check_exit_code(result.returncode, "Mixer")
