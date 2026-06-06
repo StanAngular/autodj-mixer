@@ -855,7 +855,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
 
         cf_len = int(CF_BARS * bar_s(mb) * sr)
 
-        # Determine exit point — prefer QUIET/BUILD over ACTIVE/DROP
+        # Determine exit point
         if use_quiet_exit and cur['qe'] is not None:
             exit_bar = cur['qe']
             print(f"    Quiet exit at bar {exit_bar}")
