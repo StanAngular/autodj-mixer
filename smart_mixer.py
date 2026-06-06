@@ -301,7 +301,7 @@ def onset_micro_align(m_mono, s_mono, bpm, max_shift_sec=0.05,
     Args:
         m_db_zone, s_db_zone: downbeat sample positions for weighting
     """
-    hop = 128
+    hop = 32  # was 128 — 4x finer alignment (0.73ms vs 2.9ms)
     mo = librosa.onset.onset_strength(y=m_mono.astype(np.float32), sr=sr, hop_length=hop)
     so = librosa.onset.onset_strength(y=s_mono.astype(np.float32), sr=sr, hop_length=hop)
 
@@ -375,7 +375,7 @@ def warp_to_grid(slave_audio, s_db, m_db, sr):
             continue
 
         rate = len(bar) / m_bar_len
-        if abs(rate - 1.0) > 0.002:
+        if abs(rate - 1.0) > 0.005:  # skip stretch for tiny rate diff (was 0.002)
             warped = pyrb.time_stretch(bar, sr, rate).astype("float32")
         else:
             warped = bar.astype("float32")
@@ -405,7 +405,7 @@ def ramp_to_native(slave_audio, s_db, m_bpm, s_bpm, sr, ramp_sec=RAMP_SEC, ser=1
     If ser (entry RMS) is below RAMP_MIN_RMS, do a simple volume fade instead.
     """
     bpm_diff = abs(m_bpm - s_bpm)
-    if bpm_diff < 0.5:
+    if bpm_diff < 2.0:  # skip ramp for small BPM diff (was 0.5)
         return None, 0
 
     if ser < RAMP_MIN_RMS:
@@ -555,31 +555,10 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR, stabilizer=T
         m_db_zone = m_db[:CF_BARS + 2]
         s_db_zone = s_db[:CF_BARS + 2]
 
-        # ── Pre-warp phase alignment ────────────────────────────────────────
-        # Align the first downbeat of the slave to the master BEFORE bar-by-bar
-        # stretching.  This prevents the warp from starting with an offset
-        # that the global onset_micro_align can't fully correct because it's
-        # a single compromise for all 16 bars.
-        pre_bars = 2
-        pre_len = int(pre_bars * bar_s(m_bpm) * sr)
-        pre_mm = s_cf[:pre_len].mean(1) if len(s_cf) >= pre_len else s_cf.mean(1)
-        pre_sm = m_cf[:pre_len].mean(1) if len(m_cf) >= pre_len else m_cf.mean(1)
-        pre_shift = onset_micro_align(
-            pre_mm, pre_sm, m_bpm, max_shift_sec=0.10, sr=sr
-        )
-        if abs(pre_shift) > 20:  # >~0.5ms — meaningful
-            if int(pre_shift) > 0:
-                s_cf = np.concatenate([s_cf[int(pre_shift):],
-                                       np.zeros((int(pre_shift), 2), dtype="float32")])
-            else:
-                pad_n = -int(pre_shift)
-                s_cf = np.concatenate([np.zeros((pad_n, 2), dtype="float32"),
-                                       s_cf[:-pad_n]])
-            # Recompute slave downbeats for the aligned segment
-            s_db_aligned = s_db - int(pre_shift)
-            s_db_aligned = s_db_aligned[s_db_aligned >= 0]
-            s_db_zone = s_db_aligned[:CF_BARS + 2]
-            print(f"    Pre-warp phase alignment: {pre_shift/sr*1000:.1f}ms")
+        # NOTE: Pre-warp phase alignment REMOVED (v3 fix).
+        # Bug: any pre_shift > 0 removed s_db_zone[0]=0, causing warp_to_grid
+        # to start from bar 2 instead of bar 0 — a systematic 1-bar offset.
+        # The post-warp global onset_micro_align handles residual fine-tuning.
 
         warped, consumed = warp_to_grid(s_cf, s_db_zone, m_db_zone, sr)
         if warped is not None:
@@ -625,40 +604,10 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR, stabilizer=T
             pad_n = -int(shift)
             s_zone = np.concatenate([np.zeros((pad_n, 2), dtype="float32"), s_zone[:-pad_n]])
 
-    # 2b. Per-bar re-alignment — split into 2-bar chunks, ALWAYS correct
-    # Prevents cumulative onset drift over long crossfades.
-    # Now starts from chunk 0 (was range(1,n_chunks)) — first 2 bars
-    # also get corrected, preventing drift at the start of the transition.
-    n_chunks = 8  # 8 chunks × 2 bars = 16 bars
-    chunk_len = cf_len // n_chunks
-    if chunk_len > sr * 1.5:
-        total_correction_ms = 0.0
-        for ci in range(0, n_chunks):
-            cs = ci * chunk_len
-            ce = min((ci + 1) * chunk_len, cf_len)
-            if ce - cs < sr // 2:
-                continue
-            mm_chunk = m_zone[cs:ce].mean(1)
-            sm_chunk = s_zone[cs:ce].mean(1)
-            chunk_shift = onset_micro_align(
-                mm_chunk, sm_chunk, m_bpm, max_shift_sec=0.03, sr=sr
-            )
-            if abs(chunk_shift) > 10:  # only apply if meaningful (>10 samples ≈ 0.2ms)
-                s_chunk = s_zone[cs:ce].copy()
-                if int(chunk_shift) > 0:
-                    s_zone[cs:ce] = np.concatenate([
-                        s_chunk[int(chunk_shift):],
-                        np.zeros((int(chunk_shift), 2), dtype="float32")
-                    ])
-                else:
-                    pad_n = -int(chunk_shift)
-                    s_zone[cs:ce] = np.concatenate([
-                        np.zeros((pad_n, 2), dtype="float32"),
-                        s_chunk[:-pad_n]
-                    ])
-                total_correction_ms += abs(chunk_shift) / sr * 1000
-        if total_correction_ms > 0.5:
-            print(f"    Per-bar re-align: {total_correction_ms:.2f}ms total correction across {n_chunks} chunks")
+    # NOTE: Per-bar re-alignment REMOVED (v3 fix).
+    # warp_to_grid already aligns bar boundaries precisely.
+    # Per-chunk independent shifts created discontinuities at chunk boundaries,
+    # introducing audible phase jumps. Global micro-align (step 2) handles residual.
 
     # 3. LR4 3-Band blend with bass polarity check
     if mode == 'hpss':
@@ -702,48 +651,21 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR, stabilizer=T
         blended_mid = m_mid * fo[:, None] + s_mid * fi[:, None]
         blended_high = m_high * fo[:, None] + s_high * fi[:, None]
 
-        trans_width = int(1.5 * bar_samples)
-        cf_center = cf_len // 2
-        swap_start = max(0, cf_center - trans_width // 2)
-        swap_end = min(cf_len, cf_center + trans_width // 2)
-        actual_width = swap_end - swap_start
-
-        sfo, sfi = eq_pow(actual_width)
-
-        # ── Adaptive sub crossfade: low band transitions faster ────────────
-        # Sub (20-150Hz) overlaps for fewer bars (5 vs 16), reducing
-        # phase cancellation time by 3x.  Mid/high still use full CF_BARS.
-        sub_bars = 5  # sub transitions in 5 bars (was 16)
-        sub_len = int(sub_bars * bar_s(m_bpm) * sr)
-        sub_len = min(sub_len, cf_len)
+        # ── Early bass swap: bars 0-2 (v4 fix) ────────────────────────────
+        # Previous center-swap (bar 8) kept master kick at 100% until halfway.
+        # At bar 7 (4:55) master kick + slave kick harmonics caused phase cancel.
+        # Fix: swap bass in first 2 bars — by bar 3 only slave's kick in the low band.
+        SWAP_BARS = 2
+        swap_len = min(cf_len, int(SWAP_BARS * bar_s(m_bpm) * sr))
+        sfo_swap, sfi_swap = eq_pow(swap_len)
 
         blended_low = np.zeros_like(m_low)
-        blended_low[:swap_start] = m_low[:swap_start]
-
-        if sub_len < swap_end:
-            # Fast crossfade for sub within transition zone
-            sub_mask = (np.arange(cf_len) >= swap_start) & (np.arange(cf_len) < swap_start + sub_len)
-            sub_end_idx = min(swap_start + sub_len, swap_end)
-            sub_w = sub_end_idx - swap_start
-            if sub_w > 64:
-                sfo_sub, sfi_sub = eq_pow(sub_w)
-                blended_low[swap_start:sub_end_idx] = (
-                    m_low[swap_start:sub_end_idx] * sfo_sub[:, None] +
-                    s_low[swap_start:sub_end_idx] * sfi_sub[:, None]
-                )
-            else:
-                blended_low[swap_start:sub_end_idx] = (
-                    m_low[swap_start:sub_end_idx] * sfo[:sub_w, None] +
-                    s_low[swap_start:sub_end_idx] * sfi[:sub_w, None]
-                )
-            # Remaining zone: slave takes over fast
-            blended_low[sub_end_idx:swap_end] = s_low[sub_end_idx:swap_end]
-        else:
-            blended_low[swap_start:swap_end] = (
-                m_low[swap_start:swap_end] * sfo[:, None] +
-                s_low[swap_start:swap_end] * sfi[:, None]
-            )
-        blended_low[swap_end:] = s_low[swap_end:]
+        blended_low[:swap_len] = (
+            m_low[:swap_len] * sfo_swap[:, None] +
+            s_low[:swap_len] * sfi_swap[:, None]
+        )
+        blended_low[swap_len:] = s_low[swap_len:]  # slave bass only after swap
+        print(f"    Bass swap: 0–{SWAP_BARS} bars (early, was center)")
         blended = blended_low + blended_mid + blended_high
 
         # Narrow RMS stabilizer with lookahead
