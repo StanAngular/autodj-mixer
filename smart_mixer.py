@@ -280,6 +280,60 @@ def quiet_exit(secs):
     return None
 
 
+def section_at_bar(secs, bar):
+    """Return section label for a given bar index."""
+    for s, e, l in secs:
+        if s <= bar < e:
+            return l
+    return 'ACTIVE'
+
+
+EXIT_SCORE = {'QUIET': 0, 'BUILD': 1, 'ACTIVE': 2, 'DROP': 3}
+
+
+def best_exit_bar(secs, default_bar, n_bars_total, cf_bars, phrase=16):
+    """
+    Try default ± 1-2 phrases (16 bars each). Pick the exit bar where
+    the master is in the quietest section (QUIET < BUILD < ACTIVE < DROP).
+    Returns the best bar, rounded to phrase grid.
+    """
+    candidates = []
+    for k in [-2, -1, 0, 1]:
+        eb = ((default_bar // phrase) + k) * phrase
+        if eb < cf_bars or eb > n_bars_total - cf_bars:
+            continue
+        label = section_at_bar(secs, eb)
+        score = EXIT_SCORE.get(label, 2)
+        candidates.append((score, eb))
+
+    if not candidates:
+        return default_bar
+
+    candidates.sort()
+    best_score, best_bar = candidates[0]
+    default_score = EXIT_SCORE.get(section_at_bar(secs, default_bar), 2)
+    if best_bar != default_bar and best_score < default_score:
+        print(f"    ↳ Exit shifted {default_bar}→{best_bar} ({section_at_bar(secs,default_bar)}→{section_at_bar(secs,best_bar)})")
+    return best_bar
+
+
+def first_soft_entry(secs, mn_build=2, mn_active=8):
+    """
+    Prefer entering on a BUILD section (even short ≥ mn_build bars) before
+    the first ACTIVE, so the slave fades in softly before full drums hit.
+    Falls back to first_active if no BUILD found.
+    """
+    # Find first BUILD with at least mn_build bars
+    for s, e, l in secs:
+        if l == 'BUILD' and e - s >= mn_build:
+            return s
+    # Fall back: first ACTIVE/DROP with at least mn_active bars
+    for s, e, l in secs:
+        if l in ('DROP', 'ACTIVE') and e - s >= mn_active:
+            return s
+    return 0
+
+
 def first_active(secs, mn=8):
     """Find first active/drop section with at least mn bars."""
     for s, e, l in secs:
@@ -754,14 +808,16 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
 
         qe = quiet_exit(st)
         fa = first_active(st)
+        se = first_soft_entry(st)  # BUILD preferred over ACTIVE for slave entry
         dur = len(at) / sr
         print(f"    Trimmed: {int(dur // 60)}:{int(dur % 60):02d}  bars {eb}-{xb}")
-        print(f"    quiet_exit={'bar' + str(qe) if qe is not None else 'none'}  first_active=bar{fa}")
+        print(f"    quiet_exit={'bar' + str(qe) if qe is not None else 'none'}  "
+              f"soft_entry=bar{se}({section_at_bar(st,se)})  first_active=bar{fa}")
 
         TD.append({
             'name': name, 'audio': at, 'db': dbt, 'bpm': bpm,
             'key': key, 'cam': cam,
-            'secs': st, 'qe': qe, 'fa': fa
+            'secs': st, 'qe': qe, 'fa': fa, 'se': se
         })
 
     # Print Camelot overview
@@ -799,28 +855,28 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
 
         cf_len = int(CF_BARS * bar_s(mb) * sr)
 
-        # Determine exit point — align to bar grid
+        # Determine exit point — prefer QUIET/BUILD over ACTIVE/DROP
         if use_quiet_exit and cur['qe'] is not None:
             exit_bar = cur['qe']
             print(f"    Quiet exit at bar {exit_bar}")
         else:
             total = len(cur['db']) - 1
-            exit_bar = max(0, total - CF_BARS - 4)
-            exit_bar = (exit_bar // 16) * 16
+            default_exit = max(0, total - CF_BARS - 4)
+            exit_bar = best_exit_bar(cur['secs'], default_exit, total, CF_BARS)
         mode = 'hpss'
 
         exit_samp = int(cur['db'][min(exit_bar, len(cur['db']) - 1)])
         body = cur['audio'][cur_off:exit_samp]
-        print(f"    Master exit bar {exit_bar} ({exit_samp / sr:.1f}s)  mode={mode}")
+        print(f"    Master exit bar {exit_bar} ({exit_samp / sr:.1f}s)  [{section_at_bar(cur['secs'], exit_bar)}]  mode={mode}")
 
         m_cf = cur['audio'][exit_samp:exit_samp + cf_len + sr * 3]
         m_cf_db = cur['db'][cur['db'] >= exit_samp] - exit_samp
 
-        s_entry = nxt['fa']
+        s_entry = nxt['se']   # soft entry (BUILD preferred)
         s_samp = int(nxt['db'][min(s_entry, len(nxt['db']) - 1)])
         s_cf = nxt['audio'][s_samp:]
         s_cf_db = nxt['db'][nxt['db'] >= s_samp] - s_samp
-        print(f"    Slave entry bar {s_entry} ({s_samp / sr:.1f}s)")
+        print(f"    Slave entry bar {s_entry} ({s_samp / sr:.1f}s)  [{section_at_bar(nxt['secs'], s_entry)}]")
 
         # Calculate entry RMS for ramp decision
         ec = int(2 * bar_s(sb) * sr)
