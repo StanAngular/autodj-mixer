@@ -342,7 +342,7 @@ def first_active(secs, mn=8):
     return 0
 
 
-def has_vocals(audio, sr, energy_thresh=0.13, zcr_thresh=0.04):
+def has_vocals(audio, sr, energy_thresh=0.10, zcr_thresh=0.03):
     """
     Simple vocal presence detector using ZCR + spectral energy in 1-4kHz.
     Returns True if vocals likely present.
@@ -1067,7 +1067,24 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         else:
             parts.append(blended)
             mix_pos += len(blended)
-            cur_off = ramp_off
+            # When ramp_result is None (same BPM), the slave body starts
+            # immediately after blended. Apply a short gain ramp to avoid
+            # a hard volume jump if lufs_gain was applied to the CF zone.
+            if abs(lufs_gain - 1.0) > 0.05:
+                fade_bars = 4
+                fade_len = min(int(fade_bars * bar_s(sb) * sr),
+                               len(cur['audio']) - ramp_off)
+                if fade_len > 0:
+                    gain_env = np.linspace(lufs_gain, 1.0, fade_len,
+                                           dtype=np.float32)[:, None]
+                    slave_fade = cur['audio'][ramp_off:ramp_off + fade_len] * gain_env
+                    parts.append(slave_fade)
+                    mix_pos += fade_len
+                    cur_off = ramp_off + fade_len
+                else:
+                    cur_off = ramp_off
+            else:
+                cur_off = ramp_off
 
         if cur_off >= len(cur['audio']):
             cur_off = s_samp + int(CF_BARS * bar_s(sb) * sr) // 2
