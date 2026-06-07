@@ -934,21 +934,13 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         entry_segment = nxt['audio'][s_samp:s_samp + ec] if ec < len(nxt['audio'][s_samp:]) else nxt['audio'][s_samp:]
         entry_rms = float(np.sqrt(np.mean(entry_segment**2)))
 
-        # ── Entry LUFS normalization ──────────────────────────────────────────
-        # Compare last 4 bars of master exit with first 4 bars of slave entry.
-        # Apply gain to slave if RMS differs by >2x, reducing LUFS jumps.
-        lufs_bars = 4
-        lufs_len = int(lufs_bars * bar_s(mb) * sr)
-        master_tail_rms = np.sqrt(np.mean(m_cf[max(0, lufs_len - int(sr*0.5)):lufs_len]**2)) + 1e-12
-        slave_head = nxt['audio'][s_samp:s_samp + int(lufs_bars * bar_s(sb) * sr)]
-        slave_head_rms = np.sqrt(np.mean(slave_head**2)) + 1e-12
-        rms_ratio = master_tail_rms / slave_head_rms
+        # NOTE: Per-section LUFS gain matching REMOVED.
+        # All tracks are pre-normalized to TARGET_LUFS=-14 at load time.
+        # Applying per-CF gain caused artificial volume pumping:
+        #   - QUIET exit (low RMS) → slave gained down → jump UP after CF
+        #   - ACTIVE exit (high RMS) → slave gained up → drop after CF
+        # Let equal-power crossfade handle natural level differences.
         lufs_gain = 1.0
-        if rms_ratio > 1.5 or rms_ratio < 0.6:
-            lufs_gain = min(2.0, max(0.5, rms_ratio))
-            print(f"    Entry LUFS match: master_tail_rms={master_tail_rms:.4f} "
-                  f"slave_head_rms={slave_head_rms:.4f}  gain={lufs_gain:.2f}")
-            s_cf = s_cf * lufs_gain
 
         blended, shift, consumed, warp_extra = build_cf_lr4(
             m_cf, s_cf, mb, sb, m_cf_db, s_cf_db, mode, sr,
