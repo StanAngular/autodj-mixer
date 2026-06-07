@@ -342,6 +342,24 @@ def first_active(secs, mn=8):
     return 0
 
 
+def has_vocals(audio, sr, energy_thresh=0.13, zcr_thresh=0.04):
+    """
+    Simple vocal presence detector using ZCR + spectral energy in 1-4kHz.
+    Returns True if vocals likely present.
+    """
+    if audio is None or len(audio) == 0:
+        return False
+    mono = audio.mean(1).astype(np.float32) if audio.ndim == 2 else audio.astype(np.float32)
+    if mono.max() < 1e-6:
+        return False
+    zcr_mean = librosa.feature.zero_crossing_rate(mono, hop_length=512)[0].mean()
+    S = np.abs(librosa.stft(mono, n_fft=2048, hop_length=512))
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=2048)
+    vmask = (freqs >= 1000) & (freqs <= 4000)
+    vocal_ratio = S[vmask].sum() / (S.sum() + 1e-12)
+    return bool(vocal_ratio > energy_thresh and zcr_mean > zcr_thresh)
+
+
 # ============================================================
 # Onset & Phase Micro-alignment (v13: downbeat-weighted)
 # ============================================================
@@ -748,7 +766,7 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, sr=SR, stabilizer=T
 
 def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                style=None, author=None,
-               use_quiet_exit=False, stabilizer=True):
+               use_quiet_exit=False, stabilizer=True, transitions_dir=None):
     """
     Main entry point. Mix a list of tracks into a continuous DJ mix.
 
@@ -837,6 +855,16 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
     cur = TD[0]
     cur_off = 0
 
+    # Load AI transitions if directory provided
+    ai_transitions = {}
+    if transitions_dir and os.path.isdir(transitions_dir):
+        print(f"  Loading AI transitions from: {transitions_dir}")
+        for fname in os.listdir(transitions_dir):
+            if fname.endswith('.wav') and fname.startswith('tr'):
+                # Parse: tr0_TrackA_to_TrackB.wav
+                ai_transitions[fname] = os.path.join(transitions_dir, fname)
+        print(f"  Found {len(ai_transitions)} AI transition(s)")
+
     for i in range(1, len(TD)):
         nxt = TD[i]
         mb, sb = cur['bpm'], nxt['bpm']
@@ -878,6 +906,29 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         s_cf_db = nxt['db'][nxt['db'] >= s_samp] - s_samp
         print(f"    Slave entry bar {s_entry} ({s_samp / sr:.1f}s)  [{section_at_bar(nxt['secs'], s_entry)}]")
 
+        # ── Vocal overlap avoidance ───────────────────────────────────────────
+        # If both master CF zone and slave CF zone have vocals, shift slave
+        # entry by ±8/16 bars to avoid two voices singing simultaneously.
+        m_vox = has_vocals(cur['audio'][exit_samp:exit_samp + cf_len], sr)
+        s_vox = has_vocals(nxt['audio'][s_samp:s_samp + cf_len], sr)
+        if m_vox and s_vox:
+            print(f"    ⚠ Vocal overlap — shifting slave entry")
+            shifted = False
+            for db in [8, 16, -8, 24]:
+                alt = s_entry + db
+                if alt < 0 or alt >= len(nxt['db']) - CF_BARS:
+                    continue
+                alt_samp = int(nxt['db'][min(alt, len(nxt['db']) - 1)])
+                if not has_vocals(nxt['audio'][alt_samp:alt_samp + cf_len], sr):
+                    print(f"    Slave entry {s_entry}→{alt} (vocal avoidance, +{db} bars)")
+                    s_entry, s_samp = alt, alt_samp
+                    s_cf = nxt['audio'][s_samp:]
+                    s_cf_db = nxt['db'][nxt['db'] >= s_samp] - s_samp
+                    shifted = True
+                    break
+            if not shifted:
+                print(f"    ⚠ No vocal-free entry found, keeping bar {s_entry}")
+
         # Calculate entry RMS for ramp decision
         ec = int(2 * bar_s(sb) * sr)
         entry_segment = nxt['audio'][s_samp:s_samp + ec] if ec < len(nxt['audio'][s_samp:]) else nxt['audio'][s_samp:]
@@ -892,6 +943,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         slave_head = nxt['audio'][s_samp:s_samp + int(lufs_bars * bar_s(sb) * sr)]
         slave_head_rms = np.sqrt(np.mean(slave_head**2)) + 1e-12
         rms_ratio = master_tail_rms / slave_head_rms
+        lufs_gain = 1.0
         if rms_ratio > 1.5 or rms_ratio < 0.6:
             lufs_gain = min(2.0, max(0.5, rms_ratio))
             print(f"    Entry LUFS match: master_tail_rms={master_tail_rms:.4f} "
@@ -902,6 +954,62 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
             m_cf, s_cf, mb, sb, m_cf_db, s_cf_db, mode, sr,
             stabilizer=stabilizer
         )
+
+        # ── AI Transition check ────────────────────────────────────────────
+        ai_loaded = None
+        if transitions_dir:
+            a_name = cur['name'].replace(' ', '_')
+            b_name = nxt['name'].replace(' ', '_')
+            # ищем: trN_A_to_B.wav
+            for fname in os.listdir(transitions_dir):
+                if fname.endswith('.wav') and a_name in fname and '_to_' in fname and b_name in fname:
+                    ai_path = os.path.join(transitions_dir, fname)
+                    try:
+                        ai_loaded, _ = librosa.load(ai_path, sr=sr, mono=False)
+                        if ai_loaded.ndim == 1:
+                            ai_loaded = np.stack([ai_loaded, ai_loaded], axis=1)
+                        elif ai_loaded.shape[0] == 2:
+                            ai_loaded = ai_loaded.T  # (samples, ch)
+                        ai_dur = len(ai_loaded) / sr
+                        print(f"    AI transition found: {fname} ({ai_dur:.1f}s)")
+                    except Exception as e:
+                        print(f"    AI transition load failed: {e}")
+                    break
+
+        if ai_loaded is not None:
+            # ── AI-blend mode ──────────────────────────────────────────────
+            # 2-bar crossfade: body → AI → slave
+            cf2 = int(2 * bar_s(mb) * sr)
+            bf_ms = int(0.020 * sr)  # 20ms micro crossfade
+
+            # Crossfade body tail into AI transition
+            body_tail = body[-cf2:]
+            ai_head = ai_loaded[:cf2]
+            fade_out = np.linspace(1.0, 0.0, cf2).astype("float32")[:, None]
+            fade_in = np.linspace(0.0, 1.0, cf2).astype("float32")[:, None]
+            xtail = body_tail * fade_out + ai_head * fade_in
+
+            # Crossfade AI transition into slave entry
+            ai_tail = ai_loaded[-cf2:]
+            s_head = s_cf[:cf2]
+            fade_out2 = np.linspace(1.0, 0.0, cf2).astype("float32")[:, None]
+            fade_in2  = np.linspace(0.0, 1.0, cf2).astype("float32")[:, None]
+            xtail2 = ai_tail * fade_out2 + s_head * fade_in2
+
+            # 20ms micro crossfade at AI body-to-slave boundary
+            ai_body = ai_loaded[cf2:-cf2]
+            parts.append(np.concatenate([
+                body[:-cf2], xtail,
+                ai_body, xtail2,
+                s_cf[cf2:]
+            ]))
+            mix_pos += len(body) + len(ai_loaded) + len(s_cf) - cf2
+            # Skip normal blend→ramp
+            stamp_entry_rms = entry_rms
+            # Update cur_off to end of slave entry
+            cur_off = s_samp + int(CF_BARS * bar_s(sb) * sr) // 2
+            cur = nxt
+            continue  # skip everything below
 
         ts = (mix_pos + len(body)) / sr
         stamps.append({
@@ -925,6 +1033,14 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         )
 
         if ramp_result is not None:
+            # ── Apply lufs_gain to ramp, fade back to 1.0 ────────────────────
+            # Without this, s_cf is gained but ramp_result stays at original
+            # level → hard volume jump right after crossfade.
+            if abs(lufs_gain - 1.0) > 0.05:
+                n = len(ramp_result)
+                gain_env = np.linspace(lufs_gain, 1.0, n, dtype=np.float32)[:, None]
+                ramp_result = ramp_result * gain_env
+
             # ── Seamless blend→ramp boundary ─────────────────────────────────
             # blended (LR4-processed crossfade) is followed by ramp_result
             # (raw pyrubberband bars at master BPM → ramped to native BPM).
@@ -1042,6 +1158,7 @@ if __name__ == "__main__":
     parser.add_argument("--config", help="Python config file with TRACKS list")
     parser.add_argument("--use-quiet-exit", action="store_true", help="Exit on QUIET/BUILD section (shorter mix)")
     parser.add_argument("--no-stabilizer", action="store_true", help="Disable RMS stabilizer (may increase dips, less pumping)")
+    parser.add_argument("--transitions-dir", default=None, help="Directory with pre-generated AI transition WAV files")
     args = parser.parse_args()
 
     # Auto-generate output filename if not provided
@@ -1077,4 +1194,5 @@ if __name__ == "__main__":
 
     mix_tracks(tracks, args.wav_dir, args.ann_dir, args.output, args.bitrate,
                style=args.style, author=args.author,
-               use_quiet_exit=args.use_quiet_exit, stabilizer=not args.no_stabilizer)
+               use_quiet_exit=args.use_quiet_exit, stabilizer=not args.no_stabilizer,
+               transitions_dir=args.transitions_dir)
