@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 """
-Run Pipeline — Pre-Analyze → Mix → Analyze → Validate → Deliver.
+Run Pipeline — Pre-Analyze → Preview → [CONFIRM] → Mix → Analyze → Validate → Deliver.
 Strict pipeline with gates between each stage.
 
+MANDATORY STEPS (never skip without explicit flag):
+  1. Pre-analysis: track order + BPM + Camelot
+  2. Preview: transitions table sent to user for approval   ← HALT here by default
+  3. [User confirms] → Full mix
+  4. Analysis + Validate + Upload
+
 Usage:
-  python3 run_pipeline.py --config mix_config.py --out mix.mp3 --feedback
+  python3 run_pipeline.py --config mix_config.py --feedback
+  python3 run_pipeline.py --config mix_config.py --preview-only   # stop after preview
+  python3 run_pipeline.py --config mix_config.py --no-preview     # skip confirm (CI/auto)
   python3 run_pipeline.py --config mix_config.py --analyze-only
-  python3 run_pipeline.py --config mix_config.py --skip-preanalyze --feedback
 
 Exit codes:
   0 = all PASS
   1 = mix complete, WARN (check output)
   2 = mix FAIL (problems found)
   3 = pipeline error
+  4 = preview sent, awaiting confirmation (--preview-only)
 """
 import sys, os, subprocess, argparse, importlib.util, time, json
 
@@ -63,6 +71,97 @@ def check_exit_code(code, stage, output=None):
             print(f"  Last output: {output[-500:]}")
         sys.exit(3)
 
+
+def build_preview_table(tracks, wav_dir, ann_dir):
+    """
+    Build a preview transitions table from track annotations.
+    Returns formatted string with track order, BPM, Camelot, estimated timestamps.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+
+    rows = []
+    cumulative_s = 0.0
+    CF_BARS = 16    # default crossfade length in bars
+    EXIT_BARS = 8   # bars before track end used as exit point
+
+    for i, track_def in enumerate(tracks):
+        name = track_def[0]
+        ann_file = track_def[2] if len(track_def) > 2 else None
+        ann_path = os.path.join(ann_dir, ann_file) if ann_file else None
+
+        bpm = None
+        camelot = "?"
+        track_dur_s = None
+
+        if ann_path and os.path.exists(ann_path):
+            try:
+                beats = np.loadtxt(ann_path)
+                if beats.ndim == 1:
+                    beats = beats.reshape(1, -1)
+                downbeats = beats[beats[:, 1] == 1, 0]   # sample positions
+                if len(downbeats) > 4:
+                    intervals = np.diff(downbeats.astype(float)) / 44100.0
+                    med = float(np.median(intervals))
+                    # bar-level or beat-level
+                    if med < 0.7:
+                        bpm = round(60.0 / med, 1)
+                    else:
+                        bpm = round(4 * 60.0 / med, 1)
+                    track_dur_s = float(downbeats[-1]) / 44100.0
+            except Exception:
+                pass
+
+        # Estimate solo time (full track minus CF overlap on both sides)
+        if track_dur_s and bpm:
+            bar_s = 4 * 60.0 / bpm
+            # First track: no entry CF; last track: no exit CF
+            entry_cf = CF_BARS * bar_s if i > 0 else 0
+            exit_cf  = EXIT_BARS * bar_s if i < len(tracks) - 1 else 0
+            solo_s = max(0, track_dur_s - entry_cf - exit_cf)
+        else:
+            solo_s = None
+
+        t_start = cumulative_s
+        if solo_s:
+            cumulative_s += solo_s
+
+        rows.append({
+            'n': i + 1,
+            'name': name,
+            'bpm': bpm,
+            'camelot': camelot,
+            't_start': t_start,
+            'solo_s': solo_s,
+        })
+
+    # Format table
+    lines = []
+    lines.append("┌─── PREVIEW: Transitions plan ───────────────────────────┐")
+    lines.append(f"  {'#':<3} {'Track':<22} {'BPM':<7} {'Key':<6} {'Entry time':<12} {'Solo'}")
+    lines.append("  " + "─" * 58)
+
+    for r in rows:
+        ts = r['t_start']
+        t_str = f"{int(ts//60):02d}:{int(ts%60):02d}"
+        solo_str = f"~{int(r['solo_s']//60)}:{int(r['solo_s']%60):02d}" if r['solo_s'] else "?"
+        bpm_str = f"{r['bpm']}" if r['bpm'] else "?"
+        lines.append(f"  {r['n']:<3} {r['name']:<22} {bpm_str:<7} {r['camelot']:<6} {t_str:<12} {solo_str}")
+
+    total_m = int(cumulative_s // 60)
+    total_s = int(cumulative_s % 60)
+    lines.append("  " + "─" * 58)
+    lines.append(f"  Estimated mix duration: ~{total_m}:{total_s:02d}")
+    lines.append(f"  Crossfade: {CF_BARS} bars per transition")
+    lines.append("└─────────────────────────────────────────────────────────┘")
+    lines.append("")
+    lines.append("⏸  Confirm to proceed with full mix.")
+    lines.append("   Send 'ok' / 'да' / 'go' to continue, or adjust config.")
+
+    return "\n".join(lines)
+
 def main():
     p = argparse.ArgumentParser(description="Mix + Analyze + Validate pipeline")
     p.add_argument("--config", help="Python config file with TRACKS list")
@@ -79,6 +178,10 @@ def main():
     p.add_argument("--no-validate", action="store_true", help="Skip validation step")
     p.add_argument("--strict", action="store_true", help="Strict validation thresholds")
     p.add_argument("--catbox", action="store_true", help="Upload to catbox when done")
+    p.add_argument("--preview-only", action="store_true",
+                   help="Stop after preview table (don't mix). Exit 4.")
+    p.add_argument("--no-preview", action="store_true",
+                   help="Skip preview confirmation (CI/auto runs only)")
     args = p.parse_args()
 
     config_path = args.config
@@ -125,6 +228,44 @@ def main():
         tracks, wav_dir, ann_dir = [], None, None
     else:
         p.error("No valid config found")
+
+    # ─── Step 0.75: Preview (MANDATORY unless --no-preview) ──────────
+    if not args.analyze_only and not getattr(args, 'no_preview', False):
+        print("\n" + "=" * 55)
+        print("  Step 0.75: Preview — Transitions Plan")
+        print("=" * 55)
+
+        preview = build_preview_table(tracks, wav_dir, ann_dir)
+        if preview:
+            print("\n" + preview)
+        else:
+            # Fallback: minimal text table
+            print("\n  Track order:")
+            for i, t in enumerate(tracks, 1):
+                print(f"    {i}. {t[0]}")
+            print("\n⏸  Confirm to proceed.")
+
+        # Save preview to file (for Telegram bot to pick up)
+        preview_path = os.path.join(SCRIPT_DIR, ".preview_pending.txt")
+        with open(preview_path, "w") as f:
+            f.write(preview or "Preview unavailable\n")
+            f.write(f"\nConfig: {config_path}\n")
+
+        if getattr(args, 'preview_only', False):
+            print(f"\n  Preview saved → {preview_path}")
+            print("  Run with --no-preview to skip confirmation and mix.")
+            sys.exit(4)
+
+        # CLI: interactive confirm
+        print()
+        try:
+            ans = input("  Proceed with full mix? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            ans = ""
+
+        if ans not in ("y", "yes", "да", "ok", "go"):
+            print("  Aborted. Adjust config and re-run.")
+            sys.exit(0)
 
     # ─── Step 0.5: Genre Detection ──────────────────────────────────
     if not args.skip_genre:

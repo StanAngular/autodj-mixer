@@ -18,6 +18,27 @@ GitHub: https://github.com/StanAngular/autodj-mixer
 
 ---
 
+## ⚠️ ОБЯЗАТЕЛЬНЫЕ ШАГИ (нарушать нельзя)
+
+Перед каждым миксом — оба агента (ClaudeClaw и Hermes) обязаны выполнить эти шаги по порядку:
+
+1. **Pre-analysis** — BPM + Camelot + оптимальный порядок треков
+2. **Preview** — отправить Стасу таблицу переходов (трек, BPM, таймкод) и **ждать подтверждения**
+3. **[Подтверждение]** — только после "ок" / "да" / "go" → полный микс
+4. **Analysis + Validate** — обязательно после микса
+5. **Upload** → Telegram или catbox
+
+**Запрещено:**
+- Запускать полный микс без preview и подтверждения пользователя
+- Пропускать анализ после микса
+- Делать `--no-preview` без явной просьбы пользователя
+
+**Флаги:**
+- `--preview-only` → остановиться после preview (exit 4), файл `.preview_pending.txt`
+- `--no-preview` → пропустить шаг подтверждения (только для автозапусков)
+
+---
+
 ## Core files (все в `/opt/autodj-mixer/`)
 
 | Файл | Назначение |
@@ -63,28 +84,31 @@ cd /opt/autodj-mixer
 ### Шаги pipeline
 
 ```
-Step 0: Gate 0 — source_check.py (WAV quality)
-Step 1: Pre-analysis — track_analyzer.py (BPM + key + sort + optimal exits)
-Step 2: Mix — smart_mixer.py
-Step 2.5: Preview — transitions_reel.py (отправить рил ~4 мин)
-  → Ждать одобрения пользователя
-  → Если ОК — продолжить, иначе — пересобрать с правками
-Step 3: Analysis — mix_analyzer.py --feedback
-Step 4: Gate — silence check (>2s → FAIL)
-Step 5: Gate — artefact check (>200 mixer → WARN)
-Step 6: Validate — mix_validator.py (pass/warn/fail verdict)
-Step 7: Upload — catbox (если --catbox)
+Step 0:    Gate 0 — source_check.py (WAV quality)
+Step 0.5:  Genre Detection — auto BPM range + bitrate
+Step 0.75: PREVIEW ← таблица переходов (трек, BPM, Camelot, таймкод)
+             → Отправить пользователю → ОБЯЗАТЕЛЬНО ЖДАТЬ "ок"/"да"/"go"
+             → --preview-only: останавливается здесь (exit 4)
+             → --no-preview: пропуск (только CI/auto запуски)
+Step 1:    Mix — smart_mixer.py  (только после подтверждения)
+Step 2:    Analysis — mix_analyzer.py --feedback
+Step 3:    Gate — silence check (>2s → FAIL)
+Step 4:    Gate — artefact check (>200 mixer → WARN)
+Step 5:    Validate — mix_validator.py (pass/warn/fail verdict)
+Step 6:    Upload — catbox (если --catbox)
+Step 7:    [Опционально] Transitions reel — transitions_reel.py (±15s вокруг CF)
 ```
 
 ### Preview-first workflow
 
 **Обязательный порядок при генерации миксов:**
-1. Сделать полный микс (smart_mixer.py)
-2. Создать transitions reel (transitions_reel.py ±15s вокруг каждого CF)
-3. Отправить рил пользователю (~4 мин вместо 20-40 мин)
-4. Подождать обратную связь/одобрение
-5. Если проблемы — исправить и пересобрать
-6. Только после "ОК" — отправить финальный микс целиком
+1. **Pre-analysis** — BPM + Camelot + оптимальный порядок
+2. **Preview** — отправить таблицу переходов (до начала микса!)
+3. **Ждать "ок"** от пользователя
+4. Полный микс → анализ → upload
+5. [Опц.] Transitions reel если пользователь хочет детально послушать переходы
+
+**Запрещено запускать полный микс без preview + подтверждения.**
 
 ---
 
