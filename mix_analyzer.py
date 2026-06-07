@@ -160,35 +160,73 @@ def detect_onsets_in_segment(mix_mono, t_start_s, t_end_s, sr=SR, hop=256):
     return times
 
 
-def compare_grid_to_onsets(expected_beats_s, actual_onsets_s, tolerance_frac=0.35):
+def compare_grid_to_onsets(expected_beats_s, actual_onsets_s, tolerance_frac=0.25):
     """
-    For each onset, find closest expected beat. Compute offset.
-    tolerance_frac: fraction of beat period to accept as match.
+    Compare expected beat grid to actual onsets. Returns:
+    - mean/std offset (ms)
+    - CMLc: longest continuous correctly-aligned segment (% of total)
+    - Cemgil: Gaussian-weighted accuracy score (0-1)
 
-    Returns dict with offset statistics in ms, or None.
+    tolerance_frac: 25% of beat period (madmom standard P-score tolerance).
     """
     if len(expected_beats_s) < 2 or len(actual_onsets_s) < 3:
         return None
     period = float(np.median(np.diff(expected_beats_s)))
     tol = period * tolerance_frac
 
-    offsets_ms = []
-    for onset in actual_onsets_s:
-        diffs = onset - expected_beats_s
-        idx = np.argmin(np.abs(diffs))
-        offset = float(diffs[idx])
-        if abs(offset) < tol:
-            offsets_ms.append(offset * 1000)
+    # Match each expected beat to closest onset
+    beat_offsets_ms = []   # offset per expected beat (None if no match)
+    beat_correct = []      # True/False per expected beat
+    cemgil_scores = []     # Gaussian weight per beat
+    sigma_ms = tol * 1000 * 0.8  # Gaussian sigma ~80% of tolerance window
 
-    if len(offsets_ms) < 3:
+    for eb in expected_beats_s:
+        diffs = actual_onsets_s - eb
+        idx = int(np.argmin(np.abs(diffs)))
+        offset = float(diffs[idx])
+        offset_ms = offset * 1000
+
+        # Cemgil: Gaussian weight regardless of tolerance
+        cemgil_scores.append(float(np.exp(-0.5 * (offset_ms / sigma_ms)**2)))
+
+        if abs(offset) < tol:
+            beat_offsets_ms.append(offset_ms)
+            beat_correct.append(True)
+        else:
+            beat_correct.append(False)
+
+    if len(beat_offsets_ms) < 3:
         return None
-    arr = np.array(offsets_ms)
+
+    arr = np.array(beat_offsets_ms)
+
+    # --- CMLc: longest continuous correct segment ---
+    max_run = 0
+    cur_run = 0
+    for c in beat_correct:
+        if c:
+            cur_run += 1
+            max_run = max(max_run, cur_run)
+        else:
+            cur_run = 0
+    cmlc = max_run / len(beat_correct) if beat_correct else 0.0
+
+    # --- Cemgil score: mean Gaussian weight ---
+    cemgil = float(np.mean(cemgil_scores)) if cemgil_scores else 0.0
+
+    # --- P-score: fraction of beats within tolerance ---
+    p_score = sum(beat_correct) / len(beat_correct) if beat_correct else 0.0
+
     return {
         'mean_ms': float(np.mean(arr)),
         'median_ms': float(np.median(arr)),
         'std_ms': float(np.std(arr)),
         'max_abs_ms': float(np.max(np.abs(arr))),
         'n_matched': len(arr),
+        'n_expected': len(expected_beats_s),
+        'p_score': round(p_score, 3),
+        'cmlc': round(cmlc, 3),
+        'cemgil': round(cemgil, 3),
         'flagged': abs(float(np.mean(arr))) > BEAT_DRIFT_WARN_MS,
     }
 
@@ -394,7 +432,10 @@ def analyze_mix(mix_path, stamps, ann_dir=None, track_map=None, verbose=True):
                 if cf_a:
                     print(f"          CF zone:  mean={cf_a['mean_ms']:+.1f}ms  "
                           f"std={cf_a['std_ms']:.1f}ms  "
-                          f"({cf_a['n_matched']} onsets matched)")
+                          f"({cf_a['n_matched']}/{cf_a['n_expected']} beats)")
+                    print(f"          Scores:   P={cf_a['p_score']:.0%}  "
+                          f"CMLc={cf_a['cmlc']:.0%}  "
+                          f"Cemgil={cf_a['cemgil']:.3f}")
                 post_a = finding.get('post_alignment')
                 if post_a:
                     print(f"          Post-CF:  mean={post_a['mean_ms']:+.1f}ms  "
@@ -436,6 +477,19 @@ def analyze_mix(mix_path, stamps, ann_dir=None, track_map=None, verbose=True):
         print(f"    Max |offset|: {np.max(np.abs(offsets)):.1f}ms")
         print(f"    Mean offset:  {np.mean(offsets):+.1f}ms")
         print(f"    Pass (<{BEAT_DRIFT_WARN_MS:.0f}ms): {ok_n}/{len(offsets)}")
+
+        # CMLc and Cemgil averages
+        cmlc_vals = [r['cf_alignment']['cmlc'] for r in results
+                     if r.get('cf_alignment') and 'cmlc' in r['cf_alignment']]
+        cemgil_vals = [r['cf_alignment']['cemgil'] for r in results
+                       if r.get('cf_alignment') and 'cemgil' in r['cf_alignment']]
+        p_vals = [r['cf_alignment']['p_score'] for r in results
+                  if r.get('cf_alignment') and 'p_score' in r['cf_alignment']]
+        if cmlc_vals:
+            print(f"\n  Quality scores (mean across transitions):")
+            print(f"    P-score:  {np.mean(p_vals):.0%}  (beats within 25% tolerance)")
+            print(f"    CMLc:     {np.mean(cmlc_vals):.0%}  (longest correct segment)")
+            print(f"    Cemgil:   {np.mean(cemgil_vals):.3f}  (Gaussian accuracy 0-1)")
     else:
         print(f"  Beat alignment: N/A (provide --ann-dir and --config)")
 
