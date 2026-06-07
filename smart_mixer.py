@@ -1094,7 +1094,9 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
     dur = len(mix) / sr
     print(f"Total mix duration: {int(dur // 60)}:{int(dur % 60):02d}")
 
-    wav_out = output_mp3.replace('.mp3', '.wav')
+    wav_out = os.path.splitext(output_mp3)[0] + '.wav'
+    if os.path.abspath(wav_out) == os.path.abspath(output_mp3):
+        wav_out += '_master.wav'
     print("Exporting WAV...")
     sf.write(wav_out, mix, sr, subtype="PCM_24")
 

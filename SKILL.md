@@ -376,3 +376,70 @@ print(f'{len(db)} → {len(dbf)}')  # должно быть одинаково
 ```
 
 Год указывать после названия трека (например `Gamgi_2023`). Camelot: SAME(1.0), ADJ(0.9), REL(0.8), POOR(<0.6).
+
+---
+
+## AI-переходы через ACE-Step Repaint (опционально)
+
+**Когда использовать:** старый crossfade не справляется (слышны швы, плохая Camelot, разный BPM).  
+**Гибридный режим:** одни треки в сете — через AI, другие — через старый crossfade. `--transitions-dir` сам решает: есть файл `tr_X_to_Y.wav` → AI, нет → старый метод.
+
+### Пайплайн (пошагово)
+
+```
+track_a ─[16 bars tail]──┐
+                          ├── combined.wav ──► ACE-Step Repaint ──► transition_result.wav
+track_b ─[16 bars head]──┘       ↑                    ↑
+                           concat встык    repaint_start/end
+                                           (4 bars отступ от стыка)
+                                           ↓
+                                    final_transition.wav
+                                           ↓
+                              smart_mixer.py --transitions-dir
+                              [Garden]─[2bar]─[AI]─[2bar]─[Fever]
+```
+
+### Использование
+
+```bash
+# Шаг 1: определить точки выхода/входа (из smart_mixer или track_analyzer)
+# exit_bar=128, entry_bar=75 — берём из вывода mixer
+
+# Шаг 2: сгенерировать AI-переход через repaint
+cd ~/ACE-Step-1.5
+uv run python3 /opt/autodj-mixer/repaint_transition.py \
+  --track-a "/opt/autodj-mixer/tracks/TrackA.wav" \
+  --track-b "/opt/autodj-mixer/tracks/TrackB.wav" \
+  --ann-a "/opt/autodj-mixer/ann/TrackA.txt" \
+  --ann-b "/opt/autodj-mixer/ann/TrackB.txt" \
+  --exit-bar 128 --entry-bar 75 \
+  --bpm 122 \
+  --style "melodic house, deep house" \
+  --steps 40 --guidance 7.0 --seed 42 \
+  --output "/tmp/ai_transitions/tr0_TrackA_to_TrackB.wav"
+
+# Шаг 3: собрать микс (гибрид — остальные треки через старый crossfade)
+cd /opt/autodj-mixer
+.venv/bin/python smart_mixer.py \
+  --config mix_config.py \
+  --style "House" \
+  --transitions-dir /tmp/ai_transitions
+```
+
+### Параметры repaint_transition.py
+
+| Флаг | По умолч. | Описание |
+|------|-----------|----------|
+| `--bars` | 16 | Тактов хвоста A / головы B |
+| `--offset-bars` | 4 | Отступ от стыка для контекста (чем больше — тем плавнее) |
+| `--steps` | 40 | Шагов диффузии (20=быстро, 40=хорошо, 60=максимум) |
+| `--guidance` | 7.0 | CFG scale (6-8 оптимум для инструментала) |
+| `--seed` | 42 | Фиксированный seed для воспроизводимости |
+
+### Известные ограничения
+
+- **CPU Contabo:** ~10-15 мин на один переход (40 steps, 16 bars)
+- **Зона repaint:** 8 тактов (15.7s) — чистого AI ~12s после вычета 2-bar blend
+- **Память:** нужен swap 12GB (установлен)
+- **Качество:** при 40 steps результат адекватный. Для критичных переходов — 60 steps
+- **Гибрид:** `--transitions-dir` поддерживает частичное применение — только те пары треков для которых есть WAV-файлы
