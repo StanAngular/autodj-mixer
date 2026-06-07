@@ -66,12 +66,25 @@ cd /opt/autodj-mixer
 Step 0: Gate 0 — source_check.py (WAV quality)
 Step 1: Pre-analysis — track_analyzer.py (BPM + key + sort + optimal exits)
 Step 2: Mix — smart_mixer.py
+Step 2.5: Preview — transitions_reel.py (отправить рил ~4 мин)
+  → Ждать одобрения пользователя
+  → Если ОК — продолжить, иначе — пересобрать с правками
 Step 3: Analysis — mix_analyzer.py --feedback
 Step 4: Gate — silence check (>2s → FAIL)
 Step 5: Gate — artefact check (>200 mixer → WARN)
 Step 6: Validate — mix_validator.py (pass/warn/fail verdict)
 Step 7: Upload — catbox (если --catbox)
 ```
+
+### Preview-first workflow
+
+**Обязательный порядок при генерации миксов:**
+1. Сделать полный микс (smart_mixer.py)
+2. Создать transitions reel (transitions_reel.py ±15s вокруг каждого CF)
+3. Отправить рил пользователю (~4 мин вместо 20-40 мин)
+4. Подождать обратную связь/одобрение
+5. Если проблемы — исправить и пересобрать
+6. Только после "ОК" — отправить финальный микс целиком
 
 ---
 
@@ -103,17 +116,23 @@ Step 7: Upload — catbox (если --catbox)
 
 ### Core algorithms
 
-- **LR4 3-band crossover** (150Hz / 3000Hz) — бас своп (никаких двух киков одновременно)
+- **LR4 3-band crossover** (150Hz / 3000Hz) — бас своп первые 2 бара (никаких двух киков)
 - **Bar-by-bar warp** — pyrubberband, устраняет phase drift на 16 барах
-- **Downbeat-weighted onset micro-align** (±50ms, FFT cross-correlation)
+- **Downbeat-weighted onset micro-align** (±50ms, hop=32, FFT cross-correlation)
 - **BPM ramp-back** — 15s линейная интерполяция после кроссфейда
 - **Seamless blend-to-ramp** — 20ms crossfade между LR4 и ramp (CF_BARS+2 = 17 баров)
 - **Bass polarity** — 5-точечный weighted consensus + kick band (60-120Hz)
 - **RMS stabilizer** — компенсация bass cancellation dips на LOW band
 - **Camelot** — chroma CQT + Krumhansl-Schmuckler
-- **Per-bar re-alignment** — 8×2-bar chunks, cumulative drift correction
-- **Pre-warp phase alignment** — ±100ms alignment первого downbeat ДО warp
-- **Adaptive sub crossfade** — 5 bars для sub band (вместо 16)
+- **LUFS normalization** — все треки к -14 LUFS при загрузке (pyln)
+- **best_exit_bar** — ±1-2 phrases, предпочитает QUIET/BUILD (по запросу)
+- **first_soft_entry** — вход с BUILD секции (плавнее чем с DROP)
+- **Vocal overlap avoidance** — ZCR+спектр 1-4kHz, сдвиг slave entry если оба трека поют
+- **Section detection** — QUIET/BUILD/ACTIVE/DROP по RMS + bass ratio
+
+### REMOVED (v3 fix)
+- ~~Per-bar re-alignment~~ — создавал discontinuities на chunk boundaries
+- ~~Pre-warp phase alignment~~ — баг: удалял s_db[0]=0 при pre_shift>0
 
 ### Configurable params (`mix_config.py`)
 
