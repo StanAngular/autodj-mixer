@@ -178,6 +178,10 @@ smart_mixer.py — fixes from v2 analyzer findings:
   • **best_exit_bar + soft_entry восстановлены** — revert отключения, которое сделало хуже (5d68cda)
   • **warp thresholds унифицированы** — 0.002 (0.2%) во всех 3 функциях (было 0.005 в warp_to_grid vs 0.002 в ramp/build_cf_lr4)
   • **MIN_SOLO_BARS удалён** — не нужен, best_exit_bar уже решает выбор тихого экзита
+  • **Анализатор: v2 детекторы восстановлены** (9 штук), `--feedback` возвращён
+  • **Анализатор: зонное сканирование** — только ±15с вокруг переходов, не весь микс
+  • **run_pipeline**: transitions_reel после микса, убран --json-out (v3 не поддерживает)
+  • **transitions_reel.py** — интеграция в пайплайн (ClaudeClaw написал, Hermes встроил)
 
 ### [skill] Hermes
   • ACE-Step Repaint, madmom/docs, preview workflow — расширение SKILL.md

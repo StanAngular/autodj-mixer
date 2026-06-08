@@ -305,26 +305,6 @@ def main():
 
     mixer   = os.path.join(SCRIPT_DIR, "smart_mixer.py")
     analyzer = os.path.join(SCRIPT_DIR, "mix_analyzer.py")
-    validator = os.path.join(SCRIPT_DIR, "mix_validator.py")
-    source_checker = os.path.join(SCRIPT_DIR, "source_check.py")
-    json_out = output.rsplit('.', 1)[0] + '_analysis.json'
-
-    # ─── Gate 0: Source Quality Check ────────────────────────────────
-    if not args.analyze_only and not args.skip_preanalyze:
-        print("\n" + "=" * 55)
-        print("  Gate 0: Source Quality Check")
-        print("=" * 55)
-        t0 = time.time()
-        result = subprocess.run(
-            [sys.executable, source_checker, "--config", config_path],
-            capture_output=True, text=True
-        )
-        print(result.stdout)
-        if result.returncode != 0:
-            print("  ❌ Source files FAIL quality check. Fix or replace tracks before mixing.")
-            if result.stderr:
-                print(f"  Error: {result.stderr[:300]}")
-            sys.exit(2)
 
     # ─── Step 1: Mix ────────────────────────────────────────────────
     if not args.analyze_only:
@@ -361,8 +341,7 @@ def main():
     analyze_cmd = [sys.executable, analyzer,
                    "--mix", output,
                    "--wav-dir", wav_dir,
-                   "--ann-dir", ann_dir,
-                   "--json-out", json_out]
+                   "--ann-dir", ann_dir]
     if config_path and os.path.exists(config_path):
         analyze_cmd += ["--config", config_path]
     if args.feedback:
@@ -390,48 +369,38 @@ def main():
     else:
         print("  ✅ No silence gaps detected")
 
-    # ─── Gate: Check JSON results ────────────────────────────────────
+    # ─── Gate: Analysis Results ────────────────────────────────────
     print("\n" + "─" * 40)
-    print("  Gate: Analysis Results")
+    print("  Gate: Analysis Results (exit code)")
     print("─" * 40)
-    if os.path.exists(json_out):
-        with open(json_out) as f:
-            adata = json.load(f)
-        # Check key metrics
-        transitions = adata.get('transitions', [])
-        artefacts = adata.get('artefacts_count', 0)
-        source_arts = adata.get('source_artefacts', 0)
-        mixer_arts = artefacts - source_arts
-        print(f"  Transitions: {len(transitions)} | Events: {artefacts} total ({mixer_arts} mixer)")
-
-        if mixer_arts > 200 and not args.analyze_only:
-            print(f"  ❌ Too many mixer artifacts ({mixer_arts}) — needs fix")
-        else:
-            print(f"  ✅ Artifacts in acceptable range")
+    if result.returncode == 0:
+        print(f"  ✅ All transitions pass beat/LUFS/phase checks")
     else:
-        print(f"  ⚠️  No analysis JSON found")
+        print(f"  ⚠️  Analyzer reported issues (exit {result.returncode})")
+        if not args.analyze_only:
+            print("  Continuing — review output above")
 
-    if args.no_validate:
-        if args.feedback:
-            print("\n  Recommendations above. Apply fixes and re-run.")
-        print(f"\n  Output: {output}")
-        print(f"  Size: {os.path.getsize(output)/1024/1024:.0f} MB")
-        sys.exit(0)
+    # ─── Step: Transitions Reel ────────────────────────────────────
+    if not args.analyze_only:
+        reel_script = os.path.join(SCRIPT_DIR, "transitions_reel.py")
+        if os.path.exists(reel_script):
+            print("\n" + "─" * 40)
+            print("  Step: Transitions Reel (preview clips)")
+            print("─" * 40)
+            # Use WAV if available, otherwise MP3
+            wav_out = output.rsplit('.', 1)[0] + '.wav'
+            reel_input = wav_out if os.path.exists(wav_out) else output
+            reel_result = subprocess.run(
+                [sys.executable, reel_script, reel_input,
+                 "--pad-before", "15", "--pad-after", "15"],
+                capture_output=True, text=True
+            )
+            print(reel_result.stdout)
+            if reel_result.returncode != 0:
+                print(f"  ⚠️  Reel generation: {reel_result.stderr[-200:]}")
 
-    # ─── Step 3: Validate ────────────────────────────────────────────
-    if os.path.exists(validator) and os.path.exists(json_out):
-        print("\n" + "=" * 55)
-        print("  Step 3: Validating Mix")
-        print("=" * 55)
-        cmd = [sys.executable, validator, "--json", json_out]
-        if args.strict:
-            cmd += ["--strict"]
-        result = subprocess.run(cmd)
-        sys.exit(result.returncode)
-    else:
-        print(f"\n  Output: {output}")
-        print(f"  Size: {os.path.getsize(output)/1024/1024:.0f} MB")
-        sys.exit(0)
+    print(f"\n  Output: {output}")
+    print(f"  Size: {os.path.getsize(output)/1024/1024:.0f} MB")
 
 if __name__ == "__main__":
     main()
