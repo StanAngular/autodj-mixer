@@ -352,10 +352,403 @@ def analyze_transition(mix_mono, sr, t_cf, cf_dur, master_db, slave_db,
 
 
 # ============================================================
+# Artefact detection (v2 detectors, restored)
+# ============================================================
+
+def detect_mix_artefacts(mono, sr, stamps=None):
+    """
+    v2 artefact detection with fixed thresholds.
+
+    Detects: stutter, speed_glitch, transient_spike, hf_noise,
+    spectral_discontinuity, onset_stability, rms_dip, harsh_endpoint,
+    boundary_glitch, beat_irregularity, band_cancellation.
+    """
+    artefacts = []
+
+    # ── 1. Stutter detection (difference-based, 20ms windows) ──────
+    win_st = int(0.020 * sr)
+    n_st = len(mono) // win_st
+    consecutive_st = 0
+    for i in range(1, n_st):
+        a = mono[(i-1)*win_st:i*win_st]
+        b = mono[i*win_st:(i+1)*win_st]
+        if len(a) != len(b):
+            continue
+        a_rms = np.sqrt(np.mean(a**2)) + 1e-12
+        if a_rms < 0.001:
+            consecutive_st = 0
+            continue
+        diff_rms = np.sqrt(np.mean((a - b)**2))
+        diff_ratio = diff_rms / a_rms
+        if diff_ratio < 0.001:
+            consecutive_st += 1
+            if consecutive_st >= 3:
+                artefacts.append({
+                    't': i*win_st/sr, 'type': 'stutter',
+                    'severity': 'high' if diff_ratio < 0.0001 else 'mid',
+                    'detail': f'diff_ratio={diff_ratio:.5f} dur={consecutive_st*20}ms'
+                })
+        else:
+            consecutive_st = 0
+
+    # ── 2. Speed glitch (20% threshold, 30s ramp zone) ───────────────
+    hop_bpm = int(0.5 * sr)
+    win_bpm = int(4 * sr)
+    n_bpm = max(1, (len(mono) - win_bpm) // hop_bpm)
+    lb = []
+    for i in range(n_bpm):
+        s = i * hop_bpm
+        e = s + win_bpm
+        if e > len(mono):
+            break
+        seg = mono[s:e].astype(np.float32)
+        if np.max(np.abs(seg)) < 0.001:
+            lb.append(0)
+            continue
+        oe = librosa.onset.onset_strength(y=seg, sr=sr, hop_length=256)
+        tb = librosa.beat.tempo(onset_envelope=oe, sr=sr, hop_length=256)
+        lb.append(float(tb[0]) if len(tb) and tb[0] > 0 else 0)
+    lb = np.array(lb)
+    valid_bpm = lb[lb > 0]
+    if len(valid_bpm) > 0:
+        mb = np.median(valid_bpm)
+        lb_clamped = np.where((lb > mb * 0.7) & (lb < mb * 1.3), lb, mb)
+        for j in range(len(lb_clamped) - 1):
+            if lb_clamped[j] <= 0 or lb_clamped[j+1] <= 0:
+                continue
+            jump_pct = abs(lb_clamped[j+1] - lb_clamped[j]) / mb
+            if jump_pct > 0.20:
+                t_glitch = j * hop_bpm / sr
+                if stamps:
+                    in_ramp = False
+                    for s in stamps:
+                        ramp_start = s['t']
+                        ramp_end = s['t'] + 30
+                        if ramp_start <= t_glitch <= ramp_end:
+                            in_ramp = True
+                            break
+                    if in_ramp:
+                        continue
+                artefacts.append({'t': t_glitch, 'type': 'speed_glitch',
+                                  'severity': 'high' if jump_pct > 0.35 else 'mid',
+                                  'detail': f'bpm_jump={lb[j]:.1f}→{lb[j+1]:.1f}'})
+
+    # ── 3. Transient spike ───────────────────────────────────────────────
+    hop_cr = int(0.1 * sr)
+    n_cr = len(mono) // hop_cr
+    crest = np.array([
+        np.max(np.abs(mono[i*hop_cr:(i+1)*hop_cr])) /
+        (np.sqrt(np.mean(mono[i*hop_cr:(i+1)*hop_cr]**2)) + 1e-12)
+        for i in range(n_cr)
+    ])
+    cm = np.median(crest)
+    for s in np.where(crest > cm * 5)[0]:
+        artefacts.append({'t': s*hop_cr/sr, 'type': 'transient_spike',
+                          'severity': 'high' if crest[s] > cm * 10 else 'mid',
+                          'detail': f'crest={crest[s]:.1f}x median'})
+
+    # ── 4. HF noise (absolute + relative threshold) ──────────────────
+    b_hp, a_hp = sig.butter(2, 16000.0 / (0.5 * sr), btype='high')
+    hf = sig.filtfilt(b_hp, a_hp, mono)
+    hop_hf = int(0.15 * sr)
+    n_hf = len(mono) // hop_hf
+    hf_e = np.array([
+        np.sqrt(np.mean(hf[i*hop_hf:(i+1)*hop_hf]**2))
+        for i in range(n_hf)
+    ])
+    hm = np.median(hf_e)
+    abs_thresh = 0.01  # -40dBFS
+    rel_thresh = hm * 10
+    for h in range(len(hf_e)):
+        if hf_e[h] > rel_thresh and hf_e[h] > abs_thresh:
+            artefacts.append({'t': h*hop_hf/sr, 'type': 'hf_noise',
+                              'severity': 'high' if hf_e[h] > hm * 20 else 'mid',
+                              'detail': f'hf_energy={hf_e[h]:.6f}'})
+
+    # ── 5. Spectral discontinuity (12x median) ───────────────────────
+    hop_sf = int(0.1 * sr)
+    n_sf = max(1, len(mono) // hop_sf)
+    sf_arr = np.zeros(n_sf - 1)
+    for i in range(n_sf - 1):
+        a = mono[i*hop_sf:(i+1)*hop_sf]
+        b = mono[(i+1)*hop_sf:(i+2)*hop_sf]
+        if len(a) < 2 or len(b) < 2:
+            continue
+        sa = np.abs(np.fft.rfft(a))
+        sb = np.abs(np.fft.rfft(b))
+        sf_arr[i] = np.sqrt(np.mean((sa - sb)**2)) / (np.mean(sa) + 1e-12)
+    valid_sf = sf_arr[~np.isnan(sf_arr) & ~np.isinf(sf_arr)]
+    if len(valid_sf) > 0:
+        sm = np.median(valid_sf)
+        thr = sm * 12
+        for d in np.where(sf_arr > thr)[0]:
+            artefacts.append({'t': d*hop_sf/sr, 'type': 'spectral_discontinuity',
+                              'severity': 'high' if sf_arr[d] > sm * 20 else 'mid',
+                              'detail': f'flux={sf_arr[d]:.3f}x median'})
+
+    # ── 6. Onset stability within crossfade ──────────────────────────────
+    hop_oc = int(0.5 * sr)
+    win_oc = int(0.5 * sr)
+    n_oc = max(1, len(mono) // hop_oc - 1)
+    oe_full = librosa.onset.onset_strength(y=mono.astype(np.float32), sr=sr, hop_length=256)
+    for i in range(n_oc - 1):
+        t_oc = i * hop_oc / sr
+        in_cf = False
+        if stamps:
+            for s in stamps:
+                cf_start = s['t'] - 3
+                cf_end = s['t'] + s.get('dur', 30) + 3
+                if cf_start <= t_oc <= cf_end:
+                    in_cf = True
+                    break
+        if not in_cf:
+            continue
+        a = oe_full[i*hop_oc//256:(i+1)*hop_oc//256]
+        b = oe_full[(i+1)*hop_oc//256:(i+2)*hop_oc//256]
+        if len(a) < 3 or len(b) < 3:
+            continue
+        mn = min(len(a), len(b))
+        corr = np.corrcoef(a[:mn], b[:mn])[0, 1]
+        if corr < 0.3 and not (np.isnan(corr) or np.isinf(corr)):
+            artefacts.append({'t': t_oc, 'type': 'onset_stability',
+                              'severity': 'high' if corr < 0.15 else 'mid',
+                              'detail': f'onset_corr={corr:.3f}'})
+
+    # ── 7. RMS dip within crossfade ─────────────────────────────────
+    hop_dip = int(0.1 * sr)
+    n_dip = max(1, len(mono) // hop_dip)
+    rms_dip = np.array([
+        np.sqrt(np.mean(mono[i*hop_dip:(i+1)*hop_dip]**2))
+        for i in range(n_dip)
+    ])
+    med_dip = np.median(rms_dip)
+    for i in range(2, n_dip - 2):
+        t_dip = i * hop_dip / sr
+        in_cf = False
+        if stamps:
+            for s in stamps:
+                cf_start = s['t'] - 2
+                cf_end = s['t'] + s.get('dur', 30) + 5
+                if cf_start <= t_dip <= cf_end:
+                    in_cf = True
+                    break
+        if not in_cf:
+            continue
+        local_med = np.median(rms_dip[max(0, i-2):i+3])
+        if rms_dip[i] < med_dip * 0.5 and rms_dip[i] < local_med * 0.5:
+            artefacts.append({'t': i*hop_dip/sr, 'type': 'rms_dip',
+                              'severity': 'high' if rms_dip[i] < med_dip * 0.3 else 'mid',
+                              'detail': f'rms={rms_dip[i]:.4f} (med={med_dip:.4f})'})
+
+    # ── 8. Harsh endpoint ────────────────────────────────────────────────
+    if stamps and len(valid_sf) > 0:
+        sm = np.median(valid_sf)
+        for s in stamps:
+            t_end = s['t'] + s.get('dur', 16 * 240.0 / 120)
+            s_frame = int(t_end * sr)
+            if s_frame + hop_sf * 2 >= len(mono):
+                continue
+            pre = mono[s_frame - hop_sf:s_frame]
+            post = mono[s_frame:s_frame + hop_sf]
+            if len(pre) < 2 or len(post) < 2:
+                continue
+            sp = np.abs(np.fft.rfft(pre))
+            sp2 = np.abs(np.fft.rfft(post))
+            endpoint_flux = np.sqrt(np.mean((sp - sp2)**2)) / (np.mean(sp) + 1e-12)
+            if endpoint_flux > sm * 3:
+                artefacts.append({'t': t_end, 'type': 'harsh_endpoint',
+                                  'severity': 'high' if endpoint_flux > sm * 5 else 'mid',
+                                  'detail': f'endpoint_flux={endpoint_flux:.3f}x median'})
+
+    # ── 8b. Blend→ramp boundary glitch ──────────────────────────────────
+    if stamps:
+        hop_ms = int(0.001 * sr)
+        for s in stamps:
+            t_end = s['t'] + s.get('dur', 16 * 240.0 / 120)
+            s_frame = int(t_end * sr)
+            win_pre = int(0.050 * sr)
+            win_post = int(0.050 * sr)
+            if s_frame - win_pre < 0 or s_frame + win_post >= len(mono):
+                continue
+            boundary = mono[s_frame - win_pre:s_frame + win_post]
+            rms_env = np.array([
+                np.sqrt(np.mean(boundary[i:i+hop_ms]**2))
+                for i in range(0, len(boundary) - hop_ms, hop_ms)
+            ])
+            if len(rms_env) < 10:
+                continue
+            rms_smooth = sig.medfilt(rms_env, kernel_size=3)
+            center_idx = len(rms_smooth) // 2
+            left_med = np.median(rms_smooth[max(0, center_idx-5):center_idx])
+            right_med = np.median(rms_smooth[center_idx:min(len(rms_smooth), center_idx+5)])
+            boundary_peak = np.max(rms_smooth[center_idx-2:center_idx+3])
+            spike_ratio = boundary_peak / (max(left_med, right_med) + 1e-12)
+            if spike_ratio > 1.8:
+                artefacts.append({'t': t_end, 'type': 'boundary_glitch',
+                                  'severity': 'high' if spike_ratio > 3.0 else 'mid',
+                                  'detail': f'spike={spike_ratio:.1f}x at blend→ramp boundary'})
+            env_grad = np.abs(np.diff(rms_smooth))
+            max_grad = np.max(env_grad[center_idx-3:center_idx+3]) if center_idx+3 < len(env_grad) else 0
+            med_grad = np.median(env_grad) + 1e-12
+            if max_grad > med_grad * 5:
+                artefacts.append({'t': t_end, 'type': 'boundary_glitch',
+                                  'severity': 'mid',
+                                  'detail': f'gradient_spike={max_grad/med_grad:.1f}x at boundary'})
+
+    # ── 8c. Beat confusion (short-term arrhythmia in crossfade zone) ─────
+    if stamps:
+        hop_ir = int(0.050 * sr)
+        oe_full = librosa.onset.onset_strength(y=mono.astype(np.float32), sr=sr, hop_length=hop_ir)
+        for s in stamps:
+            t_start_ir = s['t']
+            t_dur_ir = s.get('dur', 30)
+            s_frame = int(max(0, t_start_ir - 1) * sr / hop_ir)
+            e_frame = int(min(t_start_ir + t_dur_ir + 2, len(mono)/sr) * sr / hop_ir)
+            if e_frame - s_frame < 20:
+                continue
+            seg_oe = oe_full[s_frame:e_frame]
+            if np.max(seg_oe) < 0.001:
+                continue
+            thr = max(np.median(seg_oe) * 3, np.mean(seg_oe) * 1.5)
+            peaks, _ = sig.find_peaks(seg_oe, height=thr, distance=2)
+            if len(peaks) < 4:
+                continue
+            peak_times = (s_frame + peaks) * hop_ir / sr
+            iois = np.diff(peak_times)
+            if len(iois) < 3:
+                continue
+            for i in range(len(iois)):
+                local_med = float(np.median(iois[max(0,i-2):i+3]))
+                if local_med < 0.05:
+                    continue
+                ratio = iois[i] / local_med
+                if ratio > 2.0 or ratio < 0.4:
+                    artefacts.append({
+                        't': peak_times[i],
+                        'type': 'beat_irregularity',
+                        'severity': 'high' if ratio > 3.0 or ratio < 0.25 else 'mid',
+                        'detail': f'ioi_ratio={ratio:.2f} ({iois[i]:.3f}s vs med {local_med:.3f}s)'
+                    })
+
+    # ── 9. Per-band phase cancellation ────────────────────────────────────
+    if stamps and len(stamps) > 0:
+        for s in stamps:
+            t_start = s['t']
+            if t_start < 2.0:
+                continue
+            t_dur = s.get('dur', 30)
+            s_frame = int(t_start * sr)
+            e_frame = int(min(t_start + t_dur, len(mono)/sr) * sr)
+            if e_frame - s_frame < sr:
+                continue
+            zone = mono[s_frame:e_frame]
+            if len(zone) < sr:
+                continue
+            n_fft = 1024
+            hop = 256
+            S = np.abs(librosa.stft(zone.astype(np.float32), n_fft=n_fft, hop_length=hop))
+            freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+            bands = [(20, 60), (60, 120), (120, 500), (500, 2000), (2000, 8000)]
+            for f_low, f_high in bands:
+                mask = (freqs >= f_low) & (freqs <= f_high)
+                if not np.any(mask):
+                    continue
+                band_mag = np.sqrt(np.mean(np.abs(S[mask])**2, axis=0))
+                band_smooth = sig.medfilt(band_mag, kernel_size=5)
+                local_med = np.array([
+                    np.median(band_smooth[max(0, i-5):i+6])
+                    for i in range(len(band_smooth))
+                ])
+                dip_ratio = band_smooth / (local_med + 1e-12)
+                deep_dips = np.where(dip_ratio < 0.5)[0]
+                if len(deep_dips) > 3:
+                    groups = np.split(deep_dips, np.where(np.diff(deep_dips) > 2)[0] + 1)
+                    for g in groups:
+                        if len(g) < 3:
+                            continue
+                        artefacts.append({
+                            't': t_start + g[0] * hop / sr,
+                            'type': 'band_cancellation',
+                            'severity': 'high' if np.min(dip_ratio[g]) < 0.3 else 'mid',
+                            'detail': f'{f_low}-{f_high}Hz dip_ratio={np.min(dip_ratio[g]):.2f} dur={len(g)*hop/sr*1000:.0f}ms'
+                        })
+
+    return artefacts
+
+
+def generate_feedback(transitions, mix_artefacts):
+    """Generate automated fix recommendations from analysis results."""
+    recs = []
+
+    # Beat alignment feedback (v3 format)
+    for tr in (transitions or []):
+        if tr is None:
+            continue
+        cf = tr.get('cf_alignment')
+        if cf:
+            if cf.get('std_ms', 0) > 15:
+                recs.append({'severity': 'high', 'parameter': 'warp_to_grid',
+                             'suggestion': f"Beat jitter {cf['std_ms']:.1f}ms in CF zone — check warp precision"})
+            if cf.get('p_score', 1.0) < 0.7:
+                recs.append({'severity': 'high', 'parameter': 'onset_micro_align',
+                             'suggestion': f"P-score {cf['p_score']:.0%} — beats drifting in crossfade"})
+        if abs(tr.get('lufs_jump_db', 0)) > 6.0:
+            recs.append({'severity': 'mid', 'parameter': 'norm_lufs',
+                         'suggestion': f"LUFS jump {tr['lufs_jump_db']:+.1f}dB — check exit/entry section choice"})
+
+    # Artefact-based feedback
+    mx = mix_artefacts
+
+    st = [a for a in mx if a['type'] == 'stutter']
+    if len(st) > 3:
+        recs.append({'severity': 'high', 'parameter': 'warp_to_grid(rate_threshold)',
+                     'suggestion': f"Reduce rate_threshold ({len(st)} stutters)"})
+
+    hf = [a for a in mx if a['type'] == 'hf_noise']
+    if len(hf) > 5:
+        recs.append({'severity': 'mid', 'parameter': 'ramp_to_native(ramp_sec)',
+                     'suggestion': f"Increase RAMP_SEC ({len(hf)} HF events)"})
+
+    sp = [a for a in mx if a['type'] == 'speed_glitch']
+    if sp:
+        recs.append({'severity': 'high', 'parameter': 'ramp_to_native(ramp_sec)',
+                     'suggestion': 'Ramp too aggressive — increase RAMP_SEC or skip for <1 BPM diff'})
+
+    rd = [a for a in mx if a['type'] == 'rms_dip']
+    if rd:
+        recs.append({'severity': 'high', 'parameter': 'build_cf_lr4(LR4_polarity)',
+                     'suggestion': f'{len(rd)} RMS dip events — phase cancellation in crossfade'})
+
+    bc = [a for a in mx if a['type'] == 'band_cancellation']
+    if bc:
+        recs.append({'severity': 'high', 'parameter': 'build_cf_lr4(phase_coherence)',
+                     'suggestion': f'{len(bc)} band cancellation events — sub/mid phase issues'})
+
+    bg = [a for a in mx if a['type'] == 'boundary_glitch']
+    if bg:
+        recs.append({'severity': 'high' if any(a['severity'] == 'high' for a in bg) else 'mid',
+                     'parameter': 'build_cf_lr4(boundary_blend)',
+                     'suggestion': f'{len(bg)} blend→ramp boundary glitch(es)'})
+
+    bi = [a for a in mx if a['type'] == 'beat_irregularity']
+    if bi:
+        recs.append({'severity': 'high' if any(a['severity'] == 'high' for a in bi) else 'mid',
+                     'parameter': 'warp_to_grid(pyrubberband_quality)',
+                     'suggestion': f'{len(bi)} beat irregularity event(s) — garbled warp bar'})
+
+    pk = [a for a in mx if a['type'] == 'transient_spike']
+    if len(pk) > 2:
+        recs.append({'severity': 'mid', 'parameter': 'mix_tracks(headroom_db)',
+                     'suggestion': f"Increase headroom ({len(pk)} spikes)"})
+
+    return recs
+
+
+# ============================================================
 # Full mix analysis
 # ============================================================
 
-def analyze_mix(mix_path, stamps, ann_dir=None, track_map=None, verbose=True):
+def analyze_mix(mix_path, stamps, ann_dir=None, track_map=None, verbose=True, feedback=False):
     """
     Analyze each transition independently.
 
@@ -509,7 +902,42 @@ def analyze_mix(mix_path, stamps, ann_dir=None, track_map=None, verbose=True):
         print(f"\n  ✓ All transitions pass.")
 
     print()
-    return {'results': results, 'issues': issues, 'offsets': offsets}
+    result = {'results': results, 'issues': issues, 'offsets': offsets}
+
+    # ── Artefact detection + feedback (v2 detectors) ────────────────
+    if feedback:
+        print(f"{'='*60}")
+        print(f"  ARTEFACT DETECTION (v2 detectors)")
+        print(f"{'='*60}\n")
+
+        artefacts = detect_mix_artefacts(mono, sr, stamps)
+        if artefacts:
+            by_type = {}
+            for a in artefacts:
+                by_type.setdefault(a['type'], []).append(a)
+            for t, items in sorted(by_type.items()):
+                high = sum(1 for a in items if a['severity'] == 'high')
+                mid = sum(1 for a in items if a['severity'] == 'mid')
+                print(f"  [{t}]  {len(items)} events ({high} high, {mid} mid)")
+                for a in items[:3]:
+                    print(f"    @ {_ts(a['t'])}  {a['detail']}")
+                if len(items) > 3:
+                    print(f"    ... and {len(items)-3} more")
+            print()
+        else:
+            print(f"  ✓ No artefacts detected.\n")
+
+        recs = generate_feedback(results, artefacts)
+        if recs:
+            print(f"  FEEDBACK — recommendations:")
+            for r in recs:
+                icon = "🔴" if r['severity'] == 'high' else "🟡"
+                print(f"    {icon} [{r['parameter']}] {r['suggestion']}")
+            print()
+        else:
+            print(f"  ✓ No recommendations.\n")
+
+    return result
 
 
 # ============================================================
@@ -526,6 +954,8 @@ def main():
     p.add_argument("--wav-dir", help="Source WAV directory (optional)")
     p.add_argument("--threshold", type=float, default=20.0,
                    help="Beat drift warning ms (default 20)")
+    p.add_argument("--feedback", action="store_true",
+                   help="Run artefact detection + recommendations")
     args = p.parse_args()
 
     global BEAT_DRIFT_WARN_MS
@@ -562,6 +992,7 @@ def main():
         ann_dir=ann_dir,
         track_map=track_map,
         verbose=True,
+        feedback=args.feedback,
     )
     sys.exit(0 if not result['issues'] else 1)
 
