@@ -1,200 +1,223 @@
 # AutoDJ Mixer
 
-AI-powered DJ mix engine. Takes audio tracks, analyzes BPM/structure via madmom, and builds a continuous mix with bar-aligned crossfades, LR4 bass swap, and BPM normalization.
+AI-powered DJ mix engine. Takes audio tracks, analyzes BPM/structure via madmom, builds a continuous mix with bar-aligned crossfades, LR4 bass swap, BPM normalization, and post-mix quality analysis.
 
-Developed by Hermes (signal processing, LR4 math, optimization) + ClaudeClaw (bar-by-bar warp, BPM ramp, integration).
+Developed by **Hermes** (signal processing, LR4 math, analyzer) + **ClaudeClaw** (bar-by-bar warp, pipeline, transition reel).
 
-## How it works
+---
 
-1. **Load** - FLAC/WAV/MP3 input, convert to 44.1kHz stereo WAV
-2. **Annotate** - madmom RNN beat/downbeat detection
-3. **Analyze** - BPM calculation, structural segmentation (QUIET/BUILD/ACTIVE/DROP)
-4. **Trim** - Cut intro silence and outro fade, keep active content
-5. **Normalize** - LUFS loudness normalization (-14 LUFS, 30s sample)
-6. **Mix** - 16-bar crossfades with LR4 3-band bass swap + bar-by-bar warp
-7. **Ramp** - 15s BPM ramp-back to native tempo after each transition
-8. **Export** - WAV intermediate, then MP3 at requested bitrate
+## Pipeline
 
-## Key algorithms
+```
+Step 0:      Pre-Analyze      → track_analyzer.py (BPM, key, Camelot, sections)
+Step 0.5:    Genre Detection   → genre_detector.py (auto-style + bitrate)
+Step 0.75:   Preview           → transitions table → user confirms
+Step 0.8:    Transitions Reel  → transitions_reel.py (preview clips)
+Step 1:      Mix               → smart_mixer.py (bar-by-bar warp + LR4)
+Step 2:      Analyze           → mix_analyzer.py (v3 beat grid + v2 detectors)
+Step 3:      Upload            → catbox.moe / litterbox (auto)
+```
 
-- **Linkwitz-Riley 4th-order 3-band crossover** (150Hz / 3000Hz splits). Mids + highs get equal-power crossfade (cos/sin). Lows get instant bass swap at crossfade center with 1.5-bar smoothing. No "bass mush" from two kicks overlapping.
+```bash
+# Full pipeline
+python3 run_pipeline.py --config mix_config.py --feedback
 
-- **Bar-by-bar warp** via pyrubberband. Each slave bar individually stretched to match master bar length. Eliminates phase drift across 16-bar crossfade zones.
+# Preview only (stops for confirmation)
+python3 run_pipeline.py --config mix_config.py --preview-only
 
-- **Onset micro-alignment** via FFT cross-correlation (scipy fftconvolve). O(N log N). Restricted to +/-50ms window since bars are already pre-aligned.
+# Mix + transitions reel + analysis
+python3 run_pipeline.py --config mix_config.py --feedback
+```
 
-- **BPM ramp-back** after crossfade. Linear interpolation from master BPM back to native over 15s. Prevents abrupt tempo jump at crossfade exit.
-
-- **Structural segmentation** for cue points. RMS energy + LR4 bass ratio per bar. Classifies bars as QUIET/BUILD/ACTIVE/DROP. Finds optimal exit (quiet_exit) and entry (first_active) points.
+---
 
 ## Quick start
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-# Also need: ffmpeg, rubberband-cli
+# 1. Download tracks from YouTube (Warp proxy)
+python3 yt_download.py "https://youtube.com/watch?v=..."
+# → Downloads MP3 → converts to WAV → generates madmom annotations
 
-# 1. Prepare WAV files
-mkdir wav annotations
-for f in *.flac; do ffmpeg -y -i "$f" -ar 44100 -ac 2 "wav/${f%.flac}.wav"; done
+# 2. Create a config file (mix_config.py):
+#    TRACKS = [(name, wav_file, ann_file), ...]
+#    WAV_DIR = "tracks"
+#    ANN_DIR = "ann"
 
-# 2. Generate beat annotations
-python3 scripts/generate_annotations.py --wav-dir wav --ann-dir annotations
-
-# 3. Find optimal track order (BPM + Camelot key compatibility)
-python3 scripts/analyze_order.py --wav-dir wav --ann-dir annotations
-
-# 4. Mix with style and author info!
-python3 smart_mixer.py --wav-dir wav --ann-dir annotations --style "Melodic House" --author "Hermes DJ"
-# Output: Melodic_House_Mix_2026-06-02.mp3 (auto-named)
+# 3. Mix!
+python3 run_pipeline.py --config mix_config.py --style "Melodic House" --author "Hermes"
 ```
 
-## CLI options
+---
+
+## Key features
+
+### Bar-by-bar warp (pyrubberband)
+Each slave bar individually stretched to match master bar length. Eliminates phase drift across 16-bar crossfade zones.
+
+### LR4 3-band crossover (150Hz / 3000Hz)
+Mids + highs get equal-power crossfade (cos/sin). Lows get instant bass swap at crossfade center with 1.5-bar smoothing. No "bass mush" from two kicks overlapping.
+
+### Onset micro-alignment (FFT cross-correlation)
+±50ms window via scipy fftconvolve. Pre-warp phase alignment on first 2 bars catches large downbeat shifts (up to -99ms).
+
+### Dynamic BPM ramp
+| BPM diff | Ramp duration | Effect |
+|----------|--------------|--------|
+| < 1.0    | skip | No artifacts |
+| 1–3      | ×2 (30s) | Imperceptible |
+| 3–8      | 15s | Default |
+| > 8      | ×0.7 (10.5s) | Fast |
+
+### Structural segmentation (QUIET/BUILD/ACTIVE/DROP)
+RMS energy + LR4 bass ratio per bar. `best_exit_bar()` picks quiet section near end. `soft_entry()` picks BUILD section at start.
+
+### Blend→ramp seamless bridge
+17th bar of warp saved as `warp_extra`, joined to ramp_result with 20ms crossfade. No endpoint drop, no micro-stutter.
+
+### Bass polarity (5-point weighted consensus)
+5 correlation points across crossfade + separate kick band (60-120Hz) check. Prevents phase cancellation.
+
+---
+
+## Mix Analyzer — v3 with v2 detectors
+
+`mix_analyzer.py` — post-mix quality diagnostics.
 
 ```bash
-python3 smart_mixer.py --wav-dir ./wav --ann-dir ./annotations [options]
+# Per-transition beat alignment (madmom)
+.venv/bin/python mix_analyzer.py --mix mix.mp3 --config mix_config.py
 
-Options:
-  --style STYLE    Genre/style name (e.g. "Melodic House", "Techno")
-                   → auto-generates filename: Melodic_House_Mix_2026-06-02.mp3
-  --author AUTHOR  DJ/artist name → embedded in MP3 metadata
-  --config FILE    Python config with TRACKS list (for custom order)
-  --output FILE    Output MP3 path (default: auto from --style + date)
-  --bitrate RATE   MP3 bitrate (default: 320k)
+# Full analysis: beat alignment + artefact detection + recommendations
+.venv/bin/python mix_analyzer.py --mix mix.mp3 --config mix_config.py --feedback
 ```
 
-## Camelot Wheel integration
+### Beat grid analysis (v3)
+- Uses **pre-computed madmom annotations** (NEVER re-runs madmom on mix)
+- Builds beat grid from last 32 beats before CF, extrapolates into CF zone
+- Compares expected vs actual onsets → **P-score**, **CMLc**, **Cemgil**
+- std 88-110ms (was 400ms in v2), BPM 124-128 (was 496)
 
-Each track is analyzed for musical key (chroma CQT + Krumhansl-Schmuckler) and mapped to the Camelot Wheel (24-key system). The mixer prints:
+### Artefact detection (v2 detectors, restored)
+| Detector | Method |
+|----------|--------|
+| Stutter | diff_ratio < 0.001, 20ms windows, 3+ consecutive → 0 false positives |
+| Speed glitch | BPM in 4s windows, 20% threshold, 30s ramp zone |
+| Transient spike | Crest factor per 100ms, >5x median |
+| HF noise | >16kHz, dual threshold (10x median AND -40dBFS) → 0 false positives |
+| Spectral discontinuity | Spectral flux, 12x median (was 5x) |
+| Boundary glitch | 1ms RMS envelope at blend→ramp endpoint |
+| Band cancellation | 5 bands (20-60 / 60-120 / 120-500 / 500-2000 / 2000-8000Hz) |
+| RMS dip | 100ms windows, <40% median, crossfade zones only |
+| Onset stability | Onset-envelope correlation within CF |
+| Beat irregularity | IOI ratio in onset peaks, >2× local median |
 
-- Per-track: BPM, Key (e.g. D maj), Camelot (e.g. 10B)
-- Per-transition: Camelot transition + compatibility label
-  - `SAME` (1.0) — same key
-  - `ADJ` (0.9) — adjacent on wheel
-  - `REL` (0.8) — relative major/minor
-  - `POOR` (0.3) — no direct harmonic relationship
+### Zone scanning (NEW)
+Only analyzes ±15s around each transition — 90-min mix analysis takes as long as 30-min.
+
+---
+
+## Transitions Reel
+
+`transitions_reel.py` — extract crossfade zones into a short review MP3.
+
+```bash
+python3 transitions_reel.py mix.wav --pad-before 15 --pad-after 15 --out reel.mp3
+# → 2-3 minute file with all transitions + tone separators
+```
+
+Integrated into pipeline — automatically generated after each mix.
+
+---
+
+## AI Transitions (ACE-Step Repaint)
+
+```bash
+# Generate AI transition between two tracks
+cd ~/ACE-Step-1.5 && uv run python3 /opt/autodj-mixer/repaint_transition.py \
+  --track-a track_a.wav --track-b track_b.wav \
+  --ann-a ann_a.txt --ann-b ann_b.txt \
+  --exit-bar 128 --entry-bar 75 \
+  --bpm 122 --style "melodic house" \
+  --steps 40 --guidance 7.0 --seed 42 \
+  --output /tmp/ai_transitions/tr0_A_to_B.wav
+
+# Use AI transitions in mix
+python3 smart_mixer.py --config mix_config.py --transitions-dir /tmp/ai_transitions/
+# Hybrid mode: AI if file exists, standard crossfade if not
+```
+
+See `/opt/autodj-mixer/SKILL.md` for full documentation.
+
+---
+
+## Key scripts
+
+| Script | Purpose |
+|--------|---------|
+| `smart_mixer.py` | DJ mix engine (bar-by-bar warp, LR4 crossover) |
+| `mix_analyzer.py` | Post-mix quality diagnostics (v3 + v2 detectors) |
+| `run_pipeline.py` | Full pipeline: pre-analyze → preview → mix → analyze → reel |
+| `track_analyzer.py` | Pre-analysis: BPM, key, Camelot, sections, optimal order |
+| `genre_detector.py` | Auto-style detection by BPM + spectral profile |
+| `yt_download.py` | YouTube download → WAV → madmom annotations (Warp proxy) |
+| `repaint_transition.py` | AI transition generation via ACE-Step 1.5 Repaint |
+| `transitions_reel.py` | Extract crossfade zones into short preview MP3 |
+| `mix_validator.py` | Threshold-based validation of analysis results |
+
+---
 
 ## Quality chain
 
 ```
 Source WAV (24-bit/44.1kHz)
   → float32 processing (lossless)
-  → LUFS normalization (full track)
+  → LUFS normalization (full track, -14 LUFS)
   → Warp + Crossover (float64→float32)
   → WAV PCM_24 master (archival quality)
   → MP3 320kbps (final delivery)
 ```
 
-The 24-bit WAV master is preserved alongside the MP3 output.
-
-## Analysis tools
-
-```bash
-# Analyze mix quality (spikes, RMS jumps, bass muffle, treble dropouts)
-python3 scripts/analyze_mix.py mix.mp3
-
-# Investigate a specific time zone
-python3 scripts/analyze_zone.py mix.mp3 22:00 23:10
-```
+---
 
 ## Configuration
 
-Edit constants at top of `smart_mixer.py`:
+Edit `mix_config.py`:
 
-| Constant | Default | Purpose |
-|----------|---------|---------|
-| SR | 44100 | Sample rate |
-| CF_BARS | 16 | Crossfade length in bars |
-| RAMP_SEC | 15 | BPM ramp-back duration |
-| TARGET_LUFS | -14.0 | Loudness normalization target |
-| BPM_DIFF_LIMIT | 0.08 | Max BPM diff ratio for crossfade (8%) |
+```python
+WAV_DIR = "/opt/autodj-mixer/tracks"
+ANN_DIR = "/opt/autodj-mixer/ann"
+TARGET_LUFS = -14.0
+MAX_SHIFT_SEC = 0.05
+# TRACKS = [(name, wav, ann), ...]
+```
 
-## System requirements
+CLI flags in `smart_mixer.py`:
+| Flag | Default | Effect |
+|------|---------|--------|
+| `--style` | None | Genre → auto-filename `{Style}_Mix_{date}.mp3` |
+| `--author` | None | MP3 artist tag |
+| `--bitrate` | 320k | MP3 bitrate |
+| `--use-quiet-exit` | False | Exit on QUIET section |
+| `--no-stabilizer` | False | Disable RMS stabilizer |
+| `--quick-test` | False | 2 tracks, 2-bar CF (2 min) |
+| `--transitions-dir` | None | AI transitions directory |
 
-- Python 3.8+
-- ffmpeg
-- rubberband-cli (for pyrubberband)
-- ~4GB RAM for 6 tracks
+---
 
 ## Version history
 
-| Version | Author | Changes |
-|---------|--------|---------|
-| v5b | ClaudeClaw | HPSS separation, equal-power fades, onset correlation |
-| v6 | Hermes | LR4 3-band crossover, bass swap, FFT correlation, fast LUFS |
-| v7 | ClaudeClaw+Hermes | Bar-by-bar warp, BPM ramp-back, micro-align +/-50ms |
-| v10 | Hermes | RMS stabilizer (full blend), power-law fades, downbeat-weighted alignment, exit phrase rounding, endpoint 500ms crossfade, bass polarity check, tail fade 2 bars, RAMP_MIN_RMS=0.08 quiet entry |
-| v11 | Hermes | HPSS only, endpoint crossfade replaced with gain-match, RMS stabilizer restricted to LOW band |
-| v12 | Hermes | Narrow RMS stabilizer + look-ahead gain, reverted LOW-band-only to full blend |
-| v13 | Hermes | **Seamless blend→ramp** — warp_extra (17th bar) saved and prepended to ramp_result. No more -9.6dB endpoint drops. Endpoint consistency: +2.3dB max spread |
-| v13+ | Hermes | Key detection (chroma CQT + Krumhansl-Schmuckler), Camelot wheel integration, PCM_24 export, full-track LUFS, RMS stabilizer anti-pumping (threshold 0.3, gain 1.3, kernel 3), auto-filename with style+date, MP3 metadata (title/artist) |
+| Version | Changes |
+|---------|---------|
+| **v14** | CHANGELOG overhaul. warp thresholds unified (0.002 everywhere). MIN_SOLO_BARS removed. v2 artefact detectors restored (9 types). `--feedback` returned. Zone scanning (±15s transitions only). transitions_reel integrated into pipeline. run_pipeline cleaned up (no --json-out). |
+| v13 | Seamless blend→ramp (warp_extra 17th bar). Pre-warp phase alignment. Chunk-0 per-bar fix. CF_BARS+2. ACE-Step Repaint pipeline. Preview step. CMLc/Cemgil/P-score metrics. |
+| v12 | Narrow RMS stabilizer + look-ahead gain. |
+| v11 | HPSS only, endpoint crossfade → gain-match. |
+| v10 | RMS stabilizer, power-law fades, downbeat-weighted alignment, bass polarity check. |
+| v7 | Bar-by-bar warp, BPM ramp-back, micro-align ±50ms. |
+| v6 | LR4 3-band crossover, bass swap, FFT correlation. |
+
+---
 
 ## License
 
 MIT
-
-
-## Mix Analyzer
-
-`mix_analyzer.py` — comprehensive post-mix quality diagnostics.
-
-```bash
-python3 mix_analyzer.py --mix /tmp/mix.mp3 --wav-dir ./wav --ann-dir ./annotations
-python3 mix_analyzer.py --mix /tmp/mix.mp3 --config mix_config.py --feedback
-```
-
-### 5-phase analysis pipeline
-
-| Phase | What | Details |
-|-------|------|---------|
-| 1. Source Analysis | Key (Camelot), BPM, source artefacts | Detects pre-existing glitches in originals |
-| 2. Transition Analysis | Beat drift, LUFS consistency, centroid shift | Each crossfade zone individually |
-| 3. Mix Artefact Scan | Stutter, speed glitch, transients, HF noise, spectral discontinuity | Full-mix sweep |
-| 4. Source vs Mixer | Cross-reference | Distinguishes source issues from mixer-induced |
-| 5. Feedback | Tuning recommendations | Concrete parameter suggestions |
-
-### Artefact types detected
-
-| Artefact | Detection method | Threshold |
-|----------|-----------------|-----------|
-| **Stutter** (repeated frame) | Auto-correlation of 50ms windows | corr > 0.999 |
-| **Speed glitch** | Local BPM in 4s windows | >15% jump |
-| **Transient spike** | Crest factor per 100ms | >5x median |
-| **HF noise** (rubberband artifacts) | Energy >16kHz | >8x median |
-| **Spectral discontinuity** | Spectral flux (FFT frame diff) | >5x median |
-| **Beat drift** | Onset cross-correlation on transition | >5ms flagged |
-
-### Feedback mode
-
-With `--feedback`, the analyzer outputs specific parameter changes:
-```
-🔴 [warp_to_grid(rate_threshold)] Reduce rate_threshold 0.002→0.001 (12 stutters)
-🟡 [ramp_to_native(ramp_sec)] Increase RAMP_SEC 15→20 (7 HF noise events)
-🟡 [build_cf_lr4(max_shift_sec)] Increase to 0.073 (drift=5.3ms)
-```
-
-## Pipeline
-
-`run_pipeline.py` — mix + analyze in one command.
-
-```bash
-# Full pipeline
-python3 run_pipeline.py --config mix_config.py
-
-# Analyze only (skip mixing)
-python3 run_pipeline.py --config mix_config.py --analyze-only
-
-# With feedback
-python3 run_pipeline.py --config mix_config.py --feedback
-```
-
-## Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `smart_mixer.py` | DJ mix engine (bar-by-bar warp, LR4 crossover) |
-| `mix_analyzer.py` | Post-mix quality diagnostics |
-| `run_pipeline.py` | Mix + analyze in one command |
-| `scripts/analyze_order.py` | Optimal track order (BPM, key, energy) |
-| `scripts/analyze_zone.py` | Detailed zone inspection (BPM trace, RMS) |
-| `scripts/generate_annotations.py` | madmom beat/downbeat annotation |
