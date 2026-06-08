@@ -447,7 +447,7 @@ def warp_to_grid(slave_audio, s_db, m_db, sr):
             continue
 
         rate = len(bar) / m_bar_len
-        if abs(rate - 1.0) > 0.005:  # skip stretch for tiny rate diff (was 0.002)
+        if abs(rate - 1.0) > 0.002:  # skip stretch for tiny rate diff
             warped = pyrb.time_stretch(bar, sr, rate).astype("float32")
         else:
             warped = bar.astype("float32")
@@ -894,6 +894,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         mode = 'hpss'
 
         exit_samp = int(cur['db'][min(exit_bar, len(cur['db']) - 1)])
+
         body = cur['audio'][cur_off:exit_samp]
         print(f"    Master exit bar {exit_bar} ({exit_samp / sr:.1f}s)  [{section_at_bar(cur['secs'], exit_bar)}]  mode={mode}")
 

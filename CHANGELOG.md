@@ -141,3 +141,46 @@ smart_mixer.py — fixes from v2 analyzer findings:
      CF_BARS+1 downbeats = CF_BARS bars = cf_len → warp_extra пуст
      Fix: CF_BARS+2 → 17 bars → реальный 1-bar bridge
   Результат: blend→ramp seamless True на всех переходах, начало сведений фазово выровнено
+
+## 2026-06-06..08
+
+### [analyzer] Hermes
+**mix_analyzer v3** — полный рефакторинг (d05b76b)
+  • Вместо детекции onset на mix-аудио — использует **pre-computed madmom аннотации**
+  • Beat-level grid (все 4 доли, не только downbeats) из последних 32 битов до CF
+  • Экстраполяция grid в зону кроссфейда, сравнение с реальными onsets
+  • std 88-110ms (было 400ms), BPM 124-128 (было 496)
+  • Beat alignment: 5/7 pass (было 3/7)
+  • CMLc, Cemgil, P-score метрики добавлены (1627410)
+
+### [pipeline] Hermes
+  • **track_analyzer.py** — пре-анализ треков (BPM, key, Camelot, секции), сортировка, вывод optimized_config.py (8a111fc)
+  • **genre_detector.py** + genre profiles (hard_techno, afro_house, jazz_downtempo) — авто-стиль по BPM + спектру (ab54939, f9e1a71)
+  • **run_pipeline.py** — preview step перед финальным миксом (fdf82d9)
+  • **mix_validator.py** — auto-validation с порогами качества (859dd98)
+  • **batch_annotate.py** — массовая генерация аннотаций (8a111fc)
+
+### [dl] Hermes
+  • **yt_download.py** — скачивание с ютуба через Warp proxy, конверт MP3→WAV, madmom downbeat-аннотации (57c107c)
+  • `--yt-urls` — интеграция Warp-скачки прямо в mixer (88c1757)
+  *В CHANGELOG до этого момента не было ни слова!*
+
+### [repaint] Hermes
+  • **repaint_transition.py** — ACE-Step Repaint pipeline: закрашивание середины склейки хвост+голова, бесшовные стыки (751a8eb)
+  • **mix_config_house.py** — конфиг для house-сета с AI-переходами (751a8eb)
+  • `--transitions-dir` — гибридный режим: AI если файл есть, crossfade если нет
+
+### [mixer] Hermes — fixes & cleanup
+  • **Vocal overlap avoidance** — has_vocals(), сдвиг slave entry на ±8/16 бар при вокальной конфликтной зоне (9d9c78e)
+  • **lufs_gain удалён** — треки уже нормализованы под -14 LUFS, per-section gain избыточен (f9f822f, 3a25ceb)
+  • **Same-BPM ramp** — динамический ramp duration: <1% diff → skip ramp, <3% → ×2 duration (f589392)
+  • **RAMP_MIN_RMS** — если entry RMS < порога, volume-only fade вместо BPM ramp
+  • **best_exit_bar + soft_entry восстановлены** — revert отключения, которое сделало хуже (5d68cda)
+  • **warp thresholds унифицированы** — 0.002 (0.2%) во всех 3 функциях (было 0.005 в warp_to_grid vs 0.002 в ramp/build_cf_lr4)
+  • **MIN_SOLO_BARS удалён** — не нужен, best_exit_bar уже решает выбор тихого экзита
+
+### [skill] Hermes
+  • ACE-Step Repaint, madmom/docs, preview workflow — расширение SKILL.md
+  • CLAUDE_SYNC.md — инструкция для ClaudeClaw по синхронизации SKILL.md (bc7df61)
+  • mixer tuning doc — references по всем исправлениям
+
