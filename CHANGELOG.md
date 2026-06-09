@@ -214,3 +214,22 @@ smart_mixer.py — fixes from v2 analyzer findings:
 ### [pipeline] Hermes — catalog integration
   • **yt_download.py** — после загрузки трек автоматически регистрируется в track_catalog через `register_in_catalog()`
 
+---
+
+## v16: Adaptive Style Engine
+
+### [mixer] Hermes — STYLE_PROFILES + Auto-Detection + Per-sample EQ
+  • **STYLE_PROFILES dict** — 4 профиля: downtempo (24/12-32, notch=-2dB, smooth_eq), house_tech (16/8-16, notch=-3.5dB, smooth_eq), hard_techno (8/4-12, notch=-1dB, stepped), pop_vocal (6/4-8, notch=-5dB, stepped)
+  • **get_style_profile()** — автоопределение стиля по BPM + vocal_ratio: <110 BPM → downtempo, >135 BPM → hard_techno, vocal_ratio>0.55 → pop_vocal, иначе house_tech
+  • **--cf-bars ручной приоритет** — если пользователь передал число (--cf-bars 16), профиль НЕ может его переопределить. Автоматика работает только в режиме 'auto'
+  • **resolve_cf_bars профильная** — в auto режиме использует default_cf/min_cf/max_cf из профиля для LONG/MEDIUM/DROP
+  • **Smooth EQ interpolation** — при smooth_eq=True: num_sweep_steps = max(256, len(audio)//128) (~3ms разрешение). При smooth_eq=False: классические 8-32 steps
+  • **notch_db из профиля** — vocal_notch_sweep использует gain_db из профиля вместо жёсткого -12dB. Для pop_vocal -5dB (сохраняет плотность), для downtempo -2dB, для hard_techno -1dB
+  • **Vocal Notch Smooth** — при smooth_eq=True: notch_steps = max(256, len//128) для бесшовной интерполяции
+
+### Валидация (sanity test, --cf-bars 16, 128 BPM set)
+  • Оба перехода: cf_bars=16 (ручной приоритет соблюдён) ✅
+  • Профили: pop vocal (vocal_ratio 0.83, 0.96) ✅
+  • noth_db: -5.0dB вместо -12dB ✅
+  • P-score: 100% | CMLc: 100% | Cemgil: 0.885 ✅
+

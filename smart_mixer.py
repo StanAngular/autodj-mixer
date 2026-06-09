@@ -44,20 +44,51 @@ PHRASE_GRID = 4             # Downbeat snapping grid (4-bar = 1 phrase)
 MIN_PLAY_FRACTION = 0.70    # Track must play at least 70% before exit — no chopping
 DRUM_SEARCH_LIMIT = 32      # Max bars to search forward for drum activity
 
+# ============================================================
+# Style Profiles & Auto-Detection (v16: Adaptive Style Engine)
+# ============================================================
 
-def resolve_cf_bars(cf_arg, m_sec_label, s_sec_label, default=16):
+STYLE_PROFILES = {
+    'downtempo':   {'default_cf': 24, 'min_cf': 12, 'max_cf': 32, 'notch_db': -2.0, 'smooth_eq': True,  'label': 'downtempo'},
+    'house_tech':  {'default_cf': 16, 'min_cf': 8,  'max_cf': 16, 'notch_db': -3.5, 'smooth_eq': True,  'label': 'house/tech'},
+    'hard_techno': {'default_cf': 8,  'min_cf': 4,  'max_cf': 12, 'notch_db': -1.0, 'smooth_eq': False, 'label': 'hard techno'},
+    'pop_vocal':   {'default_cf': 6,  'min_cf': 4,  'max_cf': 8,  'notch_db': -5.0, 'smooth_eq': False, 'label': 'pop vocal'},
+}
+
+
+def get_style_profile(m_bpm, s_bpm, vocal_ratio):
+    """
+    Auto-detect style profile based on average BPM + vocal activity.
+
+    Rules:
+      - avg BPM < 110  → downtempo   (long blends, smooth EQ)
+      - avg BPM > 135  → hard_techno  (fast cuts, punchy EQ)
+      - vocal_ratio > 0.55 → pop_vocal (short cuts, aggressive notch)
+      - otherwise      → house_tech   (balanced, smooth EQ)
+    """
+    avg_bpm = (m_bpm + s_bpm) / 2.0
+    if avg_bpm < 110:
+        return 'downtempo'
+    if avg_bpm > 135:
+        return 'hard_techno'
+    if vocal_ratio > 0.55:
+        return 'pop_vocal'
+    return 'house_tech'
+
+
+def resolve_cf_bars(cf_arg, m_sec_label, s_sec_label, default=16, profile=None):
     """
     Resolve crossfade length in bars.
 
     cf_arg: 'auto' or int.
-    When 'auto', picks length based on master exit section and slave entry section:
+    When 'auto', picks length based on profile + master/slave section labels:
 
-      LONG (16 bars):  master QUIET → slave QUIET        (outro→intro)
-      MEDIUM (8 bars): master QUIET/BUILD → slave BUILD   (break→build-up)
-                        master ACTIVE → slave BUILD        (verse→build-up)
-      DROP (4 bars):   otherwise                           (chorus→verse/chorus)
+      LONG: QUIET→QUIET        → profile.default_cf
+      MEDIUM: QUIET/BUILD/ACTIVE→BUILD → profile.default_cf * 0.5
+      DROP:  otherwise          → profile.min_cf
 
-    Returns bars (int).
+    CRITICAL RULE: When user passes a numeric --cf-bars (e.g. 16),
+    that value is ABSOLUTE LAW — auto-profiles cannot override it.
     """
     if cf_arg != 'auto':
         try:
@@ -65,20 +96,30 @@ def resolve_cf_bars(cf_arg, m_sec_label, s_sec_label, default=16):
         except (ValueError, TypeError):
             return default
 
-    # Auto mode: determine based on sections
+    # Auto mode — use profile if available
+    if profile and profile in STYLE_PROFILES:
+        prof = STYLE_PROFILES[profile]
+        default_cf = prof['default_cf']
+        min_cf = prof['min_cf']
+        max_cf = prof['max_cf']
+    else:
+        default_cf = 16
+        min_cf = 4
+        max_cf = 64
+
     m = m_sec_label.upper() if m_sec_label else 'ACTIVE'
     s = s_sec_label.upper() if s_sec_label else 'ACTIVE'
 
-    # Long blend: quiet->quiet (outro/intro/break → intro/inst)
+    # Long blend: quiet→quiet
     if m in ('QUIET',) and s in ('QUIET',):
-        return 16
+        return min(default_cf, max_cf)
 
-    # Medium blend: quiet/build/active → build
+    # Medium blend: active/build→build
     if m in ('QUIET', 'BUILD', 'ACTIVE') and s in ('BUILD',):
-        return 8
+        return max(int(default_cf * 0.5), min_cf)
 
     # Drop cut: everything else
-    return 4
+    return max(min_cf, int(default_cf * 0.25))
 
 
 # ============================================================
@@ -1089,7 +1130,7 @@ def soft_clipper_tanh(audio, threshold=0.707):
         out = out * (0.999 / pk)
     return out.astype(audio.dtype)
 
-def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, stabilizer=True, vocal_clash=False):
+def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, stabilizer=True, vocal_clash=False, notch_db=-12.0, smooth_eq=True):
     """
     Build crossfade with LR4 3-band bass swap (or simple eq_power).
 
@@ -1099,6 +1140,8 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
     Args:
         cf_bars: number of bars for the crossfade (default 16)
         vocal_clash: if True, apply vocal_notch_sweep on master mid band
+        notch_db: attenuation depth for vocal notch (from STYLE_PROFILES, default -12.0)
+        smooth_eq: if True, use per-sample smooth EQ sweep instead of stepped frames
 
     Returns:
         blended, shift, consumed, warp_extra
@@ -1243,11 +1286,12 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
 
         # ── EQ Sweep Bass Swap (Phase 2) ─────────────────────────────────
         # Replaces old binary 2-bar swap with gradual HPF/LPF sweeps.
-        # Master low band: HPF sweep from 20→150Hz (bass fades out)
-        # Slave low band:  LPF sweep from 150→20Hz (bass fades in)
-        # Result: asymmetric — master loses bass gradually, slave gains it.
-        num_sweep_steps = max(8, cf_bars * 2)  # ~2 steps per bar
-        print(f"    EQ Sweep bass swap: {num_sweep_steps} steps", flush=True)
+        # For smooth_eq=True, use per-sample step count for seamless sweep.
+        if smooth_eq:
+            num_sweep_steps = max(256, len(m_low) // 128)  # ~every 3ms
+        else:
+            num_sweep_steps = max(8, cf_bars * 2)  # ~2 steps per bar
+        print(f"    EQ Sweep bass swap: {num_sweep_steps} steps{' (smooth)' if smooth_eq else ''}", flush=True)
         m_low_swept = eq_sweep(m_low, sr, filter_type='highpass',
                                 start_freq=20, end_freq=150,
                                 num_steps=num_sweep_steps)
@@ -1257,15 +1301,18 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
 
         blended_low = m_low_swept + s_low_swept
 
-        # ── Vocal Notch Sweep (VAD Clash mitigation) ────────────────────
+        # ── Vocal Notch Sweep (VAD Clash mitigation, profile-driven) ───
         if vocal_clash:
-            # Duck master vocal range (1-4kHz) by -12dB over the crossfade
-            # This clears space for the slave's vocals
-            notch_steps = max(24, cf_bars * 4)
-            print(f"    Vocal Notch Sweep: {notch_steps} steps, -12dB @ 1-4kHz", flush=True)
+            # Duck master vocal range (1-4kHz) by notch_db from profile
+            # This clears space for the slave's vocals without 'telephone' effect
+            if smooth_eq:
+                notch_steps = max(256, blended_mid.shape[0] // 128)
+            else:
+                notch_steps = max(24, cf_bars * 4)
+            print(f"    Vocal Notch Sweep: {notch_steps} steps, {notch_db}dB @ 1-4kHz{' (smooth)' if smooth_eq else ''}", flush=True)
             blended_mid = vocal_notch_sweep(
                 blended_mid, sr, num_steps=notch_steps,
-                min_freq=1000, max_freq=4000, gain_db=-12, q=1.5
+                min_freq=1000, max_freq=4000, gain_db=notch_db, q=1.5
             )
 
         blended = blended_low + blended_mid + blended_high
@@ -1484,6 +1531,25 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         else:
             print(f"    cf_bars: {resolved_cf_bars}  [master={m_a1f} → slave={s_a1f}]")
 
+        # ── Style Profile Auto-Detection (v16) ──────────────────────────────
+        # Compute vocal ratio from per-bar VAD
+        cur_vocal_count = int(vpb_m.sum()) if vpb_m is not None else 0
+        nxt_vocal_count = int(vpb_s.sum()) if vpb_s is not None else 0
+        cur_total_bars = len(vpb_m) if vpb_m is not None else 1
+        nxt_total_bars = len(vpb_s) if vpb_s is not None else 1
+        avg_vocal_ratio = ((cur_vocal_count / max(cur_total_bars, 1)) +
+                           (nxt_vocal_count / max(nxt_total_bars, 1))) / 2.0
+
+        style_profile_name = get_style_profile(mb, sb, avg_vocal_ratio)
+        profile = STYLE_PROFILES[style_profile_name]
+        print(f"    Style profile: {profile['label']}  (avg_bpm={(mb+sb)/2:.0f}, "
+              f"vocal_ratio={avg_vocal_ratio:.2f}, notch_db={profile['notch_db']}, "
+              f"smooth_eq={profile['smooth_eq']})")
+
+        # Re-resolve cf_bars with profile (only if --cf-bars was 'auto')
+        if cf_bars == 'auto':
+            resolved_cf_bars = resolve_cf_bars(cf_bars, m_a1f, s_a1f, profile=style_profile_name)
+
         # Recompute exit with actual cf_bars using best_exit_bar_v2
         if not (use_quiet_exit and cur['qe'] is not None):
             total = len(cur['db']) - 1
@@ -1611,7 +1677,8 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
 
         blended, shift, consumed, warp_extra = build_cf_lr4(
             m_cf, s_cf, mb, sb, m_cf_db, s_cf_db, mode, cf_bars=resolved_cf_bars, sr=sr,
-            stabilizer=stabilizer, vocal_clash=vocal_clash_flag
+            stabilizer=stabilizer, vocal_clash=vocal_clash_flag,
+            notch_db=profile['notch_db'], smooth_eq=profile['smooth_eq']
         )
 
         # ── AI Transition check ────────────────────────────────────────────
