@@ -479,26 +479,49 @@ def section_at_bar(secs, bar):
     return 'ACTIVE'
 
 
-EXIT_SCORE = {'QUIET': 0, 'BUILD': 1, 'ACTIVE': 2, 'DROP': 3}
-
-
 def snap_bar(bar, grid=4):
     """Snap bar index to nearest multiple of grid (phrase boundary)."""
     return round(bar / grid) * grid
 
 
 # ============================================================
-# A1F / OpenMIRLab Section Labels + Analysis
+# A1F / OpenMIRLab Section Labels + Hybrid RMS Scoring
 # ============================================================
-
-A1F_PRIORITY = {
-    'outro': 0, 'end': 0,      # highest — no vocals, steady beat
-    'break': 1,                 # quiet break
-    'intro': 2, 'start': 2,     # good for entry
-    'inst': 2,                  # instrumental
-    'verse': 3,                 # verse — has vocals usually
-    'bridge': 3,                # bridge — may have vocals
-    'chorus': 4,                # chorus — has vocals, not for exit
+#
+# HYBRID_SCORE: (a1f_label, rms_energy) -> priority
+# Lower = better for exit.
+# A1F label is primary axis, RMS energy is secondary.
+#
+#          QUIET  BUILD  ACTIVE  DROP
+# outro       0      1       2      3
+# break       1      2       3      4
+# intro/inst  2      3       4      5
+# bridge      4      5       6      7
+# verse       4      5       6      7
+# chorus      5      6       7      8
+# fallback                    -> 5
+#
+HYBRID_SCORE = {
+    ('outro', 'QUIET'): 0, ('end', 'QUIET'): 0,
+    ('outro', 'BUILD'): 1, ('end', 'BUILD'): 1,
+    ('outro', 'ACTIVE'): 2, ('end', 'ACTIVE'): 2,
+    ('outro', 'DROP'): 3, ('end', 'DROP'): 3,
+    ('break', 'QUIET'): 1, ('break', 'BUILD'): 2,
+    ('break', 'ACTIVE'): 3, ('break', 'DROP'): 4,
+    ('intro', 'QUIET'): 2, ('start', 'QUIET'): 2,
+    ('intro', 'BUILD'): 3, ('start', 'BUILD'): 3,
+    ('intro', 'ACTIVE'): 4, ('start', 'ACTIVE'): 4,
+    ('intro', 'DROP'): 5, ('start', 'DROP'): 5,
+    ('inst', 'QUIET'): 2,
+    ('inst', 'BUILD'): 3,
+    ('inst', 'ACTIVE'): 4,
+    ('inst', 'DROP'): 5,
+    ('bridge', 'QUIET'): 4, ('bridge', 'BUILD'): 5,
+    ('bridge', 'ACTIVE'): 6, ('bridge', 'DROP'): 7,
+    ('verse', 'QUIET'): 4, ('verse', 'BUILD'): 5,
+    ('verse', 'ACTIVE'): 6, ('verse', 'DROP'): 7,
+    ('chorus', 'QUIET'): 5, ('chorus', 'BUILD'): 6,
+    ('chorus', 'ACTIVE'): 7, ('chorus', 'DROP'): 8,
 }
 
 
@@ -779,17 +802,15 @@ def drum_activity(audio_segment, sr, low_min=40, low_max=150):
 
 
 def best_exit_bar_v2(a1f_labels, secs, default_bar, n_bars_total, cf_bars,
-                     phrase=4, vocal_mask=None, min_bar=0):
+                     phrase=4, vocal_mask=None, min_bar=0, bar_energy=None):
     """
-    Enhanced exit bar selection using A1F section labels.
+    Enhanced exit bar selection using A1F labels + RMS energy hybrid.
 
-    Args:
-        min_bar: minimum allowed exit bar (enforces MIN_PLAY_FRACTION).
-
-    Priority (A1F_PRIORITY): outro(0) < break(1) < intro/inst(2) < verse(3) < chorus(4).
+    Uses HYBRID_SCORE: (a1f_label, rms_energy) -> priority.
+    Lower = better exit. A1F label is primary, RMS energy is secondary.
 
     Prefers:
-      1. Sections with lowest A1F priority (outro > break > intro > ...)
+      1. Lowest hybrid score (outro+QUIET > inst+QUIET > inst+DROP > ...)
       2. No vocals (if vocal_mask provided)
       3. Phrase-aligned (4-bar grid)
       4. Respects min_bar — no chopping before track has played enough
@@ -800,19 +821,21 @@ def best_exit_bar_v2(a1f_labels, secs, default_bar, n_bars_total, cf_bars,
         if eb < max(cf_bars, min_bar) or eb > n_bars_total - cf_bars:
             continue
 
-        # Score from A1F labels (0=best, 4=worst)
+        # Hybrid score: (a1f_label, energy) -> priority
         a1f_label = a1f_labels[eb] if a1f_labels and eb < len(a1f_labels) else None
-        a1f_score = A1F_PRIORITY.get(a1f_label, 3) if a1f_label else (
-            EXIT_SCORE.get(section_at_bar(secs, eb), 3)
-        )
+        rms_energy = bar_energy[eb] if bar_energy and eb < len(bar_energy) else None
+        if a1f_label and rms_energy:
+            hybrid_key = (a1f_label, rms_energy)
+            score = HYBRID_SCORE.get(hybrid_key, 5)
+        elif a1f_label:
+            score = HYBRID_SCORE.get((a1f_label, 'ACTIVE'), 5)
+        else:
+            score = HYBRID_SCORE.get(('inst', rms_energy or 'ACTIVE'), 5)
 
         # Vocal penalty
         vocal_penalty = 10 if (vocal_mask is not None and eb < len(vocal_mask) and vocal_mask[eb]) else 0
 
-        # Drum bonus: prefer sections with steady drums
-        drum_bonus = 0  # calculated later per candidate
-
-        total_score = a1f_score + vocal_penalty
+        total_score = score + vocal_penalty
         candidates.append((total_score, eb, a1f_label or ''))
 
     if not candidates:
@@ -823,7 +846,9 @@ def best_exit_bar_v2(a1f_labels, secs, default_bar, n_bars_total, cf_bars,
 
     if best_bar != default_bar:
         old_label = a1f_labels[default_bar] if a1f_labels and default_bar < len(a1f_labels) else section_at_bar(secs, default_bar)
-        print(f"    ↳ Exit shifted {default_bar}→{best_bar} ({old_label}→{best_label})")
+        old_energy = bar_energy[default_bar] if bar_energy and default_bar < len(bar_energy) else '?'
+        new_energy = bar_energy[best_bar] if bar_energy and best_bar < len(bar_energy) else '?'
+        print(f"    ↳ Exit shifted {default_bar}→{best_bar} ({old_label}/{old_energy}→{best_label}/{new_energy})")
     return best_bar, best_label
 
 
@@ -860,57 +885,6 @@ def dynamic_loop(audio, sr, bpm, n_bars, target_bars=16):
 
     print(f"    Auto-loop: {n_bars} bars → {target_bars} bars (x{target_bars // n_bars})")
     return looped.astype(np.float32)
-
-
-def best_exit_bar(secs, default_bar, n_bars_total, cf_bars, phrase=16):
-    """
-    Try default ± 1-2 phrases (16 bars each). Pick the exit bar where
-    the master is in the quietest section (QUIET < BUILD < ACTIVE < DROP).
-    Returns the best bar, rounded to phrase grid.
-    """
-    candidates = []
-    for k in [-2, -1, 0, 1]:
-        eb = ((default_bar // phrase) + k) * phrase
-        if eb < cf_bars or eb > n_bars_total - cf_bars:
-            continue
-        label = section_at_bar(secs, eb)
-        score = EXIT_SCORE.get(label, 2)
-        candidates.append((score, eb))
-
-    if not candidates:
-        return default_bar
-
-    candidates.sort()
-    best_score, best_bar = candidates[0]
-    default_score = EXIT_SCORE.get(section_at_bar(secs, default_bar), 2)
-    if best_bar != default_bar and best_score < default_score:
-        print(f"    ↳ Exit shifted {default_bar}→{best_bar} ({section_at_bar(secs,default_bar)}→{section_at_bar(secs,best_bar)})")
-    return best_bar
-
-
-def first_soft_entry(secs, mn_build=2, mn_active=8):
-    """
-    Prefer entering on a BUILD section (even short ≥ mn_build bars) before
-    the first ACTIVE, so the slave fades in softly before full drums hit.
-    Falls back to first_active if no BUILD found.
-    """
-    # Find first BUILD with at least mn_build bars
-    for s, e, l in secs:
-        if l == 'BUILD' and e - s >= mn_build:
-            return s
-    # Fall back: first ACTIVE/DROP with at least mn_active bars
-    for s, e, l in secs:
-        if l in ('DROP', 'ACTIVE') and e - s >= mn_active:
-            return s
-    return 0
-
-
-def first_active(secs, mn=8):
-    """Find first active/drop section with at least mn bars."""
-    for s, e, l in secs:
-        if l in ('DROP', 'ACTIVE') and e - s >= mn:
-            return s
-    return 0
 
 
 def has_vocals(audio, sr, energy_thresh=0.10, zcr_thresh=0.03):
@@ -1643,6 +1617,13 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         dbt = db[eb:xb+1] - s0
         st = sections(at, dbt, sr)
 
+        # Per-bar RMS energy label for hybrid A1F+RMS scoring
+        n_bars_trimmed = len(dbt)
+        bar_energy = ['QUIET'] * n_bars_trimmed
+        for s, e, l in st:
+            for b in range(s, min(e, n_bars_trimmed)):
+                bar_energy[b] = l
+
         at = norm_lufs(at, TARGET_LUFS, sr)
         # ── hard peak clamp -3dB ──────────────────────────────────────────
         pk_at = np.max(np.abs(at))
@@ -1737,6 +1718,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
             'genre_hint': genre_hint,      # search_track_genre() result
             'has_a1f': has_a1f_data,       # bool flag for transition resolver
             'meta': a1f_data.get('meta') if a1f_data else None,  # artist/title/year
+            'bar_energy': bar_energy,      # per-bar RMS label (QUIET/BUILD/ACTIVE/DROP)
             'vocal_intervals': a1f_data.get('vocal_intervals', []) if a1f_data else [],
             'beats': a1f_data.get('beats') if a1f_data else None,
             'key_a1f': a1f_data.get('key_a1f') if a1f_data else None,
@@ -1812,7 +1794,8 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
             default_exit = max(min_bar, total - CF_BARS - 4)
             exit_bar, exit_label = best_exit_bar_v2(
                 a1f_m, cur['secs'], default_exit, total, CF_BARS,
-                vocal_mask=vpb_m, min_bar=min_bar
+                vocal_mask=vpb_m, min_bar=min_bar,
+                bar_energy=cur.get('bar_energy')
             )
 
         # Helper: get A1F bar label for a given bar index
@@ -1849,6 +1832,25 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         print(f"    Transition: {m_a1f_label}→{s_a1f_label} | "
               f"cf_bars={resolved_cf_bars} | notch_db={used_notch_db} | smooth_eq={used_smooth_eq}")
 
+        # ── RMS energy-based cf_bars cap ────────────────────────────────
+        # If both exit and entry are at high energy (ACTIVE/DROP), shorten CF
+        bar_energy_m = cur.get('bar_energy')
+        bar_energy_s = nxt.get('bar_energy')
+        m_energy = bar_energy_m[exit_bar] if bar_energy_m and exit_bar < len(bar_energy_m) else None
+        s_energy = bar_energy_s[s_entry_guess] if bar_energy_s and s_entry_guess < len(bar_energy_s) else None
+        if m_energy and s_energy:
+            high_energy = ('ACTIVE', 'DROP')
+            if m_energy in high_energy and s_energy in high_energy:
+                new_cf = min(resolved_cf_bars, 4)
+                if new_cf < resolved_cf_bars:
+                    print(f"    ↳ Energy cap: both {m_energy}/{s_energy} → cf_bars {resolved_cf_bars}→{new_cf}")
+                    resolved_cf_bars = new_cf
+            elif m_energy in high_energy or s_energy in high_energy:
+                new_cf = min(resolved_cf_bars, 8)
+                if new_cf < resolved_cf_bars:
+                    print(f"    ↳ Energy cap: one side {m_energy}/{s_energy} → cf_bars {resolved_cf_bars}→{new_cf}")
+                    resolved_cf_bars = new_cf
+
         # Recompute exit with actual cf_bars using best_exit_bar_v2
         # Pass bar_labels list to best_exit_bar_v2
         a1f_bar_labels_m = a1f_m['bar_labels'] if a1f_m and a1f_m.get('bar_labels') else None
@@ -1858,7 +1860,8 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
             default_exit = max(min_bar, total - resolved_cf_bars - 4)
             exit_bar, exit_label = best_exit_bar_v2(
                 a1f_bar_labels_m, cur['secs'], default_exit, total, resolved_cf_bars,
-                vocal_mask=vpb_m, min_bar=min_bar
+                vocal_mask=vpb_m, min_bar=min_bar,
+                bar_energy=cur.get('bar_energy')
             )
             # Re-resolve m_a1f_label after exit may have shifted
             m_a1f_label = _a1f_label(a1f_m, exit_bar, cur['secs'])
@@ -1867,8 +1870,13 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         snapped = snap_bar(exit_bar, PHRASE_GRID)
         if snapped != exit_bar and snapped >= resolved_cf_bars and snapped <= len(cur['db']) - 1 - resolved_cf_bars:
             s_label_new = _a1f_label(a1f_m, snapped, cur['secs'])
-            exit_label_new = A1F_PRIORITY.get(s_label_new, 3) if (a1f_m and a1f_m.get('bar_labels')) else EXIT_SCORE.get(s_label_new, 2)
-            exit_label_old = A1F_PRIORITY.get(exit_label, 3) if (a1f_m and a1f_m.get('bar_labels')) else EXIT_SCORE.get(exit_label, 2)
+            if bar_energy_m and snapped < len(bar_energy_m):
+                new_energy = bar_energy_m[snapped]
+                old_energy = bar_energy_m[exit_bar] if exit_bar < len(bar_energy_m) else 'ACTIVE'
+            else:
+                new_energy = old_energy = 'ACTIVE'
+            exit_label_new = HYBRID_SCORE.get((s_label_new, new_energy), 5)
+            exit_label_old = HYBRID_SCORE.get((exit_label, old_energy), 5)
             if exit_label_new <= exit_label_old + 1:
                 print(f"    ↳ Downbeat snap: exit {exit_bar}→{snapped}")
                 exit_bar = snapped
