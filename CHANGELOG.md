@@ -188,3 +188,29 @@ smart_mixer.py — fixes from v2 analyzer findings:
   • CLAUDE_SYNC.md — инструкция для ClaudeClaw по синхронизации SKILL.md (bc7df61)
   • mixer tuning doc — references по всем исправлениям
 
+---
+
+## v15 (uncommitted)
+
+### [mixer] Hermes — DSP refactor + A1F integration + structural fixes
+  • **A1F BPM source of truth** — madmom BPM заменяется на A1F BPM, если найден JSON; downbeats пересчитываются под новый BPM
+  • **A1F section labels** — `load_a1f_bar_labels()`, `A1F_PRIORITY`, `A1F_CF`, `A1F_DROP` — выход/вход и длина кроссфейда выбираются по A1F-меткам
+  • **Per-bar VAD** — `vocal_per_bar()` — по ZCR + spectral ratio (1-4kHz); clash detection → vocal_notch_sweep вместо сдвига entry
+  • **Dynamic CF_BARS** — `resolve_cf_bars()` + `--cf-bars auto|int`; A1F_CF словарь управляет длиной (16/8/4 bars)
+  • **Downbeat snapping** — `snap_bar()` — exit/snap к 4-bar phrase grid
+  • **EQ Sweep bass swap** — `eq_sweep()` с HPF 20→150Hz / LPF 150→20Hz вместо бинарного 2-bar bass swap; плавный, без ступеньки
+  • **Dynamic crossover** — `find_crossover()` — спектральный анализ kick fundamental + vocal gap → индивидуальные low_cut/high_cut
+  • **Vocal Notch Sweep** — `vocal_notch_sweep()` — -12dB bell sweep 1-4kHz на master mid band при вокальном конфликте
+  • **BPM Transition path** — при ΔBPM > 5% мастер варпится к сетке слейва (вместо слейва к мастеру); ramp пропускается
+  • **Ambient Blend fallback** — `DRUM_SEARCH_LIMIT=32`; если у слейва нет драм, ищет до 32 бар вперёд; не нашёл → quiet blend 16 bars
+  • **Auto-looping** — `dynamic_loop()` — короткое интро (2-8 bars) растягивается тайлингом + crossfade до нужной длины
+  • **soft_clipper_tanh()** — стандартный tanh-клиппер, заменяет `np.clip(mix, -1.0, 1.0)` на финальном выходе; threshold=0.707 (-3dB)
+  • **filtfilt → sosfilt** — `three_band_split()` мигрирован на IIR SOS (minimum-phase, zero pre-ringing)
+  • **-3dB headroom** — жёсткий пиковый клиппинг после norm_lufs (0.707 threshold) — запас под переходы
+
+### [analyzer] Hermes — indentation fix
+  • **`_scan_zone()` indentation** — все 9 детекторов (stutter, speed_glitch, transient_spike, hf_noise, spectral_discontinuity, onset_stability, rms_dip, harsh_endpoint, boundary_glitch, beat_irregularity, band_cancellation) были на уровне модуля, а не внутри функции. Теперь работают корректно
+
+### [pipeline] Hermes — catalog integration
+  • **yt_download.py** — после загрузки трек автоматически регистрируется в track_catalog через `register_in_catalog()`
+

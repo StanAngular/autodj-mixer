@@ -28,6 +28,7 @@ ANN_DIR = "/opt/autodj-mixer/ann"
 YTDLP = shutil.which("yt-dlp") or os.path.expanduser("~/.local/bin/yt-dlp")
 PROXY = "socks5://127.0.0.1:40000"
 SR = 44100
+CATALOG_UTILS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "track_catalog", "catalog_utils.py")
 
 os.makedirs(WAV_DIR, exist_ok=True)
 os.makedirs(ANN_DIR, exist_ok=True)
@@ -104,6 +105,22 @@ def detect_downbeats(wav_path, ann_path):
     n_down = sum(1 for _, bt in beats_samps if bt == 1)
     print(f"{n_down} downbeats")
 
+def register_in_catalog(vid, title=""):
+    """Register track in catalog if a1f results exist."""
+    a1f_path = os.path.join(os.path.dirname(WAV_DIR), "track_catalog", "a1f_results", f"{vid}.json")
+    if not os.path.exists(a1f_path):
+        return False
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("catalog_utils", CATALOG_UTILS)
+        cu = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cu)
+        cu.add_to_catalog(vid, a1f_path, title=title, artist="")
+        print(f"  📚 Registered {vid} in track catalog")
+        return True
+    except Exception as e:
+        print(f"  ⚠️ Catalog registration skipped: {e}")
+        return False
 
 def main():
     p = argparse.ArgumentParser(description="Download YouTube tracks + detect downbeats")
@@ -159,6 +176,10 @@ def main():
     print("]")
     print(f"\nQuick test: python3 smart_mixer.py --config mix_config.py --quick-test")
 
+    # Register in track catalog (if all-in-one-fix results exist)
+    for name, wav, ann in tracks:
+        register_in_catalog(name, title=name)
+
     # Write config file if requested
     if args.config_out:
         with open(args.config_out, "w") as f:
@@ -170,7 +191,6 @@ def main():
                 f.write(f"    (\"{name}\", \"{wav}\", \"{ann}\"),\n")
             f.write("]\n")
         print(f"\n  Config saved → {args.config_out}")
-
 
 if __name__ == "__main__":
     main()
