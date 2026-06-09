@@ -43,7 +43,7 @@ GitHub: https://github.com/StanAngular/autodj-mixer
 
 | Файл | Назначение |
 |------|-----------|
-| `smart_mixer.py` | Миксер: bar-by-bar warp + LR4 3-band + Camelot + RMS stabilizer |
+| `smart_mixer.py` | Миксер v15: A1F labels, EQ Sweep, BPM Transition, Dynamic CF_BARS, soft_clipper |
 | `mix_analyzer.py` | Анализатор: 8 детекторов качества (v2) |
 | `run_pipeline.py` | Конвейер: pre-analyze → mix → analyze → validate → upload |
 | `mix_validator.py` | Валидатор: pass/warn/fail по JSON от анализатора |
