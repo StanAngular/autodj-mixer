@@ -585,6 +585,33 @@ def load_a1f_track_data(wav_path, sr, a1f_dir=None, catalog_dir=None):
     else:
         result['vocal_density'] = None
 
+    # ── Extended A1F fields (v16.3.2+) ─────────────────────────────
+    # Vocal intervals (from A1F JSON)
+    result['vocal_intervals'] = data.get('vocal_intervals', [])
+
+    # Beats — full grid (all beats, not just downbeats)
+    raw_beats = data.get('beats', [])
+    if raw_beats:
+        result['beats'] = np.array([int(t * sr) for t in raw_beats], dtype=int)
+    else:
+        result['beats'] = None
+
+    # Musical key + Camelot (computed by enrich_metadata.py)
+    result['key_a1f'] = data.get('key')
+    result['camelot_a1f'] = data.get('camelot')
+
+    # ── Meta passport (.meta.json) ─────────────────────────────────
+    meta_dir = os.path.dirname(a1f_path)
+    meta_path = os.path.join(meta_dir, base + '.meta.json')
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path) as _mf:
+                result['meta'] = json.load(_mf)
+        except (IOError, json.JSONDecodeError):
+            result['meta'] = None
+    else:
+        result['meta'] = None
+
     return result
 
 
@@ -1710,7 +1737,21 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
             'vocal_density': track_vocal_density,  # float 0..1
             'genre_hint': genre_hint,      # search_track_genre() result
             'has_a1f': has_a1f_data,       # bool flag for transition resolver
+            'meta': a1f_data.get('meta') if a1f_data else None,  # artist/title/year
+            'vocal_intervals': a1f_data.get('vocal_intervals', []) if a1f_data else [],
+            'beats': a1f_data.get('beats') if a1f_data else None,
+            'key_a1f': a1f_data.get('key_a1f') if a1f_data else None,
+            'camelot_a1f': a1f_data.get('camelot_a1f') if a1f_data else None,
         })
+
+        # Override display name with real meta if available
+        meta = a1f_data.get('meta') if a1f_data else None
+        if meta and meta.get('artist') and meta.get('track_title'):
+            display_name = f"{meta['artist']} - {meta['track_title']}"
+            print(f"    🏷 Real: {display_name}")
+            TD[-1]['name'] = display_name  # update for stamps
+        elif meta and meta.get('track_title'):
+            print(f"    🏷 Title: {meta['track_title']}")
 
     # Print Camelot overview
     print(f"\n  === Camelot Wheel Overview ===")
