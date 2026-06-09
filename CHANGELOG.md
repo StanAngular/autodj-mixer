@@ -274,3 +274,22 @@ smart_mixer.py — fixes from v2 analyzer findings:
   • BPM hard cuts при >8% расхождении (103→128, 127→103) ✅
   • Время сборки: 50.6с для 5 треков ✅
 
+---
+
+## v16.3.1: --analysis-mode + Strict Fallback
+
+### [mixer] Hermes — CLI & Fallback Fix
+  • **`--analysis-mode`** — 3 режима: `a1f` (полный Demucs, по умолчанию), `a1f_fast` (--skip-separation, без стем), `no_a1f` (без нейросети)
+  • **Строгий fallback в `resolve_transition_params()`** — при `has_a1f=False` проверяет `search_track_genre()` hints. Если трек электронный/инструментальный → 🎯 **16b, smooth_eq, notch=-3.5**
+  • **`search_track_genre()`** — расширена электронными ключевыми словами (progressive, house, techno, melodic, extended mix, original mix, remix)
+  • **genre_hint в TD** — каждый трек хранит fallback-метаданные; `has_a1f` bool для переключения режима резолвера
+  • **resolve_cf_bars()** — пробрасывает genre_hint и has_a1f в resolve_transition_params()
+  • **`--yt-metadata-dir` удалён** — заменён на `--analysis-mode`
+  • **Удалён старый `run_a1f_analysis()`** — заменён на встроенный Popen с учётом analysis_mode
+
+### Валидация (8 треков с A1F, --cf-bars auto, --analysis-mode a1f)
+  • Микс: 29:43, 71.3 MB, 320 кбит/с ✅
+  • A1F-переходы: bridge→verse (4b, -6.0dB), inst→bridge (4b, -6.0dB) ✅
+  • Fallback mode (no_a1f): корректный VAD-дефолт 8b ✅
+  • Время сборки: 73.8с для 8 треков ✅
+
