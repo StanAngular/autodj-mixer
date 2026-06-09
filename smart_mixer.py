@@ -45,68 +45,83 @@ MIN_PLAY_FRACTION = 0.70    # Track must play at least 70% before exit — no ch
 DRUM_SEARCH_LIMIT = 32      # Max bars to search forward for drum activity
 
 # ============================================================
-# Style Profiles & Auto-Detection (v16: Adaptive Style Engine)
+# Metadata & Genre Hints
 # ============================================================
 
-STYLE_PROFILES = {
-    'downtempo':   {'default_cf': 24, 'min_cf': 12, 'max_cf': 32, 'notch_db': -2.0, 'smooth_eq': True,  'label': 'downtempo'},
-    'house_tech':  {'default_cf': 16, 'min_cf': 8,  'max_cf': 16, 'notch_db': -3.5, 'smooth_eq': True,  'label': 'house/tech'},
-    'hard_techno': {'default_cf': 8,  'min_cf': 4,  'max_cf': 12, 'notch_db': -1.0, 'smooth_eq': False, 'label': 'hard techno'},
-    'pop_vocal':   {'default_cf': 6,  'min_cf': 4,  'max_cf': 8,  'notch_db': -5.0, 'smooth_eq': False, 'label': 'pop vocal'},
-}
 
-
-def search_track_genre(artist, title, timeout=5):
+def search_track_genre(artist, title, yt_metadata_dir=None):
     """
-    Search the web for the genre of a track using keyword matching on the title.
+    Determine track density/vocal-hint from available metadata.
 
-    Returns a STYLE_PROFILE name or None if undetermined.
-    Matches: house, techno, progressive, pop, lofi, ambient, downtempo.
+    Priority:
+      1. yt-dlp metadata JSON (if --yt-metadata-dir provided).
+         Extracts 'genre', 'tags', 'description' for keyword matching.
+      2. Keyword matching on artist/title (fast, no IO).
+
+    Returns dict with keys:
+      'vocal_hint': None | 'vocal' | 'instrumental'
+      'density': None | 'dense' | 'sparse' | 'percussive'
     """
-    query = f"{artist} - {title}" if artist else title
-    query_lower = query.lower()
+    result = {'vocal_hint': None, 'density': None}
 
-    # Keyword-based detection (fast, no network needed)
-    genre_keywords = {
-        'techno': 'hard_techno',
-        'hard techno': 'hard_techno',
-        'industrial': 'hard_techno',
-        'downtempo': 'downtempo',
-        'ambient': 'downtempo',
-        'lofi': 'downtempo',
-        'chillout': 'downtempo',
-        'lo-fi': 'downtempo',
-        'pop': 'pop_vocal',
-        'vocal': 'pop_vocal',
-        'progressive': 'house_tech',
-        'progressive house': 'house_tech',
-        'melodic': 'house_tech',
-        'deep house': 'house_tech',
-        'house': 'house_tech',
-        'tech house': 'house_tech',
-    }
+    # Priority 1: yt-dlp metadata JSON
+    if yt_metadata_dir and os.path.isdir(yt_metadata_dir):
+        # Try: Artist_-_Title.info.json pattern (yt-dlp default naming with spaces→_-_)
+        # Fallback: Artist_-_Title.json (compact naming)
+        search_base = f"{artist} - {title}" if artist else title
+        for root, dirs, files in os.walk(yt_metadata_dir):
+            for fname in files:
+                if fname.endswith(('.info.json', '.json')):
+                    # Match base name loosely
+                    if search_base.lower().replace(' ', '_') in fname.lower().replace(' ', '_'):
+                        try:
+                            with open(os.path.join(root, fname)) as f:
+                                meta = json.load(f)
+                            # Extract tags from yt-dlp metadata
+                            tags = meta.get('tags', []) or []
+                            genre_tag = meta.get('genre', '') or ''
+                            desc = meta.get('description', '') or ''
+                            combined = ' '.join(tags).lower() + ' ' + genre_tag.lower() + ' ' + desc.lower()
+                            if any(kw in combined for kw in ['instrumental', 'inst', 'no vocals']):
+                                result['vocal_hint'] = 'instrumental'
+                                result['density'] = 'percussive'
+                            elif any(kw in combined for kw in ['vocal', 'vocals', 'feat', 'lyric']):
+                                result['vocal_hint'] = 'vocal'
+                            if any(kw in combined for kw in ['dj mix', 'continuous', 'mix', 'extended']):
+                                result['density'] = 'dense'
+                            print(f"    ← yt-dlp metadata: vocal_hint={result['vocal_hint']}, density={result['density']}")
+                            break
+                        except (IOError, json.JSONDecodeError):
+                            continue
+            if result['vocal_hint'] is not None:
+                break
 
-    for kw, profile in genre_keywords.items():
-        if kw in query_lower:
-            return profile
+    # Priority 2: keyword fallback on title
+    if result['vocal_hint'] is None:
+        query_lower = (f"{artist} {title}" if artist else title).lower()
+        if any(kw in query_lower for kw in ['instrumental', 'inst', 'no vocal']):
+            result['vocal_hint'] = 'instrumental'
+            result['density'] = 'percussive'
+        elif any(kw in query_lower for kw in ['vocal mix', 'club mix', 'extended mix', 'remix']):
+            result['density'] = 'dense'
 
-    # If title contains known genre keywords in specific patterns
-    if any(kw in query_lower for kw in ['extended mix', 'remix', 'mix']):
-        return 'house_tech'
-
-    return None
+    return result
 
 
-def resolve_cf_bars(cf_arg, m_sec_label, s_sec_label, default=16, profile=None):
+def resolve_cf_bars(cf_arg, m_sec_label, s_sec_label, m_a1f_label=None, s_a1f_label=None, default=16):
     """
     Resolve crossfade length in bars.
 
     cf_arg: 'auto' or int.
-    When 'auto', picks length based on profile + master/slave section labels:
+    When 'auto', picks length based on A1F labels (preferred) or VAD section labels:
 
-      LONG: QUIET→QUIET        → profile.default_cf
-      MEDIUM: QUIET/BUILD/ACTIVE→BUILD → profile.default_cf * 0.5
-      DROP:  otherwise          → profile.min_cf
+      A1F mode (when m_a1f_label/s_a1f_label are available):
+        Uses resolve_transition_params() which applies segment-based rules.
+
+      VAD fallback (when no A1F):
+        LONG:   QUIET→QUIET              → 16
+        MEDIUM: QUIET/BUILD/ACTIVE→BUILD → 8
+        DROP:   otherwise                 → 4
 
     CRITICAL RULE: When user passes a numeric --cf-bars (e.g. 16),
     that value is ABSOLUTE LAW — auto-profiles cannot override it.
@@ -117,30 +132,27 @@ def resolve_cf_bars(cf_arg, m_sec_label, s_sec_label, default=16, profile=None):
         except (ValueError, TypeError):
             return default
 
-    # Auto mode — use profile if available
-    if profile and profile in STYLE_PROFILES:
-        prof = STYLE_PROFILES[profile]
-        default_cf = prof['default_cf']
-        min_cf = prof['min_cf']
-        max_cf = prof['max_cf']
-    else:
-        default_cf = 16
-        min_cf = 4
-        max_cf = 64
+    # A1F mode
+    if m_a1f_label or s_a1f_label:
+        tp = resolve_transition_params(m_a1f_label, s_a1f_label)
+        return tp['cf_bars']
 
+    # VAD fallback mode
+
+    # VAD fallback mode — no STYLE_PROFILES, use pure segment-based defaults
     m = m_sec_label.upper() if m_sec_label else 'ACTIVE'
     s = s_sec_label.upper() if s_sec_label else 'ACTIVE'
 
     # Long blend: quiet→quiet
     if m in ('QUIET',) and s in ('QUIET',):
-        return min(default_cf, max_cf)
+        return 16
 
     # Medium blend: active/build→build
     if m in ('QUIET', 'BUILD', 'ACTIVE') and s in ('BUILD',):
-        return max(int(default_cf * 0.5), min_cf)
+        return 8
 
     # Drop cut: everything else
-    return max(min_cf, int(default_cf * 0.25))
+    return 4
 
 
 # ============================================================
@@ -473,39 +485,35 @@ A1F_PRIORITY = {
     'bridge': 3,                # bridge — may have vocals
     'chorus': 4,                # chorus — has vocals, not for exit
 }
-A1F_CF = {
-    ('outro', 'intro'): 16, ('outro', 'inst'): 16, ('outro', 'start'): 16,
-    ('end', 'intro'): 16,   ('end', 'inst'): 16,   ('end', 'start'): 16,
-    ('break', 'intro'): 8,  ('break', 'inst'): 8,  ('break', 'start'): 8,
-    ('intro', 'intro'): 8,  ('inst', 'inst'): 8,
-    ('break', 'verse'): 8,  ('intro', 'verse'): 8, ('inst', 'verse'): 8,
-}
-A1F_DROP = {'chorus': 0, 'verse': 0, 'bridge': 0}  # → 1-4 bar drop cut
 
 
-def load_a1f_bar_labels(wav_path, db, sr, a1f_dir=None, catalog_dir=None):
+def load_a1f_track_data(wav_path, sr, a1f_dir=None, catalog_dir=None):
     """
-    Load A1F segment labels and map them to bar indices using downbeats.
+    Load full A1F track analysis from JSON cache.
 
-    Checks catalog/a1f_results first, then a1f_dir, then wav_dir.
-    Returns a list of per-bar labels (len ≈ len(db)) or None if no A1F data.
+    Extracts: bpm, downbeats (sample positions), segments (start/end/label).
+
+    Returns dict with keys 'bpm', 'downbeats', 'segments', 'bar_labels', 'source'
+    or None if no JSON found.
+
+    When 'downbeats' key exists in JSON, they are returned as sample positions
+    and replace madmom downbeats as the master grid.
+    'bar_labels' is derived by mapping each downbeat to its enclosing A1F segment.
     """
     base = os.path.splitext(os.path.basename(wav_path))[0]
 
-    # Priority 1: catalog A1F results
+    # Priority lookup: catalog → explicit a1f_dir → next to WAV → a1f_results subdir
     candidates = []
     if catalog_dir:
         candidates.append(os.path.join(catalog_dir, base + '.json'))
-    # Priority 2: explicit a1f_dir
     if a1f_dir:
         candidates.append(os.path.join(a1f_dir, base + '.json'))
-    # Priority 3: next to WAV or in subdirectories
-    if not catalog_dir:
-        candidates.extend([
-            os.path.join(os.path.dirname(wav_path), base + '.json'),
-            os.path.join(os.path.dirname(wav_path), 'a1f_results', base + '.json'),
-            os.path.join(os.path.dirname(wav_path), 'a1f_results_full', base + '.json'),
-        ])
+    wav_dir = os.path.dirname(wav_path)
+    candidates.extend([
+        os.path.join(wav_dir, base + '.json'),
+        os.path.join(wav_dir, 'a1f_results', base + '.json'),
+        os.path.join(wav_dir, 'a1f_results_full', base + '.json'),
+    ])
 
     a1f_path = None
     for c in candidates:
@@ -522,21 +530,137 @@ def load_a1f_bar_labels(wav_path, db, sr, a1f_dir=None, catalog_dir=None):
     except (json.JSONDecodeError, IOError):
         return None
 
-    segments = data.get('segments', [])
-    if not segments:
-        return None
+    result = {'source': a1f_path}
 
-    # Map each bar to the A1F segment it falls in
-    labels = []
-    for db_samp in db:
-        t = db_samp / sr
-        label = None
-        for seg in segments:
-            if seg['start'] <= t < seg['end']:
-                label = seg['label']
-                break
-        labels.append(label or 'verse')
-    return labels
+    # BPM
+    result['bpm'] = data.get('bpm')
+
+    # Downbeats — convert seconds → sample positions
+    raw_downbeats = data.get('downbeats', [])
+    if raw_downbeats:
+        result['downbeats'] = np.array([int(t * sr) for t in raw_downbeats], dtype=int)
+    else:
+        result['downbeats'] = None
+
+    # Segments (start_sec, end_sec, label)
+    raw_segments = data.get('segments', [])
+    result['segments'] = raw_segments if raw_segments else None
+
+    # Bar labels: map each downbeat to its segment label
+    if result['downbeats'] is not None and result['segments']:
+        labels = []
+        for db_samp in result['downbeats']:
+            t = db_samp / sr
+            label = None
+            for seg in result['segments']:
+                if seg['start'] <= t < seg['end']:
+                    label = seg['label']
+                    break
+            labels.append(label or 'verse')
+        result['bar_labels'] = labels
+    else:
+        result['bar_labels'] = None
+
+    # Vocal density: ratio of segments with vocal content
+    if result['segments']:
+        vocal_labels = ('verse', 'chorus', 'bridge')
+        n_vocal = sum(1 for s in result['segments'] if s.get('label', '') in vocal_labels)
+        result['vocal_density'] = n_vocal / max(len(result['segments']), 1)
+    else:
+        result['vocal_density'] = None
+
+    return result
+
+
+def run_a1f_analysis(wav_path, cache_dir, timeout=600):
+    """
+    Launch allin1fix.cli for a single track, CPU-optimized (skip Demucs separation).
+
+    Only runs if no A1F JSON already exists in cache_dir.
+    Uses --skip-separation to avoid the heavy Demucs stem split (5-10x faster).
+    Returns True if JSON was produced, False otherwise.
+    """
+    base = os.path.splitext(os.path.basename(wav_path))[0]
+    out_path = os.path.join(cache_dir, base + '.json')
+    if os.path.exists(out_path):
+        return True  # already cached
+
+    a1f_venv = os.path.expanduser('~/ai-tools/all-in-one-fix/venv/bin/python')
+    if not os.path.exists(a1f_venv):
+        print(f"    ⚠ A1F venv not found at {a1f_venv}")
+        return False
+
+    os.makedirs(cache_dir, exist_ok=True)
+    try:
+        r = subprocess.run(
+            [a1f_venv, '-m', 'allin1fix.cli', wav_path,
+             '-o', cache_dir, '--overwrite', '--skip-separation'],
+            capture_output=True, text=True, timeout=timeout
+        )
+        if r.returncode == 0 and os.path.exists(out_path):
+            print(f"    ✓ A1F analysis complete: {base}")
+            return True
+        else:
+            print(f"    ⚠ A1F analysis failed (exit={r.returncode}): {r.stderr[-200:]}")
+            return False
+    except subprocess.TimeoutExpired:
+        print(f"    ⚠ A1F analysis timed out after {timeout}s")
+        return False
+    except Exception as e:
+        print(f"    ⚠ A1F launch error: {e}")
+        return False
+
+
+def resolve_transition_params(m_a1f_label, s_a1f_label,
+                               m_vocal_density=None, s_vocal_density=None):
+    """
+    Universal transition parameter resolver based on A1F segment labels.
+
+    Returns dict with keys: cf_bars, smooth_eq, notch_db.
+
+    Rules (by segment intersection):
+      - LONG BLEND: outro→intro/inst/start → 16 bars, smooth_eq=True, notch_db=-3.5
+      - MEDIUM BLEND: outro/break→verse/bridge → 8 bars, smooth_eq=True, notch_db=-5.0
+      - SHORT CUT: chorus/verse/bridge→intro/inst → 4 bars, smooth_eq=False, notch_db=-5.0
+      - MEDIUM CUT: break→intro/inst → 8 bars, smooth_eq=True, notch_db=-3.0
+      - DROP CUT: anything→chorus/verse (vocal on entry) → 4 bars, smooth_eq=False, notch_db=-5.0
+      - DEFAULT: 8 bars, smooth_eq=True, notch_db=-3.0
+
+    Vocal density overrides: if m_vocal_density > 0.5 or s_vocal_density > 0.5,
+    notch_db is made 1dB more aggressive (subtract 1.0).
+    """
+    m = m_a1f_label.lower() if m_a1f_label else ''
+    s = s_a1f_label.lower() if s_a1f_label else ''
+
+    # Vocal entry → drop cut
+    if s in ('chorus', 'verse', 'bridge'):
+        params = {'cf_bars': 4, 'smooth_eq': False, 'notch_db': -5.0}
+    # outro → intro/inst/start: long blend
+    elif m in ('outro', 'end') and s in ('intro', 'inst', 'start'):
+        params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -3.5}
+    # outro/break → verse/bridge: medium blend
+    elif m in ('outro', 'end', 'break') and s in ('verse', 'bridge'):
+        params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -5.0}
+    # break → intro/inst: medium + smooth
+    elif m in ('break',) and s in ('intro', 'inst', 'start'):
+        params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -3.0}
+    # chorus/verse/drop → intro/inst: short cut
+    elif m in ('chorus', 'verse', 'bridge', 'drop') and s in ('intro', 'inst', 'start'):
+        params = {'cf_bars': 4, 'smooth_eq': False, 'notch_db': -5.0}
+    # outro/break → outro/break: medium
+    elif m in ('outro', 'end', 'break') and s in ('outro', 'end', 'break'):
+        params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -3.0}
+    # Default
+    else:
+        params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -3.0}
+
+    # Vocal density notch override: denser tracks get more aggressive notch
+    md = m_vocal_density if m_vocal_density is not None else 0.0
+    sd = s_vocal_density if s_vocal_density is not None else 0.0
+    if md > 0.5 or sd > 0.5:
+        params['notch_db'] = max(-6.0, params['notch_db'] - 1.0)
+
+    return params
 
 
 def vocal_per_bar(audio, db, sr):
@@ -1459,49 +1583,58 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         print(f"    quiet_exit={'bar' + str(qe) if qe is not None else 'none'}  "
               f"soft_entry=bar{se}({section_at_bar(st,se)})  first_active=bar{fa}")
 
-        # ── A1F Catalog labels + per-bar VAD + Genre Detection ──────────
+        # ── A1F Track Data (structure, BPM, downbeats, segments) ────────
         CATALOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    'track_catalog', 'a1f_results')
-        a1f_labels = load_a1f_bar_labels(
-            os.path.join(wav_dir, wav_file), dbt, sr,
+        a1f_data = load_a1f_track_data(
+            os.path.join(wav_dir, wav_file), sr,
             catalog_dir=CATALOG_DIR if os.path.exists(CATALOG_DIR) else None
         )
+        # Auto-launch A1F analysis in background if not cached (non-blocking)
+        if a1f_data is None and os.path.exists(CATALOG_DIR):
+            a1f_venv = os.path.expanduser('~/ai-tools/all-in-one-fix/venv/bin/python')
+            if os.path.exists(a1f_venv):
+                wav_abs = os.path.join(wav_dir, wav_file)
+                subprocess.Popen(
+                    [a1f_venv, '-m', 'allin1fix.cli', wav_abs,
+                     '-o', CATALOG_DIR, '--overwrite', '--skip-separation'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                print(f"    ↳ A1F analysis launched in background (results on next run)")
+
+        # A1F BPM cross-validation: A1F BPM is source of truth
+        if a1f_data and a1f_data.get('bpm'):
+            a1f_bpm = float(a1f_data['bpm'])
+            if abs(a1f_bpm - bpm) / max(bpm, 1) > 0.03:
+                old_bpm = bpm
+                bpm = a1f_bpm
+                db, bpm = fix_ht(db, bpm)
+                print(f"    ↳ A1F BPM cross-validated: {bpm:.1f} (madmom was {old_bpm:.1f})")
+
+        # A1F downbeats → replace madmom grid when available
+        if a1f_data and a1f_data.get('downbeats') is not None:
+            old_len = len(dbt)
+            dbt = a1f_data['downbeats']
+            print(f"    ↳ A1F downbeats: {len(dbt)} bars (was {old_len})")
+
         vpb = vocal_per_bar(at, dbt, sr) if len(at) > sr else np.zeros(len(dbt) - 1, dtype=bool)
-        a1f_status = f'A1F:{len(a1f_labels) if a1f_labels else 0}bars' if a1f_labels else 'A1F:none'
+        a1f_status = f'A1F:{len(a1f_data["bar_labels"]) if a1f_data and a1f_data["bar_labels"] else 0}bars' if a1f_data else 'A1F:none'
         print(f"    {a1f_status}  vocal_bars={vpb.sum()}/{len(vpb)}")
 
-        # ── Per-track style profile ─────────────────────────────────────
-        # Use A1F structure to override vocal-based detection:
-        # If track has 'inst' segments or low vocal density → house_tech
-        track_vocal_ratio = int(vpb.sum()) / max(len(vpb), 1)
-        track_style_profile = None
-        if a1f_labels:
-            # Check if track has prominent instrumental/inst sections
-            inst_labels = ('inst', 'intro', 'start', 'break', 'outro', 'end')
-            inst_count = sum(1 for lbl in a1f_labels if lbl in inst_labels)
-            inst_ratio = inst_count / max(len(a1f_labels), 1)
-            if inst_ratio > 0.4 and track_vocal_ratio < 0.4:
-                track_style_profile = 'house_tech'
-                print(f"    ↳ A1F instrumental profile: house_tech (inst_ratio={inst_ratio:.2f}, vocal_ratio={track_vocal_ratio:.2f})")
-
-        if track_style_profile is None:
-            if bpm < 110:
-                track_style_profile = 'downtempo'
-            elif bpm > 135:
-                track_style_profile = 'hard_techno'
-            elif track_vocal_ratio > 0.55:
-                track_style_profile = 'pop_vocal'
-            else:
-                track_style_profile = 'house_tech'
-
-        print(f"    Track style: {STYLE_PROFILES[track_style_profile]['label']}")
+        # ── Vocal density (for transition param tuning) ──────────────────
+        if a1f_data and a1f_data.get('vocal_density') is not None:
+            track_vocal_density = a1f_data['vocal_density']
+        else:
+            track_vocal_density = int(vpb.sum()) / max(len(vpb), 1)
+        print(f"    vocal_density={track_vocal_density:.2f}")
 
         TD.append({
             'name': name, 'audio': at, 'db': dbt, 'bpm': bpm,
             'key': key, 'cam': cam,
             'secs': st, 'qe': qe, 'fa': fa, 'se': se,
-            'a1f': a1f_labels, 'vpb': vpb,
-            'style_profile': track_style_profile,  # v16.2: per-track style
+            'a1f': a1f_data,           # full A1F data dict (or None)
+            'vpb': vpb,                 # per-bar VAD bool array
+            'vocal_density': track_vocal_density,  # float 0..1
         })
 
     # Print Camelot overview
@@ -1567,78 +1700,65 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                 vocal_mask=vpb_m, min_bar=min_bar
             )
 
-        # Resolve cf_bars from A1F labels
-        m_a1f = a1f_m[exit_bar] if a1f_m and exit_bar < len(a1f_m) else section_at_bar(cur['secs'], exit_bar)
+        # Helper: get A1F bar label for a given bar index
+        def _a1f_label(a1f_data, bar_idx, secs, fallback_bar=None):
+            """Get A1F bar label from data dict, fall back to VAD section label."""
+            if a1f_data and a1f_data.get('bar_labels') and bar_idx < len(a1f_data['bar_labels']):
+                return a1f_data['bar_labels'][bar_idx]
+            fb = fallback_bar if fallback_bar is not None else bar_idx
+            return section_at_bar(secs, fb)
+
+        # Resolve cf_bars + notch_db + smooth_eq from A1F segment intersection
+        m_a1f_label = _a1f_label(a1f_m, exit_bar, cur['secs'])
         s_entry_guess = nxt['se']
-        s_a1f = a1f_s[s_entry_guess] if a1f_s and s_entry_guess < len(a1f_s) else section_at_bar(nxt['secs'], s_entry_guess)
+        s_a1f_label = _a1f_label(a1f_s, s_entry_guess, nxt['secs'])
 
-        # Use A1F-based cf_bars resolution
-        resolved_cf_bars = resolve_cf_bars(cf_bars, m_a1f, s_a1f)
-        # Override with A1F_CF dictionary if both labels available
-        if a1f_m and a1f_s and m_a1f and s_a1f:
-            a1f_cf = A1F_CF.get((m_a1f, s_a1f))
-            if a1f_cf is not None:
-                resolved_cf_bars = a1f_cf
-                print(f"    A1F cf_bars: {resolved_cf_bars}  [{m_a1f}→{s_a1f}]")
-            elif m_a1f in A1F_DROP or s_a1f in A1F_DROP:
-                resolved_cf_bars = 4
-                print(f"    A1F drop cut: 4 bars  [{m_a1f}→{s_a1f}]")
-            else:
-                print(f"    A1F cf_bars: {resolved_cf_bars} (fallback)  [{m_a1f}→{s_a1f}]")
-        else:
-            print(f"    cf_bars: {resolved_cf_bars}  [master={m_a1f} → slave={s_a1f}]")
+        # Use resolve_transition_params for all DSP parameters
+        tp = resolve_transition_params(
+            m_a1f_label, s_a1f_label,
+            m_vocal_density=cur.get('vocal_density'),
+            s_vocal_density=nxt.get('vocal_density')
+        )
+        used_notch_db = tp['notch_db']
+        used_smooth_eq = tp['smooth_eq']
 
-        # ── Per-Track Style Profile (v16.2) ─────────────────────────────────
-        # Use master's profile for exit/transition, slave's for entry params
-        profile_m_name = cur.get('style_profile', 'pop_vocal')
-        profile_s_name = nxt.get('style_profile', 'pop_vocal')
-
-        # Pick the more conservative profile for each DSP parameter
-        # For cf_bars length: use the one with longer default_cf (more conservative)
-        prof_m = STYLE_PROFILES[profile_m_name]
-        prof_s = STYLE_PROFILES[profile_s_name]
-
-        # For cf_bars: prefer the longer one (safer transition)
-        style_profile_name = profile_m_name if prof_m['default_cf'] >= prof_s['default_cf'] else profile_s_name
-        # For notch_db: use the more aggressive (higher abs value)
-        used_notch_db = min(prof_m['notch_db'], prof_s['notch_db'])
-        # For smooth_eq: True if either track wants it
-        used_smooth_eq = prof_m['smooth_eq'] or prof_s['smooth_eq']
-
-        profile = STYLE_PROFILES[style_profile_name]
-        print(f"    Style profiles: master={prof_m['label']} → slave={prof_s['label']} | "
-              f"selected={profile['label']} | notch_db={used_notch_db} | smooth_eq={used_smooth_eq}")
-
-        # Re-resolve cf_bars with profile (only if --cf-bars was 'auto')
-        if cf_bars == 'auto':
-            resolved_cf_bars = resolve_cf_bars(cf_bars, m_a1f, s_a1f, profile=style_profile_name)
+        # Resolve cf_bars (--cf-bars manual override wins)
+        resolved_cf_bars = resolve_cf_bars(cf_bars, m_a1f_label, s_a1f_label,
+                                            m_a1f_label=m_a1f_label, s_a1f_label=s_a1f_label)
+        print(f"    Transition: {m_a1f_label}→{s_a1f_label} | "
+              f"cf_bars={resolved_cf_bars} | notch_db={used_notch_db} | smooth_eq={used_smooth_eq}")
 
         # Recompute exit with actual cf_bars using best_exit_bar_v2
+        # Pass bar_labels list to best_exit_bar_v2
+        a1f_bar_labels_m = a1f_m['bar_labels'] if a1f_m and a1f_m.get('bar_labels') else None
         if not (use_quiet_exit and cur['qe'] is not None):
             total = len(cur['db']) - 1
             min_bar = int(MIN_PLAY_FRACTION * total)
             default_exit = max(min_bar, total - resolved_cf_bars - 4)
             exit_bar, exit_label = best_exit_bar_v2(
-                a1f_m, cur['secs'], default_exit, total, resolved_cf_bars,
+                a1f_bar_labels_m, cur['secs'], default_exit, total, resolved_cf_bars,
                 vocal_mask=vpb_m, min_bar=min_bar
             )
+            # Re-resolve m_a1f_label after exit may have shifted
+            m_a1f_label = _a1f_label(a1f_m, exit_bar, cur['secs'])
 
         # ── Downbeat snapping ────────────────────────────────────────────────
         snapped = snap_bar(exit_bar, PHRASE_GRID)
         if snapped != exit_bar and snapped >= resolved_cf_bars and snapped <= len(cur['db']) - 1 - resolved_cf_bars:
-            s_label_new = a1f_m[snapped] if a1f_m and snapped < len(a1f_m) else section_at_bar(cur['secs'], snapped)
-            exit_label_new = A1F_PRIORITY.get(s_label_new, 3) if a1f_m else EXIT_SCORE.get(s_label_new, 2)
-            exit_label_old = A1F_PRIORITY.get(exit_label, 3) if a1f_m else EXIT_SCORE.get(exit_label, 2)
+            s_label_new = _a1f_label(a1f_m, snapped, cur['secs'])
+            exit_label_new = A1F_PRIORITY.get(s_label_new, 3) if (a1f_m and a1f_m.get('bar_labels')) else EXIT_SCORE.get(s_label_new, 2)
+            exit_label_old = A1F_PRIORITY.get(exit_label, 3) if (a1f_m and a1f_m.get('bar_labels')) else EXIT_SCORE.get(exit_label, 2)
             if exit_label_new <= exit_label_old + 1:
                 print(f"    ↳ Downbeat snap: exit {exit_bar}→{snapped}")
                 exit_bar = snapped
+                m_a1f_label = _a1f_label(a1f_m, exit_bar, cur['secs'])
 
         mode = 'hpss'
         cf_len = int(resolved_cf_bars * bar_s(mb) * sr)
 
         exit_samp = int(cur['db'][min(exit_bar, len(cur['db']) - 1)])
         body = cur['audio'][cur_off:exit_samp]
-        exit_a1f = a1f_m[exit_bar] if a1f_m and exit_bar < len(a1f_m) else section_at_bar(cur['secs'], exit_bar)
+        exit_a1f = _a1f_label(a1f_m, exit_bar, cur['secs'])
         print(f"    Master exit bar {exit_bar} ({exit_samp / sr:.1f}s)  [{exit_a1f}]  mode={mode}  cf_len={cf_len/sr:.1f}s")
 
         m_cf = cur['audio'][exit_samp:exit_samp + cf_len + sr * 3]
@@ -1650,7 +1770,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         s_entry = snap_bar(s_entry, PHRASE_GRID)
 
         # Drum activity check: if slave intro has no drums, skip it
-        s_entry_a1f = a1f_s[s_entry] if a1f_s and s_entry < len(a1f_s) else section_at_bar(nxt['secs'], s_entry)
+        s_entry_a1f = _a1f_label(a1f_s, s_entry, nxt['secs'])
         s_entry_samp = int(nxt['db'][min(s_entry, len(nxt['db']) - 1)])
         check_dur = int(min(8 * bar_s(sb) * sr, len(nxt['audio']) - s_entry_samp))
         drum_ratio = drum_activity(nxt['audio'][s_entry_samp:s_entry_samp + check_dur], sr)
@@ -1665,14 +1785,14 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                 dr = drum_activity(nxt['audio'][ss:ss + check_dur], sr)
                 if dr >= 0.15:
                     s_entry = snap_bar(shift_bar, PHRASE_GRID)
-                    s_entry_a1f = a1f_s[s_entry] if a1f_s and s_entry < len(a1f_s) else section_at_bar(nxt['secs'], s_entry)
+                    s_entry_a1f = _a1f_label(a1f_s, s_entry, nxt['secs'])
                     print(f"    → Drums found at bar {s_entry} ({s_entry_a1f})")
                     found_drums = True
                     break
             if not found_drums:
                 print(f"    → No drums within {DRUM_SEARCH_LIMIT} bars. Activating Ambient Blend fallback!")
                 s_entry = snap_bar(original_s_entry, PHRASE_GRID)
-                s_entry_a1f = a1f_s[s_entry] if a1f_s and s_entry < len(a1f_s) else section_at_bar(nxt['secs'], s_entry)
+                s_entry_a1f = _a1f_label(a1f_s, s_entry, nxt['secs'])
                 resolved_cf_bars = 16
                 cf_len = int(resolved_cf_bars * bar_s(mb) * sr)
                 mode = 'quiet'
@@ -1688,8 +1808,9 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
             # Count how many bars of intro we have
             intro_count = 0
             s_bi = s_entry
-            while s_bi < len(a1f_s) if a1f_s else 0:
-                lbl = a1f_s[s_bi] if a1f_s else section_at_bar(nxt['secs'], s_bi)
+            a1f_bar_labels_s = a1f_s['bar_labels'] if a1f_s and a1f_s.get('bar_labels') else None
+            while s_bi < len(a1f_bar_labels_s) if a1f_bar_labels_s else 0:
+                lbl = a1f_bar_labels_s[s_bi] if a1f_bar_labels_s else section_at_bar(nxt['secs'], s_bi)
                 if lbl in ('intro', 'inst', 'start'):
                     intro_count += 1
                     s_bi += 1
@@ -1971,6 +2092,7 @@ if __name__ == "__main__":
     parser.add_argument("--no-stabilizer", action="store_true", help="Disable RMS stabilizer (may increase dips, less pumping)")
     parser.add_argument("--transitions-dir", default=None, help="Directory with pre-generated AI transition WAV files")
     parser.add_argument("--cf-bars", default="auto", help="Crossfade length: 'auto' (dynamic based on sections) or integer bars (1-64)")
+    parser.add_argument("--yt-metadata-dir", default=None, help="Directory with yt-dlp .info.json metadata files for genre detection")
     args = parser.parse_args()
 
     # Auto-generate output filename if not provided

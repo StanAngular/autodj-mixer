@@ -245,3 +245,32 @@ smart_mixer.py — fixes from v2 analyzer findings:
   • **search_track_genre()** — веб-поиск жанра по ключевым словам в названии трека
   • **All-in-One Fix** — `/home/hermes/ai-tools/all-in-one-fix/venv/bin/python -m allin1fix.cli` для ML-анализа
 
+---
+
+## v16.3: A1F Segment-Based Transitions (Universal DSP)
+
+### [mixer] Hermes — Full A1F Integration + Static Profile Removal
+  • **`load_a1f_track_data()`** — полное извлечение A1F: bpm, downbeats (sample positions), segments (start/end/label), bar_labels, vocal_density. Заменяет `load_a1f_bar_labels()`
+  • **A1F master grid** — downbeats из A1F JSON заменяют madmom DB как мастер-сетку (точность ML-модели)
+  • **`resolve_transition_params()`** — универсальный DSP-резолвер на основе пересечения A1F-сегментов:
+    - `outro→intro/inst` → 16 bars, smooth_eq, notch=-3.5
+    - `outro/break→verse/bridge` → 8 bars, smooth_eq, notch=-5.0
+    - `break→intro/inst` → 8 bars, smooth_eq, notch=-3.0
+    - `chorus/verse→intro/inst` → 4 bars, stepped, notch=-5.0
+    - `anything→chorus/verse` → 4 bars, stepped, notch=-5.0
+    - Default → 8 bars, smooth_eq, notch=-3.0
+    - Vocal density >0.5 → notch_db -1dB (max -6.0)
+  • **Удалён STYLE_PROFILES** — больше нет жёстко закодированных жанров (pop_vocal, house_tech, hard_techno, downtempo)
+  • **Удалён pop_vocal fallback** (строка 1492) — больше никакой автоматической классификации треков по стилям
+  • **Удалены A1F_CF/A1F_DROP** — заменены единым `resolve_transition_params()`
+  • **`run_a1f_analysis()`** — неблокирующий фоновый запуск allin1fix.cli с `--skip-separation` (без Demucs, 5-10x быстрее) для треков без JSON
+  • **`search_track_genre()`** — переписана: читает yt-dlp `.info.json` метаданные (теги, genre, description) для определения vocal_hint/density. Фолбек на keyword matching в названии
+  • **`--yt-metadata-dir`** — новый CLI-аргумент
+
+### Валидация (5 треков с A1F JSON, --cf-bars auto)
+  • A1F данные загружены для 5/5 треков ✅
+  • Переходы по сегментам: chorus→verse (4 bars, notch=-6.0), inst→verse (4 bars, notch=-6.0) ✅
+  • Нет pop_vocal/house_tech в логах ✅
+  • BPM hard cuts при >8% расхождении (103→128, 127→103) ✅
+  • Время сборки: 50.6с для 5 треков ✅
+
