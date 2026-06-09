@@ -104,11 +104,24 @@ def search_track_genre(artist, title, yt_metadata_dir=None):
             result['density'] = 'percussive'
         elif any(kw in query_lower for kw in ['vocal mix', 'club mix', 'extended mix', 'remix']):
             result['density'] = 'dense'
+        # Electronic/instrumental genre keywords → force instrumental hint
+        if result['vocal_hint'] is None:
+            electronic_keywords = [
+                'progressive', 'house', 'techno', 'melodic', 'trance',
+                'deep house', 'tech house', 'minimal', 'dub', 'electronic',
+                'dj mix', 'continuous mix', 'extended mix', 'club mix',
+                'original mix', 'club', 'dub mix', 'mix',
+            ]
+            if any(kw in query_lower for kw in electronic_keywords):
+                result['vocal_hint'] = 'instrumental'
+                result['density'] = 'dense'
+                print(f"    ← title keywords: electronic genre detected → instrumental")
 
     return result
 
 
-def resolve_cf_bars(cf_arg, m_sec_label, s_sec_label, m_a1f_label=None, s_a1f_label=None, default=16):
+def resolve_cf_bars(cf_arg, m_sec_label, s_sec_label, m_a1f_label=None, s_a1f_label=None,
+                    default=16, has_a1f=False, m_genre_hint=None, s_genre_hint=None):
     """
     Resolve crossfade length in bars.
 
@@ -132,9 +145,12 @@ def resolve_cf_bars(cf_arg, m_sec_label, s_sec_label, m_a1f_label=None, s_a1f_la
         except (ValueError, TypeError):
             return default
 
-    # A1F mode
+    # A1F mode (has actual A1F data)
     if m_a1f_label or s_a1f_label:
-        tp = resolve_transition_params(m_a1f_label, s_a1f_label)
+        tp = resolve_transition_params(m_a1f_label, s_a1f_label,
+                                        has_a1f=has_a1f,
+                                        m_genre_hint=m_genre_hint,
+                                        s_genre_hint=s_genre_hint)
         return tp['cf_bars']
 
     # VAD fallback mode
@@ -612,23 +628,55 @@ def run_a1f_analysis(wav_path, cache_dir, timeout=600):
 
 
 def resolve_transition_params(m_a1f_label, s_a1f_label,
-                               m_vocal_density=None, s_vocal_density=None):
+                               m_vocal_density=None, s_vocal_density=None,
+                               has_a1f=True,
+                               m_genre_hint=None, s_genre_hint=None):
     """
-    Universal transition parameter resolver based on A1F segment labels.
+    Universal transition parameter resolver.
 
-    Returns dict with keys: cf_bars, smooth_eq, notch_db.
+    MODE 1 — A1F mode (has_a1f=True, default):
+      Segment-intersection rules based on A1F labels:
+        - LONG BLEND:  outro→intro/inst        → 16b, smooth_eq, notch=-3.5
+        - MEDIUM BLEND: outro/break→verse/bridge → 8b, smooth_eq, notch=-5.0
+        - SHORT CUT:   chorus/verse→intro/inst  → 4b, stepped, notch=-5.0
+        - DROP CUT:    anything→chorus/verse    → 4b, stepped, notch=-5.0
+        - DEFAULT:                               8b, smooth_eq, notch=-3.0
 
-    Rules (by segment intersection):
-      - LONG BLEND: outro→intro/inst/start → 16 bars, smooth_eq=True, notch_db=-3.5
-      - MEDIUM BLEND: outro/break→verse/bridge → 8 bars, smooth_eq=True, notch_db=-5.0
-      - SHORT CUT: chorus/verse/bridge→intro/inst → 4 bars, smooth_eq=False, notch_db=-5.0
-      - MEDIUM CUT: break→intro/inst → 8 bars, smooth_eq=True, notch_db=-3.0
-      - DROP CUT: anything→chorus/verse (vocal on entry) → 4 bars, smooth_eq=False, notch_db=-5.0
-      - DEFAULT: 8 bars, smooth_eq=True, notch_db=-3.0
+    MODE 2 — Fallback mode (has_a1f=False):
+      Uses search_track_genre() hints instead of blind defaults.
+      If genre_hint indicates electronic/instrumental/dense:
+        → 16b, smooth_eq, notch=-3.5  (🎯 house_tech fallback)
+      Otherwise:
+        → 8b, smooth_eq, notch=-3.0
 
     Vocal density overrides: if m_vocal_density > 0.5 or s_vocal_density > 0.5,
-    notch_db is made 1dB more aggressive (subtract 1.0).
+    notch_db is made 1dB more aggressive (max -6.0).
     """
+    # ── Mode 2: Fallback (no A1F data) ──────────────────────────────
+    if not has_a1f:
+        # Check genre hints from search_track_genre() + title keywords
+        is_electronic = False
+        for gh in [m_genre_hint, s_genre_hint]:
+            if gh:
+                if gh.get('vocal_hint') == 'instrumental' or \
+                   gh.get('density') in ('dense', 'percussive'):
+                    is_electronic = True
+                    break
+
+        if is_electronic:
+            print(f"    🎯 fallback: electronic/instrumental → 16b, smooth_eq")
+            params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -3.5}
+        else:
+            params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -3.0}
+
+        # Vocal density notch override (applies to fallback too)
+        md = m_vocal_density if m_vocal_density is not None else 0.0
+        sd = s_vocal_density if s_vocal_density is not None else 0.0
+        if md > 0.5 or sd > 0.5:
+            params['notch_db'] = max(-6.0, params['notch_db'] - 1.0)
+        return params
+
+    # ── Mode 1: A1F segment-based ──────────────────────────────────
     m = m_a1f_label.lower() if m_a1f_label else ''
     s = s_a1f_label.lower() if s_a1f_label else ''
 
@@ -1496,7 +1544,7 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
 def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                style=None, author=None,
                use_quiet_exit=False, stabilizer=True, transitions_dir=None,
-               cf_bars='auto'):
+               cf_bars='auto', analysis_mode='a1f'):
     """
     Main entry point. Mix a list of tracks into a continuous DJ mix.
 
@@ -1583,42 +1631,67 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         print(f"    quiet_exit={'bar' + str(qe) if qe is not None else 'none'}  "
               f"soft_entry=bar{se}({section_at_bar(st,se)})  first_active=bar{fa}")
 
-        # ── A1F Track Data (structure, BPM, downbeats, segments) ────────
+        # ── A1F Track Data + Genre Metadata ────────────────────────────
+        # Run search_track_genre() for fallback metadata (always, regardless of mode)
+        # Use filename as artist/title proxy for keyword matching
+        name_parts = wav_file.replace('.wav', '').split(' - ')
+        if len(name_parts) >= 2:
+            track_artist = name_parts[0].strip()
+            track_title = ' - '.join(name_parts[1:]).strip()
+        else:
+            track_artist = ''
+            track_title = name_parts[0][:40]
+        genre_hint = search_track_genre(track_artist, track_title)
+
         CATALOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    'track_catalog', 'a1f_results')
-        a1f_data = load_a1f_track_data(
-            os.path.join(wav_dir, wav_file), sr,
-            catalog_dir=CATALOG_DIR if os.path.exists(CATALOG_DIR) else None
-        )
-        # Auto-launch A1F analysis in background if not cached (non-blocking)
-        if a1f_data is None and os.path.exists(CATALOG_DIR):
-            a1f_venv = os.path.expanduser('~/ai-tools/all-in-one-fix/venv/bin/python')
-            if os.path.exists(a1f_venv):
-                wav_abs = os.path.join(wav_dir, wav_file)
-                subprocess.Popen(
-                    [a1f_venv, '-m', 'allin1fix.cli', wav_abs,
-                     '-o', CATALOG_DIR, '--overwrite', '--skip-separation'],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
-                print(f"    ↳ A1F analysis launched in background (results on next run)")
+        has_a1f_data = False
+        a1f_data = None
 
-        # A1F BPM cross-validation: A1F BPM is source of truth
-        if a1f_data and a1f_data.get('bpm'):
-            a1f_bpm = float(a1f_data['bpm'])
-            if abs(a1f_bpm - bpm) / max(bpm, 1) > 0.03:
-                old_bpm = bpm
-                bpm = a1f_bpm
-                db, bpm = fix_ht(db, bpm)
-                print(f"    ↳ A1F BPM cross-validated: {bpm:.1f} (madmom was {old_bpm:.1f})")
+        if analysis_mode != 'no_a1f':
+            # Mode a1f or a1f_fast — try to load cached A1F data
+            a1f_data = load_a1f_track_data(
+                os.path.join(wav_dir, wav_file), sr,
+                catalog_dir=CATALOG_DIR if os.path.exists(CATALOG_DIR) else None
+            )
 
-        # A1F downbeats → replace madmom grid when available
-        if a1f_data and a1f_data.get('downbeats') is not None:
-            old_len = len(dbt)
-            dbt = a1f_data['downbeats']
-            print(f"    ↳ A1F downbeats: {len(dbt)} bars (was {old_len})")
+            # If not cached, launch background analysis
+            if a1f_data is None and os.path.exists(CATALOG_DIR):
+                a1f_venv = os.path.expanduser('~/ai-tools/all-in-one-fix/venv/bin/python')
+                if os.path.exists(a1f_venv):
+                    wav_abs = os.path.join(wav_dir, wav_file)
+                    cmd = [a1f_venv, '-m', 'allin1fix.cli', wav_abs,
+                           '-o', CATALOG_DIR, '--overwrite']
+                    if analysis_mode == 'a1f_fast':
+                        cmd.append('--skip-separation')
+                    # full 'a1f' mode → no --skip-separation (Demucs + full precision)
+                    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    print(f"    ↳ A1F analysis launched in background [{analysis_mode}] (results on next run)")
+
+            if a1f_data:
+                has_a1f_data = True
+                # A1F BPM cross-validation
+                if a1f_data.get('bpm'):
+                    a1f_bpm = float(a1f_data['bpm'])
+                    if abs(a1f_bpm - bpm) / max(bpm, 1) > 0.03:
+                        old_bpm = bpm
+                        bpm = a1f_bpm
+                        db, bpm = fix_ht(db, bpm)
+                        print(f"    ↳ A1F BPM cross-validated: {bpm:.1f} (madmom was {old_bpm:.1f})")
+
+                # A1F downbeats → replace madmom grid when available
+                if a1f_data.get('downbeats') is not None:
+                    old_len = len(dbt)
+                    dbt = a1f_data['downbeats']
+                    print(f"    ↳ A1F downbeats: {len(dbt)} bars (was {old_len})")
+
+        if not has_a1f_data:
+            print(f"    Mode: {analysis_mode} — no A1F data, fallback to genre metadata")
+        else:
+            print(f"    Mode: {analysis_mode} — A1F data loaded")
 
         vpb = vocal_per_bar(at, dbt, sr) if len(at) > sr else np.zeros(len(dbt) - 1, dtype=bool)
-        a1f_status = f'A1F:{len(a1f_data["bar_labels"]) if a1f_data and a1f_data["bar_labels"] else 0}bars' if a1f_data else 'A1F:none'
+        a1f_status = f'A1F:{len(a1f_data["bar_labels"]) if a1f_data and a1f_data["bar_labels"] else 0}bars' if has_a1f_data else 'A1F:none'
         print(f"    {a1f_status}  vocal_bars={vpb.sum()}/{len(vpb)}")
 
         # ── Vocal density (for transition param tuning) ──────────────────
@@ -1632,9 +1705,11 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
             'name': name, 'audio': at, 'db': dbt, 'bpm': bpm,
             'key': key, 'cam': cam,
             'secs': st, 'qe': qe, 'fa': fa, 'se': se,
-            'a1f': a1f_data,           # full A1F data dict (or None)
-            'vpb': vpb,                 # per-bar VAD bool array
+            'a1f': a1f_data,              # full A1F data dict (or None)
+            'vpb': vpb,                    # per-bar VAD bool array
             'vocal_density': track_vocal_density,  # float 0..1
+            'genre_hint': genre_hint,      # search_track_genre() result
+            'has_a1f': has_a1f_data,       # bool flag for transition resolver
         })
 
     # Print Camelot overview
@@ -1717,14 +1792,20 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         tp = resolve_transition_params(
             m_a1f_label, s_a1f_label,
             m_vocal_density=cur.get('vocal_density'),
-            s_vocal_density=nxt.get('vocal_density')
+            s_vocal_density=nxt.get('vocal_density'),
+            has_a1f=cur.get('has_a1f', False) or nxt.get('has_a1f', False),
+            m_genre_hint=cur.get('genre_hint'),
+            s_genre_hint=nxt.get('genre_hint'),
         )
         used_notch_db = tp['notch_db']
         used_smooth_eq = tp['smooth_eq']
 
         # Resolve cf_bars (--cf-bars manual override wins)
         resolved_cf_bars = resolve_cf_bars(cf_bars, m_a1f_label, s_a1f_label,
-                                            m_a1f_label=m_a1f_label, s_a1f_label=s_a1f_label)
+                                            m_a1f_label=m_a1f_label, s_a1f_label=s_a1f_label,
+                                            has_a1f=cur.get('has_a1f', False) or nxt.get('has_a1f', False),
+                                            m_genre_hint=cur.get('genre_hint'),
+                                            s_genre_hint=nxt.get('genre_hint'))
         print(f"    Transition: {m_a1f_label}→{s_a1f_label} | "
               f"cf_bars={resolved_cf_bars} | notch_db={used_notch_db} | smooth_eq={used_smooth_eq}")
 
@@ -2092,7 +2173,8 @@ if __name__ == "__main__":
     parser.add_argument("--no-stabilizer", action="store_true", help="Disable RMS stabilizer (may increase dips, less pumping)")
     parser.add_argument("--transitions-dir", default=None, help="Directory with pre-generated AI transition WAV files")
     parser.add_argument("--cf-bars", default="auto", help="Crossfade length: 'auto' (dynamic based on sections) or integer bars (1-64)")
-    parser.add_argument("--yt-metadata-dir", default=None, help="Directory with yt-dlp .info.json metadata files for genre detection")
+    parser.add_argument("--analysis-mode", default="a1f", choices=["a1f", "a1f_fast", "no_a1f"],
+                        help="Analysis mode: 'a1f' (full Demucs, default), 'a1f_fast' (skip Demucs), 'no_a1f' (skip neural)")
     args = parser.parse_args()
 
     # Auto-generate output filename if not provided
@@ -2129,4 +2211,5 @@ if __name__ == "__main__":
     mix_tracks(tracks, args.wav_dir, args.ann_dir, args.output, args.bitrate,
                style=args.style, author=args.author,
                use_quiet_exit=args.use_quiet_exit, stabilizer=not args.no_stabilizer,
-               transitions_dir=args.transitions_dir, cf_bars=args.cf_bars)
+               transitions_dir=args.transitions_dir, cf_bars=args.cf_bars,
+               analysis_mode=args.analysis_mode)
