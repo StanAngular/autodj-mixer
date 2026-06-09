@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Smart Mixer v14 (Dynamic CF_BARS + Downbeat Snap + EQ Sweep + Dynamic Crossover)
+Smart Mixer v16.3.3 (Dynamic CF_BARS + Downbeat Snap + EQ Sweep + Dynamic Crossover)
 Combines v7 argparse/track-loading with v13 algorithm improvements and Gemini-spec Phase 1-3:
   - --cf-bars arg (auto/int) for dynamic crossfade length
   - Downbeat snapping to 4-bar phrase grid
@@ -113,9 +113,8 @@ def search_track_genre(artist, title, yt_metadata_dir=None):
                 'original mix', 'club', 'dub mix', 'mix',
             ]
             if any(kw in query_lower for kw in electronic_keywords):
-                result['vocal_hint'] = 'instrumental'
                 result['density'] = 'dense'
-                print(f"    ← title keywords: electronic genre detected → instrumental")
+                print(f"    ← title keywords: electronic genre detected → dense")
 
     return result
 
@@ -333,8 +332,8 @@ def norm_lufs(audio, target=TARGET_LUFS, sr=SR):
         return audio
     n = pyln.normalize.loudness(audio.astype("float64"), loud, target).astype("float32")
     pk = np.max(np.abs(n))
-    if pk > 0.99:
-        n *= 0.99 / pk
+    if pk > 0.707:
+        n *= 0.707 / pk
     return n
 
 
