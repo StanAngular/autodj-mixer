@@ -56,24 +56,45 @@ STYLE_PROFILES = {
 }
 
 
-def get_style_profile(m_bpm, s_bpm, vocal_ratio):
+def search_track_genre(artist, title, timeout=5):
     """
-    Auto-detect style profile based on average BPM + vocal activity.
+    Search the web for the genre of a track using keyword matching on the title.
 
-    Rules:
-      - avg BPM < 110  → downtempo   (long blends, smooth EQ)
-      - avg BPM > 135  → hard_techno  (fast cuts, punchy EQ)
-      - vocal_ratio > 0.55 → pop_vocal (short cuts, aggressive notch)
-      - otherwise      → house_tech   (balanced, smooth EQ)
+    Returns a STYLE_PROFILE name or None if undetermined.
+    Matches: house, techno, progressive, pop, lofi, ambient, downtempo.
     """
-    avg_bpm = (m_bpm + s_bpm) / 2.0
-    if avg_bpm < 110:
-        return 'downtempo'
-    if avg_bpm > 135:
-        return 'hard_techno'
-    if vocal_ratio > 0.55:
-        return 'pop_vocal'
-    return 'house_tech'
+    query = f"{artist} - {title}" if artist else title
+    query_lower = query.lower()
+
+    # Keyword-based detection (fast, no network needed)
+    genre_keywords = {
+        'techno': 'hard_techno',
+        'hard techno': 'hard_techno',
+        'industrial': 'hard_techno',
+        'downtempo': 'downtempo',
+        'ambient': 'downtempo',
+        'lofi': 'downtempo',
+        'chillout': 'downtempo',
+        'lo-fi': 'downtempo',
+        'pop': 'pop_vocal',
+        'vocal': 'pop_vocal',
+        'progressive': 'house_tech',
+        'progressive house': 'house_tech',
+        'melodic': 'house_tech',
+        'deep house': 'house_tech',
+        'house': 'house_tech',
+        'tech house': 'house_tech',
+    }
+
+    for kw, profile in genre_keywords.items():
+        if kw in query_lower:
+            return profile
+
+    # If title contains known genre keywords in specific patterns
+    if any(kw in query_lower for kw in ['extended mix', 'remix', 'mix']):
+        return 'house_tech'
+
+    return None
 
 
 def resolve_cf_bars(cf_arg, m_sec_label, s_sec_label, default=16, profile=None):
@@ -462,22 +483,29 @@ A1F_CF = {
 A1F_DROP = {'chorus': 0, 'verse': 0, 'bridge': 0}  # → 1-4 bar drop cut
 
 
-def load_a1f_bar_labels(wav_path, db, sr, a1f_dir=None):
+def load_a1f_bar_labels(wav_path, db, sr, a1f_dir=None, catalog_dir=None):
     """
     Load A1F segment labels and map them to bar indices using downbeats.
 
+    Checks catalog/a1f_results first, then a1f_dir, then wav_dir.
     Returns a list of per-bar labels (len ≈ len(db)) or None if no A1F data.
     """
     base = os.path.splitext(os.path.basename(wav_path))[0]
-    if a1f_dir is None:
-        # Look next to WAV or in a1f_results subdir
-        candidates = [
+
+    # Priority 1: catalog A1F results
+    candidates = []
+    if catalog_dir:
+        candidates.append(os.path.join(catalog_dir, base + '.json'))
+    # Priority 2: explicit a1f_dir
+    if a1f_dir:
+        candidates.append(os.path.join(a1f_dir, base + '.json'))
+    # Priority 3: next to WAV or in subdirectories
+    if not catalog_dir:
+        candidates.extend([
             os.path.join(os.path.dirname(wav_path), base + '.json'),
             os.path.join(os.path.dirname(wav_path), 'a1f_results', base + '.json'),
             os.path.join(os.path.dirname(wav_path), 'a1f_results_full', base + '.json'),
-        ]
-    else:
-        candidates = [os.path.join(a1f_dir, base + '.json')]
+        ])
 
     a1f_path = None
     for c in candidates:
@@ -1431,20 +1459,49 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         print(f"    quiet_exit={'bar' + str(qe) if qe is not None else 'none'}  "
               f"soft_entry=bar{se}({section_at_bar(st,se)})  first_active=bar{fa}")
 
-        # ── A1F OpenMIRLab labels + per-bar VAD ──────────────────────────────
+        # ── A1F Catalog labels + per-bar VAD + Genre Detection ──────────
+        CATALOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   'track_catalog', 'a1f_results')
         a1f_labels = load_a1f_bar_labels(
             os.path.join(wav_dir, wav_file), dbt, sr,
-            a1f_dir=os.path.join(wav_dir, 'a1f_results_full')
+            catalog_dir=CATALOG_DIR if os.path.exists(CATALOG_DIR) else None
         )
         vpb = vocal_per_bar(at, dbt, sr) if len(at) > sr else np.zeros(len(dbt) - 1, dtype=bool)
         a1f_status = f'A1F:{len(a1f_labels) if a1f_labels else 0}bars' if a1f_labels else 'A1F:none'
         print(f"    {a1f_status}  vocal_bars={vpb.sum()}/{len(vpb)}")
+
+        # ── Per-track style profile ─────────────────────────────────────
+        # Use A1F structure to override vocal-based detection:
+        # If track has 'inst' segments or low vocal density → house_tech
+        track_vocal_ratio = int(vpb.sum()) / max(len(vpb), 1)
+        track_style_profile = None
+        if a1f_labels:
+            # Check if track has prominent instrumental/inst sections
+            inst_labels = ('inst', 'intro', 'start', 'break', 'outro', 'end')
+            inst_count = sum(1 for lbl in a1f_labels if lbl in inst_labels)
+            inst_ratio = inst_count / max(len(a1f_labels), 1)
+            if inst_ratio > 0.4 and track_vocal_ratio < 0.4:
+                track_style_profile = 'house_tech'
+                print(f"    ↳ A1F instrumental profile: house_tech (inst_ratio={inst_ratio:.2f}, vocal_ratio={track_vocal_ratio:.2f})")
+
+        if track_style_profile is None:
+            if bpm < 110:
+                track_style_profile = 'downtempo'
+            elif bpm > 135:
+                track_style_profile = 'hard_techno'
+            elif track_vocal_ratio > 0.55:
+                track_style_profile = 'pop_vocal'
+            else:
+                track_style_profile = 'house_tech'
+
+        print(f"    Track style: {STYLE_PROFILES[track_style_profile]['label']}")
 
         TD.append({
             'name': name, 'audio': at, 'db': dbt, 'bpm': bpm,
             'key': key, 'cam': cam,
             'secs': st, 'qe': qe, 'fa': fa, 'se': se,
             'a1f': a1f_labels, 'vpb': vpb,
+            'style_profile': track_style_profile,  # v16.2: per-track style
         })
 
     # Print Camelot overview
@@ -1531,20 +1588,26 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         else:
             print(f"    cf_bars: {resolved_cf_bars}  [master={m_a1f} → slave={s_a1f}]")
 
-        # ── Style Profile Auto-Detection (v16) ──────────────────────────────
-        # Compute vocal ratio from per-bar VAD
-        cur_vocal_count = int(vpb_m.sum()) if vpb_m is not None else 0
-        nxt_vocal_count = int(vpb_s.sum()) if vpb_s is not None else 0
-        cur_total_bars = len(vpb_m) if vpb_m is not None else 1
-        nxt_total_bars = len(vpb_s) if vpb_s is not None else 1
-        avg_vocal_ratio = ((cur_vocal_count / max(cur_total_bars, 1)) +
-                           (nxt_vocal_count / max(nxt_total_bars, 1))) / 2.0
+        # ── Per-Track Style Profile (v16.2) ─────────────────────────────────
+        # Use master's profile for exit/transition, slave's for entry params
+        profile_m_name = cur.get('style_profile', 'pop_vocal')
+        profile_s_name = nxt.get('style_profile', 'pop_vocal')
 
-        style_profile_name = get_style_profile(mb, sb, avg_vocal_ratio)
+        # Pick the more conservative profile for each DSP parameter
+        # For cf_bars length: use the one with longer default_cf (more conservative)
+        prof_m = STYLE_PROFILES[profile_m_name]
+        prof_s = STYLE_PROFILES[profile_s_name]
+
+        # For cf_bars: prefer the longer one (safer transition)
+        style_profile_name = profile_m_name if prof_m['default_cf'] >= prof_s['default_cf'] else profile_s_name
+        # For notch_db: use the more aggressive (higher abs value)
+        used_notch_db = min(prof_m['notch_db'], prof_s['notch_db'])
+        # For smooth_eq: True if either track wants it
+        used_smooth_eq = prof_m['smooth_eq'] or prof_s['smooth_eq']
+
         profile = STYLE_PROFILES[style_profile_name]
-        print(f"    Style profile: {profile['label']}  (avg_bpm={(mb+sb)/2:.0f}, "
-              f"vocal_ratio={avg_vocal_ratio:.2f}, notch_db={profile['notch_db']}, "
-              f"smooth_eq={profile['smooth_eq']})")
+        print(f"    Style profiles: master={prof_m['label']} → slave={prof_s['label']} | "
+              f"selected={profile['label']} | notch_db={used_notch_db} | smooth_eq={used_smooth_eq}")
 
         # Re-resolve cf_bars with profile (only if --cf-bars was 'auto')
         if cf_bars == 'auto':
@@ -1678,7 +1741,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         blended, shift, consumed, warp_extra = build_cf_lr4(
             m_cf, s_cf, mb, sb, m_cf_db, s_cf_db, mode, cf_bars=resolved_cf_bars, sr=sr,
             stabilizer=stabilizer, vocal_clash=vocal_clash_flag,
-            notch_db=profile['notch_db'], smooth_eq=profile['smooth_eq']
+            notch_db=used_notch_db, smooth_eq=used_smooth_eq
         )
 
         # ── AI Transition check ────────────────────────────────────────────

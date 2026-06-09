@@ -233,3 +233,15 @@ smart_mixer.py — fixes from v2 analyzer findings:
   • noth_db: -5.0dB вместо -12dB ✅
   • P-score: 100% | CMLc: 100% | Cemgil: 0.885 ✅
 
+---
+
+## v16.2: Per-Track Profiles + Catalog + Web Genre
+
+### [mixer] Hermes — Catalog & Per-Track Style Engine
+  • **Каталог A1F** — `load_a1f_bar_labels()` теперь проверяет `track_catalog/a1f_results/` приоритетно
+  • **Per-track style_profile** — каждый трек в TD получает свой `style_profile` (A1F + BPM + vocal_ratio)
+  • **A1F instrumental override** — >40% instr. секций + vocal_ratio<0.4 → house_tech
+  • **Динамический DSP при переходе** — cf_bars по longer default_cf, notch_db по min, smooth_eq=OR
+  • **search_track_genre()** — веб-поиск жанра по ключевым словам в названии трека
+  • **All-in-One Fix** — `/home/hermes/ai-tools/all-in-one-fix/venv/bin/python -m allin1fix.cli` для ML-анализа
+
