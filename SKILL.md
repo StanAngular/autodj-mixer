@@ -43,7 +43,7 @@ GitHub: https://github.com/StanAngular/autodj-mixer
 
 | Файл | Назначение |
 |------|-----------|
-| `smart_mixer.py` | Миксер v15: A1F labels, EQ Sweep, BPM Transition, Dynamic CF_BARS, soft_clipper |
+| `smart_mixer.py` | Миксер v16: A1F metadata, Camelot, vocal_intervals, EQ Sweep, BPM Transition |
 | `mix_analyzer.py` | Анализатор: 8 детекторов качества (v2) |
 | `run_pipeline.py` | Конвейер: pre-analyze → mix → analyze → validate → upload |
 | `mix_validator.py` | Валидатор: pass/warn/fail по JSON от анализатора |
@@ -112,16 +112,27 @@ Step 7:    [Опционально] Transitions reel — transitions_reel.py (±
 
 ---
 
+## Shared directory structure (`shared/`)
+
+Все ресурсы, доступные обоим агентам (Hermes + ClaudeClaw), лежат в `/opt/autodj-mixer/shared/` с группой `users`:
+
+| Путь | Назначение |
+|------|-----------|
+| `shared/tracks/` | WAV-файлы треков |
+| `shared/ann/` | Madmom beat annotations (`.txt`) |
+| `shared/a1f_results/` | A1F JSON (структура, тональность, вокальные интервалы) + `.meta.json` (yt-dlp метаданные) |
+| `shared/catalog/` | Каталог треков (`catalog_index.json`, `catalog_utils.py`, `update_catalog.py`) |
+
 ## Smart Mixer (`smart_mixer.py`)
 
 ```bash
 .venv/bin/python smart_mixer.py \
-  --wav-dir ./tracks \
-  --ann-dir ./ann \
-  --style "Hard Techno" \
+  --wav-dir ./shared/tracks \
+  --ann-dir ./shared/ann \
+  --style "House" \
   --author "Hermes" \
   --use-quiet-exit \
-  --bitrate 192k
+  --bitrate 320k
 ```
 
 ### Флаги
@@ -161,8 +172,8 @@ Step 7:    [Опционально] Transitions reel — transitions_reel.py (±
 ### Configurable params (`mix_config.py`)
 
 ```python
-WAV_DIR = "/opt/autodj-mixer/tracks"
-ANN_DIR = "/opt/autodj-mixer/ann"
+WAV_DIR = "/opt/autodj-mixer/shared/tracks"
+ANN_DIR = "/opt/autodj-mixer/shared/ann"
 TARGET_LUFS = -14.0
 MAX_SHIFT_SEC = 0.05
 # Optional overrides:
@@ -244,13 +255,13 @@ curl -s -F "reqtype=fileupload" -F "time=72h" \
 **Всегда madmom, никогда librosa** для beat/downbeat detection. Librosa даёт drift 100-1133ms на электронике. Madmom RNN -- < 20ms.
 
 ```bash
-# Batch annotate: всё из tracks/ -> ann/
+# Batch annotate: всё из shared/tracks/ -> shared/ann/
 cd /opt/autodj-mixer
 .venv/bin/python batch_annotate.py
 # Пропускает уже аннотированные (incremental)
 
 # Custom dirs
-WAV_DIR=/tmp/mymix/wav ANN_DIR=/tmp/mymix/ann .venv/bin/python batch_annotate.py
+WAV_DIR=/tmp/mymix/tracks ANN_DIR=/tmp/mymix/ann .venv/bin/python batch_annotate.py
 ```
 
 Или inline (для одного файла):
@@ -408,10 +419,10 @@ track_b ─[16 bars head]──┘       ↑                    ↑
 # Шаг 2: сгенерировать AI-переход через repaint
 cd ~/ACE-Step-1.5
 uv run python3 /opt/autodj-mixer/repaint_transition.py \
-  --track-a "/opt/autodj-mixer/tracks/TrackA.wav" \
-  --track-b "/opt/autodj-mixer/tracks/TrackB.wav" \
-  --ann-a "/opt/autodj-mixer/ann/TrackA.txt" \
-  --ann-b "/opt/autodj-mixer/ann/TrackB.txt" \
+  --track-a "/opt/autodj-mixer/shared/tracks/TrackA.wav" \
+  --track-b "/opt/autodj-mixer/shared/tracks/TrackB.wav" \
+  --ann-a "/opt/autodj-mixer/shared/ann/TrackA.txt" \
+  --ann-b "/opt/autodj-mixer/shared/ann/TrackB.txt" \
   --exit-bar 128 --entry-bar 75 \
   --bpm 122 \
   --style "melodic house, deep house" \

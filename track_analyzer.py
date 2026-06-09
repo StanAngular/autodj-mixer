@@ -5,7 +5,7 @@ Step 0 of the Mix Pipeline.
 
 Usage:
   python3 track_analyzer.py --config techno_mix_config.py --out optimized_config.py
-  python3 track_analyzer.py --wav-dir ./tracks --ann-dir ./ann --out optimized.py
+  python3 track_analyzer.py --wav-dir ./shared/tracks --ann-dir ./shared/ann --out optimized.py
 """
 import sys, os, argparse, importlib.util, json
 import numpy as np

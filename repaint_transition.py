@@ -8,10 +8,10 @@ repaint_transition.py — AI-переход через ACE-Step Repaint.
 
 Usage:
   uv run python3 repaint_transition.py \\
-    --track-a /opt/autodj-mixer/tracks/Garden.wav \\
-    --track-b /opt/autodj-mixer/tracks/Fever.wav \\
-    --ann-a /opt/autodj-mixer/ann/Garden.txt \\
-    --ann-b /opt/autodj-mixer/ann/Fever.txt \\
+    --track-a /opt/autodj-mixer/shared/tracks/Garden.wav \\
+    --track-b /opt/autodj-mixer/shared/tracks/Fever.wav \\
+    --ann-a /opt/autodj-mixer/shared/ann/Garden.txt \\
+    --ann-b /opt/autodj-mixer/shared/ann/Fever.txt \\
     --exit-bar 128 --entry-bar 75 \\
     --bpm 122 --style "melodic house" \\
     --output /tmp/ai_transitions/tr0_Garden_to_Fever.wav

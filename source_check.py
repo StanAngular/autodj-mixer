@@ -5,9 +5,9 @@ source_check.py — проверка исходных WAV на битость Д
 Вывод: PASS/FAIL для каждого трека.
 
 Usage:
-  python3 source_check.py --wav-dir ./tracks --ann-dir ./ann
+  python3 source_check.py --wav-dir ./shared/tracks --ann-dir ./shared/ann
   python3 source_check.py --config mix_config.py
-  python3 source_check.py --wav-dir ./tracks --ann-dir ./ann --json out.json
+  python3 source_check.py --wav-dir ./shared/tracks --ann-dir ./shared/ann --json out.json
 """
 import sys, os, argparse, importlib.util, json
 import numpy as np

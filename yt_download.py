@@ -15,20 +15,20 @@ Usage (from file, one URL per line):
   python3 yt_download.py --url-file urls.txt
 
 Output:
-  - WAV files → /opt/autodj-mixer/tracks/
-  - Annotations → /opt/autodj-mixer/ann/
+  - WAV files → /opt/autodj-mixer/shared/tracks/
+  - Annotations → /opt/autodj-mixer/shared/ann/
   - Prints a TRACKS block for mix_config.py
 """
 
 import os, sys, subprocess, argparse, time, shutil
 
 # Shared paths (same as mix_config.py)
-WAV_DIR = "/opt/autodj-mixer/tracks"
-ANN_DIR = "/opt/autodj-mixer/ann"
+WAV_DIR = "/opt/autodj-mixer/shared/tracks"
+ANN_DIR = "/opt/autodj-mixer/shared/ann"
 YTDLP = shutil.which("yt-dlp") or os.path.expanduser("~/.local/bin/yt-dlp")
 PROXY = "socks5://127.0.0.1:40000"
 SR = 44100
-CATALOG_UTILS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "track_catalog", "catalog_utils.py")
+CATALOG_UTILS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared", "catalog", "catalog_utils.py")
 
 os.makedirs(WAV_DIR, exist_ok=True)
 os.makedirs(ANN_DIR, exist_ok=True)
@@ -107,7 +107,7 @@ def detect_downbeats(wav_path, ann_path):
 
 def register_in_catalog(vid, title=""):
     """Register track in catalog if a1f results exist."""
-    a1f_path = os.path.join(os.path.dirname(WAV_DIR), "track_catalog", "a1f_results", f"{vid}.json")
+    a1f_path = os.path.join(os.path.dirname(WAV_DIR), "shared", "a1f_results", f"{vid}.json")
     if not os.path.exists(a1f_path):
         return False
     try:

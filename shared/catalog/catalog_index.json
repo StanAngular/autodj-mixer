@@ -1,0 +1,583 @@
+{
+  "version": 1,
+  "created": "2026-06-08",
+  "tracks": {
+    "ADBKdSCbmiM": {
+      "title": "What Else Is There",
+      "artist": "Röyksopp",
+      "bpm": 115,
+      "duration": 211.81,
+      "structure": [
+        {
+          "start": 0.0,
+          "end": 0.61,
+          "label": "start"
+        },
+        {
+          "start": 0.61,
+          "end": 17.3,
+          "label": "intro"
+        },
+        {
+          "start": 17.3,
+          "end": 36.09,
+          "label": "verse"
+        },
+        {
+          "start": 36.09,
+          "end": 51.74,
+          "label": "chorus"
+        },
+        {
+          "start": 51.74,
+          "end": 71.58,
+          "label": "chorus"
+        },
+        {
+          "start": 71.58,
+          "end": 86.18,
+          "label": "inst"
+        },
+        {
+          "start": 86.18,
+          "end": 104.97,
+          "label": "verse"
+        },
+        {
+          "start": 104.97,
+          "end": 121.67,
+          "label": "verse"
+        },
+        {
+          "start": 121.67,
+          "end": 140.46,
+          "label": "chorus"
+        },
+        {
+          "start": 140.46,
+          "end": 157.16,
+          "label": "bridge"
+        },
+        {
+          "start": 157.16,
+          "end": 173.86,
+          "label": "chorus"
+        },
+        {
+          "start": 173.86,
+          "end": 190.55,
+          "label": "chorus"
+        },
+        {
+          "start": 190.55,
+          "end": 210.63,
+          "label": "outro"
+        },
+        {
+          "start": 210.63,
+          "end": 211.81,
+          "label": "end"
+        }
+      ],
+      "num_beats": 388,
+      "num_downbeats": 97,
+      "analyzed_at": "2026-06-08T19:16:15",
+      "a1f_file": "a1f_results/ADBKdSCbmiM.json"
+    },
+    "TUVcZfQe-Kw": {
+      "title": "Levitating",
+      "artist": "Dua Lipa",
+      "bpm": 102,
+      "duration": 230.13,
+      "structure": [
+        {
+          "start": 0.0,
+          "end": 0.53,
+          "label": "start"
+        },
+        {
+          "start": 0.53,
+          "end": 23.85,
+          "label": "verse"
+        },
+        {
+          "start": 23.85,
+          "end": 51.8,
+          "label": "chorus"
+        },
+        {
+          "start": 51.8,
+          "end": 75.1,
+          "label": "verse"
+        },
+        {
+          "start": 75.1,
+          "end": 89.09,
+          "label": "verse"
+        },
+        {
+          "start": 89.09,
+          "end": 117.05,
+          "label": "chorus"
+        },
+        {
+          "start": 117.05,
+          "end": 135.69,
+          "label": "chorus"
+        },
+        {
+          "start": 135.69,
+          "end": 172.98,
+          "label": "bridge"
+        },
+        {
+          "start": 172.98,
+          "end": 186.95,
+          "label": "chorus"
+        },
+        {
+          "start": 186.95,
+          "end": 203.08,
+          "label": "chorus"
+        },
+        {
+          "start": 203.08,
+          "end": 221.12,
+          "label": "outro"
+        },
+        {
+          "start": 221.12,
+          "end": 230.13,
+          "label": "outro"
+        }
+      ],
+      "num_beats": 372,
+      "num_downbeats": 93,
+      "analyzed_at": "2026-06-08T19:32:00",
+      "a1f_file": "a1f_results/TUVcZfQe-Kw.json"
+    },
+    "uPD0QOGTmMI": {
+      "title": "Die For You",
+      "artist": "The Weeknd",
+      "bpm": 130,
+      "duration": 280.12,
+      "structure": [
+        {
+          "start": 0.0,
+          "end": 0.05,
+          "label": "start"
+        },
+        {
+          "start": 0.05,
+          "end": 19.87,
+          "label": "intro"
+        },
+        {
+          "start": 19.87,
+          "end": 48.53,
+          "label": "intro"
+        },
+        {
+          "start": 48.53,
+          "end": 62.85,
+          "label": "verse"
+        },
+        {
+          "start": 62.85,
+          "end": 77.18,
+          "label": "verse"
+        },
+        {
+          "start": 77.18,
+          "end": 89.73,
+          "label": "verse"
+        },
+        {
+          "start": 89.73,
+          "end": 105.84,
+          "label": "verse"
+        },
+        {
+          "start": 105.84,
+          "end": 120.18,
+          "label": "chorus"
+        },
+        {
+          "start": 120.18,
+          "end": 134.5,
+          "label": "chorus"
+        },
+        {
+          "start": 134.5,
+          "end": 148.83,
+          "label": "verse"
+        },
+        {
+          "start": 148.83,
+          "end": 162.26,
+          "label": "verse"
+        },
+        {
+          "start": 162.26,
+          "end": 177.49,
+          "label": "verse"
+        },
+        {
+          "start": 177.49,
+          "end": 206.16,
+          "label": "chorus"
+        },
+        {
+          "start": 206.16,
+          "end": 220.46,
+          "label": "bridge"
+        },
+        {
+          "start": 220.46,
+          "end": 234.78,
+          "label": "bridge"
+        },
+        {
+          "start": 234.78,
+          "end": 263.49,
+          "label": "chorus"
+        },
+        {
+          "start": 263.49,
+          "end": 277.8,
+          "label": "outro"
+        },
+        {
+          "start": 277.8,
+          "end": 280.12,
+          "label": "end"
+        }
+      ],
+      "num_beats": 528,
+      "num_downbeats": 132,
+      "analyzed_at": "2026-06-08T19:51:00",
+      "a1f_file": "a1f_results/uPD0QOGTmMI.json"
+    },
+    "uZsY4S4ckMU": {
+      "title": "Following The Sun",
+      "artist": "SUPER-Hi x NEEKA",
+      "bpm": 128,
+      "duration": 205.9,
+      "structure": [
+        {
+          "start": 0.0,
+          "end": 0.07,
+          "label": "start"
+        },
+        {
+          "start": 0.07,
+          "end": 21.81,
+          "label": "verse"
+        },
+        {
+          "start": 21.81,
+          "end": 37.88,
+          "label": "verse"
+        },
+        {
+          "start": 37.88,
+          "end": 53.0,
+          "label": "chorus"
+        },
+        {
+          "start": 53.0,
+          "end": 68.11,
+          "label": "inst"
+        },
+        {
+          "start": 68.11,
+          "end": 82.28,
+          "label": "verse"
+        },
+        {
+          "start": 82.28,
+          "end": 98.35,
+          "label": "chorus"
+        },
+        {
+          "start": 98.35,
+          "end": 113.47,
+          "label": "chorus"
+        },
+        {
+          "start": 113.47,
+          "end": 128.58,
+          "label": "bridge"
+        },
+        {
+          "start": 128.58,
+          "end": 147.49,
+          "label": "bridge"
+        },
+        {
+          "start": 147.49,
+          "end": 162.6,
+          "label": "chorus"
+        },
+        {
+          "start": 162.6,
+          "end": 177.72,
+          "label": "chorus"
+        },
+        {
+          "start": 177.72,
+          "end": 192.83,
+          "label": "chorus"
+        },
+        {
+          "start": 192.83,
+          "end": 205.89,
+          "label": "outro"
+        },
+        {
+          "start": 205.89,
+          "end": 205.9,
+          "label": "end"
+        }
+      ],
+      "num_beats": 421,
+      "num_downbeats": 106,
+      "analyzed_at": "2026-06-08T20:04:00",
+      "a1f_file": "a1f_results/uZsY4S4ckMU.json"
+    },
+    "WZLKDS1sj1c": {
+      "title": "Free Your Mind (Extended Mix)",
+      "artist": "Cloonee, Prospa",
+      "bpm": 128,
+      "duration": 308.59,
+      "structure": [
+        {
+          "start": 0.0,
+          "end": 0.02,
+          "label": "intro"
+        },
+        {
+          "start": 0.02,
+          "end": 15.01,
+          "label": "intro"
+        },
+        {
+          "start": 15.01,
+          "end": 29.08,
+          "label": "intro"
+        },
+        {
+          "start": 29.08,
+          "end": 45.02,
+          "label": "chorus"
+        },
+        {
+          "start": 45.02,
+          "end": 60.02,
+          "label": "chorus"
+        },
+        {
+          "start": 60.02,
+          "end": 75.01,
+          "label": "verse"
+        },
+        {
+          "start": 75.01,
+          "end": 90.01,
+          "label": "verse"
+        },
+        {
+          "start": 90.01,
+          "end": 105.02,
+          "label": "chorus"
+        },
+        {
+          "start": 105.02,
+          "end": 118.14,
+          "label": "chorus"
+        },
+        {
+          "start": 118.14,
+          "end": 135.02,
+          "label": "inst"
+        },
+        {
+          "start": 135.02,
+          "end": 150.02,
+          "label": "verse"
+        },
+        {
+          "start": 150.02,
+          "end": 163.14,
+          "label": "verse"
+        },
+        {
+          "start": 163.14,
+          "end": 180.01,
+          "label": "bridge"
+        },
+        {
+          "start": 180.01,
+          "end": 195.02,
+          "label": "bridge"
+        },
+        {
+          "start": 195.02,
+          "end": 228.77,
+          "label": "verse"
+        },
+        {
+          "start": 228.77,
+          "end": 243.78,
+          "label": "chorus"
+        },
+        {
+          "start": 243.78,
+          "end": 258.77,
+          "label": "inst"
+        },
+        {
+          "start": 258.77,
+          "end": 273.77,
+          "label": "inst"
+        },
+        {
+          "start": 273.77,
+          "end": 288.77,
+          "label": "outro"
+        },
+        {
+          "start": 288.77,
+          "end": 303.78,
+          "label": "outro"
+        },
+        {
+          "start": 303.78,
+          "end": 308.59,
+          "label": "end"
+        }
+      ],
+      "num_beats": 649,
+      "num_downbeats": 163,
+      "analyzed_at": "2026-06-08T21:30:00",
+      "a1f_file": "a1f_results/WZLKDS1sj1c.json"
+    },
+    "2zPJXn7awOw": {
+      "title": "Closer",
+      "artist": "Adriatique, Emmit Fenn",
+      "bpm": 125,
+      "duration": 293.85,
+      "structure": [
+        {
+          "start": 0.0,
+          "end": 0.06,
+          "label": "start"
+        },
+        {
+          "start": 0.06,
+          "end": 15.42,
+          "label": "intro"
+        },
+        {
+          "start": 15.42,
+          "end": 30.78,
+          "label": "intro"
+        },
+        {
+          "start": 30.78,
+          "end": 47.1,
+          "label": "intro"
+        },
+        {
+          "start": 47.1,
+          "end": 61.5,
+          "label": "verse"
+        },
+        {
+          "start": 61.5,
+          "end": 76.86,
+          "label": "verse"
+        },
+        {
+          "start": 76.86,
+          "end": 92.23,
+          "label": "chorus"
+        },
+        {
+          "start": 92.23,
+          "end": 107.58,
+          "label": "chorus"
+        },
+        {
+          "start": 107.58,
+          "end": 122.94,
+          "label": "chorus"
+        },
+        {
+          "start": 122.94,
+          "end": 138.31,
+          "label": "chorus"
+        },
+        {
+          "start": 138.31,
+          "end": 153.67,
+          "label": "verse"
+        },
+        {
+          "start": 153.67,
+          "end": 169.03,
+          "label": "chorus"
+        },
+        {
+          "start": 169.03,
+          "end": 184.39,
+          "label": "break"
+        },
+        {
+          "start": 184.39,
+          "end": 199.75,
+          "label": "break"
+        },
+        {
+          "start": 199.75,
+          "end": 215.11,
+          "label": "chorus"
+        },
+        {
+          "start": 215.11,
+          "end": 230.47,
+          "label": "chorus"
+        },
+        {
+          "start": 230.47,
+          "end": 245.82,
+          "label": "chorus"
+        },
+        {
+          "start": 245.82,
+          "end": 261.18,
+          "label": "chorus"
+        },
+        {
+          "start": 261.18,
+          "end": 276.54,
+          "label": "chorus"
+        },
+        {
+          "start": 276.54,
+          "end": 291.91,
+          "label": "outro"
+        },
+        {
+          "start": 291.91,
+          "end": 293.85,
+          "label": "end"
+        }
+      ],
+      "num_beats": 608,
+      "num_downbeats": 152,
+      "analyzed_at": "2026-06-08T21:47:00",
+      "a1f_file": "a1f_results/2zPJXn7awOw.json"
+    }
+  }
+}

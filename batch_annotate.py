@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Batch annotate all WAVs in tracks/ with madmom downbeats."""
+"""Batch annotate all WAVs in shared/tracks/ with madmom downbeats."""
 import os, sys, subprocess, time
 
-TRACKS = "/opt/autodj-mixer/tracks"
-ANN = "/opt/autodj-mixer/ann"
+TRACKS = "/opt/autodj-mixer/shared/tracks"
+ANN = "/opt/autodj-mixer/shared/ann"
 os.makedirs(ANN, exist_ok=True)
 
 wavs = sorted([f for f in os.listdir(TRACKS) if f.endswith(".wav")])

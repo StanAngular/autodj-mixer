@@ -4,7 +4,7 @@ Genre detector for autodj-mixer.
 Reads WAV files + annotations, determines genre, loads genre profile.
 
 Usage:
-    python3 genre_detector.py --wav-dir ./tracks --ann-dir ./ann
+    python3 genre_detector.py --wav-dir ./shared/tracks --ann-dir ./shared/ann
     python3 genre_detector.py --config mix_config.py
     python3 genre_detector.py --config mix_config.py --json   # machine-readable
 

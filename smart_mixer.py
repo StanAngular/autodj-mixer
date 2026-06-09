@@ -1671,7 +1671,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         genre_hint = search_track_genre(track_artist, track_title)
 
         CATALOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                   'track_catalog', 'a1f_results')
+                                   'shared', 'a1f_results')
         has_a1f_data = False
         a1f_data = None
 

@@ -8,8 +8,17 @@
 - `[mixer]` — изменения в основном процессе сведения
 - `[analyzer]` — изменения в mix_analyzer
 - `[pipeline]` — run_pipeline, config, scripts
-- `[infra]` — установка зависимостей, CI, права
-- `[bug]` — фикс бага
+- `[infra]` — структура репозитория, пути, permissions
+
+## v16.3.3 — 2026-06-09 [Hermes] [infra] Shared directory structure
+
+  • **`/opt/autodj-mixer/shared/`** — создана единая shared-папка с группой `users` для доступа обоих агентов (Hermes + ClaudeClaw)
+  • **`shared/tracks/`** — 11 WAV треков перенесены из `tracks/` сюда
+  • **`shared/a1f_results/`** — 22 A1F JSON + meta.json перенесены из `track_catalog/a1f_results/` сюда
+  • **`shared/ann/`** — 34 madmom-аннотации скопированы из `ann/` сюда
+  • **`shared/catalog/`** — catalog_index.json, catalog_utils.py, update_catalog.py перенесены из `track_catalog/` сюда
+  • **Все скрипты обновлены:** smart_mixer.py, enrich_metadata.py, yt_download.py, batch_annotate.py, register_new_tracks.py, repaint_transition.py, mix_config*.py — пути заменены на `shared/`
+  • **SKILL.md** — обновлён: секция `shared/`, все примеры команд
 
 ---
 

@@ -17,9 +17,9 @@ import soundfile as sf
 import librosa
 
 SR = 44100
-A1F_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'track_catalog', 'a1f_results')
-TRACKS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tracks')
-ANN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ann')
+A1F_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shared', 'a1f_results')
+TRACKS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shared', 'tracks')
+ANN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shared', 'ann')
 
 # ── Key detection (from smart_mixer.py) ───────────────────────────────
 CAMELOT = {
