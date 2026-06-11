@@ -58,10 +58,11 @@ Group `users` (775) — both agents have rwx access.
 6. **Validate** — `mix_validator.py`
 7. **Upload** — catbox; if file > 50MB → re-encode at 96kbps for Telegram: `ffmpeg -i mix.mp3 -b:a 96k mix_tg.mp3`
 8. **Article** — DJ AI001 format
+9. **Ask to delete** — offer to delete source tracks (WAV + ANN + A1F) via `shared/catalog/delete_tracks.py`
 
 **Token efficiency:** `a1f_fast` saves ~300k input tokens vs `a1f` (no A1F JSON loading, no Demucs wait). Default to `a1f_fast`. Auto-upgrades to full `a1f` when vocal_density > 0.5.
 
-**Automation:** `run_pipeline.py` does steps 3-8 in one call.
+**Automation:** `run_pipeline.py` does steps 3-8 in one call. Step 9 (ask to delete) is manual.
 **Never run full mix without preview + confirmation.**
 
 ---
@@ -74,7 +75,7 @@ cd /opt/autodj-mixer
   --wav-dir ./shared/tracks \
   --ann-dir ./shared/ann \
   --output mix.mp3 \
-  --analysis-mode a1f
+  --analysis-mode a1f_fast
 ```
 
 ## Enrich metadata for all tracks
@@ -323,3 +324,7 @@ When creating a mix for a new genre from zero tracks, follow the workflow in `re
 
 ### Report template
 - `mix_validator.py` updated with YouTube links section placeholder
+
+### After-mix cleanup
+- After each mix, **always ask** if user wants to delete source tracks
+- Interactive deletion via `shared/catalog/delete_tracks.py`
