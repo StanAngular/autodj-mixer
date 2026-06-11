@@ -10,7 +10,22 @@
 - `[pipeline]` — run_pipeline, config, scripts
 - `[infra]` — структура репозитория, пути, permissions
 
-## v16.4 — 2026-06-11 [Hermes] Extended Transitions + A1F Fast Default + Russian Filter
+## v16.5 — 2026-06-12 [Hermes] Style-based Fallback + 24dB/oct HPF + Artifact Analysis Pipeline
+
+### [mixer] — Removed keyword-based genre guessing, proper 20-60s transitions
+  • **Removed keyword-based genre detection from fallback** — больше не ищем 'house'/'techno' в названии трека. Стиль известен из --style, fallback использует 24 bars (~45s) всегда.
+  • **Minimum cf_bars raised:** 4→8, 8→12/16 bars — все переходы теперь 20-60s, avg 30-40s, несколько 50-60s
+  • **24dB/oct HPF→LPF на EQ Sweep** — замена 12dB/oct на 24dB/oct. Круче срез = меньше фазового перекрытия = меньше band_cancellation артефактов ("эХА" звук)
+  • **smooth_eq=True для всех режимов** — убран False в коротких переходах для плавности
+
+### [pipeline] — Post-mix artifact analysis step added
+  • **mix_analyzer --feedback** обязателен после каждого микса
+  • **band_cancellation check** — если > 300 ивентов → WARN, диагностика
+
+### [pipeline] — New DJ AGENT report template (per user specs)
+  • DJ AGENT format: трек-лист + сетка сведения + техстэк + диггерский лог + sound prompt
+  • Переходы с ⏱ таймкодами и техникой сведения
+  • YouTube ссылки к каждому треку
 
 ### [mixer] — A1F fast default, vocal-heavy auto-switch, extended transitions
   • **Default analysis-mode changed to `a1f_fast`** — skip-Demucs mode for speed (~2-3 min/track), saves ~300k tokens vs full a1f

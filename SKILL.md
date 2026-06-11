@@ -114,15 +114,11 @@ Reason: a previous session's Fix 4 applied the change, but a later patch or merg
 
 **Last verified:** v16.3.3 (commit a11fc9c) — currently `0.707`. Check before each mix.
 
-### search_track_genre misclassifies vocal electronics as instrumental
+### search_track_genre misclassifies vocal electronics as instrumental (✅ RESOLVED v16.5 — removed keyword guessing)
 
 `search_track_genre()` has an `electronic_keywords` block that sets `vocal_hint='instrumental'` for any title containing 'extended mix', 'remix', 'progressive', 'house', 'techno', etc. (lines 108–118).  
 
-**Consequence:** a vocal track like Dua Lipa – Levitating (102 BPM, 88% vocal) gets marked instrumental → mixer skips vocal clash protection → possible overlap.  
-
-**Workaround:** A1F `vocal_intervals` are the reliable source. The keyword fallback is only used when A1F data is absent (`--analysis-mode no_a1f`).  
-
-**Fix needed:** `electronic_keywords` should NOT override when the title clearly has artist+lyric correlation. Prefer A1F analysis over keyword fallback for vocal classification.
+**FIXED in v16.5:** Keyword-based genre detection is REMOVED from fallback. Style is passed via `--style`, fallback uses 24 bars always. `search_track_genre()` is preserved but no longer used for transition length decisions.
 
 ### A1F CLI: --skip-separation requires existing Demucs stems
 
@@ -288,11 +284,26 @@ When creating a mix for a new genre from zero tracks, follow the workflow in `re
 
 ### Docstring version drift
 
-`smart_mixer.py` docstring (line 3) still says `v14` while the actual version is v16.4.  \n**Check on every commit:** `head -3 smart_mixer.py` — update the docstring version to match `CHANGELOG.md`.
+`smart_mixer.py` docstring (line 3) — **Check on every commit:** `head -3 smart_mixer.py` — update to match `CHANGELOG.md`. Current: v16.5
 
 ---
 
-## v16.4 changes (2026-06-11)
+## v16.5 changes (2026-06-12)
+
+### Style-based fallback (removed keyword guessing)
+- **Removed `search_track_genre()` keyword matching from fallback** — больше не ищем 'house'/'techno'/'progressive' в названии трека. Стиль известен из `--style`, fallback использует 24 bars (~45s) всегда
+- **Minimum cf_bars raised in A1F mode:** 4→8, 8→12/16 bars — все переходы 20-60s, avg 30-40s, несколько 50-60s
+- `resolve_transition_params()` теперь использует style-параметр, не keyword-угадайку
+
+### 24dB/oct HPF→LPF (fix band_cancellation)
+- **EQ Sweep filter order: 2→4** (12dB/oct → 24dB/oct)
+- Круче срез = меньше фазового перекрытия = меньше band_cancellation артефактов ("эХА" звук на битах)
+- `smooth_eq=True` для всех режимов
+
+### Post-mix artifact analysis
+- `mix_analyzer.py --feedback` обязателен после каждого микса
+- band_cancellation > 300 = WARN, требует диагностики
+- **Always create transitions preview** — extract each transition ±1s from mix, concat with 0.5s gaps, upload to catbox
 
 ### Extended transitions (20-60s)
 - **CF_BARS=24** default, **RAMP_SEC=25**

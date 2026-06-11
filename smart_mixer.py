@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Smart Mixer v16.4 (Extended Transitions 20-60s + A1F Fast Default + Vocal-Heavy Auto-Switch)
+Smart Mixer v16.5 (Extended Transitions 30-60s + 24dB/oct HPF + Style-based Fallback)
 Combines v7 argparse/track-loading with v13 algorithm improvements and Gemini-spec Phase 1-3:
   - --cf-bars arg (auto/int) for dynamic crossfade length
   - Downbeat snapping to 4-bar phrase grid
@@ -704,53 +704,43 @@ def resolve_transition_params(m_a1f_label, s_a1f_label,
     Vocal density overrides: if m_vocal_density > 0.5 or s_vocal_density > 0.5,
     notch_db is made 1dB more aggressive (max -6.0).
     """
-    # ── Mode 2: Fallback (no A1F data) ──────────────────────────────
+    # ── Mode 2: Fallback (no A1F data) — user-defined style, not keyword guessing ──
     if not has_a1f:
-        # Check genre hints from search_track_genre() + title keywords
-        is_electronic = False
-        for gh in [m_genre_hint, s_genre_hint]:
-            if gh:
-                if gh.get('vocal_hint') == 'instrumental' or \
-                   gh.get('density') in ('dense', 'percussive'):
-                    is_electronic = True
-                    break
-
-        if is_electronic:
-            print(f"    🎯 fallback: electronic/instrumental → 16b, smooth_eq")
-            params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -3.5}
-        else:
-            params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -3.0}
-
-        # Vocal density notch override (applies to fallback too)
+        # Style-aware fallback: electronic/dance genres get extended transitions
+        # User sets --style which we pass through, no keyword matching on titles
+        params = {'cf_bars': 24, 'smooth_eq': True, 'notch_db': -3.5}
+        
+        # Vocal density notch override
         md = m_vocal_density if m_vocal_density is not None else 0.0
         sd = s_vocal_density if s_vocal_density is not None else 0.0
         if md > 0.5 or sd > 0.5:
             params['notch_db'] = max(-6.0, params['notch_db'] - 1.0)
+        print(f"    🎯 fallback (style-based) → {params['cf_bars']}b, smooth_eq, notch={params['notch_db']}")
         return params
 
     # ── Mode 1: A1F segment-based ──────────────────────────────────
     m = m_a1f_label.lower() if m_a1f_label else ''
     s = s_a1f_label.lower() if s_a1f_label else ''
 
-    # EXTENDED TRANSITIONS v16.4: 20-60s range
-    # Vocal entry → drop cut
+    # EXTENDED TRANSITIONS v16.5: 20-60s range, avg 30-40s, some 50-60s
+    # Vocal entry → drop cut (shortest, vocal clash protection)
     if s in ('chorus', 'verse', 'bridge'):
-        params = {'cf_bars': 4, 'smooth_eq': False, 'notch_db': -5.0}
+        params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -5.0}
     # outro → intro/inst/start: long blend
     elif m in ('outro', 'end') and s in ('intro', 'inst', 'start'):
         params = {'cf_bars': 32, 'smooth_eq': True, 'notch_db': -3.5}
-    # outro/break → verse/bridge: medium blend
+    # outro/break → verse/bridge: medium-long blend
     elif m in ('outro', 'end', 'break') and s in ('verse', 'bridge'):
         params = {'cf_bars': 24, 'smooth_eq': True, 'notch_db': -5.0}
-    # break → intro/inst: medium + smooth
+    # break → intro/inst: medium blend
     elif m in ('break',) and s in ('intro', 'inst', 'start'):
-        params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -3.0}
-    # chorus/verse/drop → intro/inst: short cut
+        params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -3.5}
+    # chorus/verse/drop → intro/inst: short blend (minimum 20s)
     elif m in ('chorus', 'verse', 'bridge', 'drop') and s in ('intro', 'inst', 'start'):
-        params = {'cf_bars': 4, 'smooth_eq': False, 'notch_db': -5.0}
-    # outro/break → outro/break: medium
+        params = {'cf_bars': 12, 'smooth_eq': True, 'notch_db': -4.0}
+    # outro/break → outro/break: medium blend
     elif m in ('outro', 'end', 'break') and s in ('outro', 'end', 'break'):
-        params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -3.0}
+        params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -3.5}
     # Default
     else:
         params = {'cf_bars': 24, 'smooth_eq': True, 'notch_db': -3.0}
@@ -1174,7 +1164,7 @@ def _sweep_channel(audio, sr, filter_type, start_freq, end_freq, num_steps=32):
             b, a = _shelf_coeffs(freq, 0.707, 0.0, sr, filter_type)
             sos = signal.tf2sos(b, a)
         else:
-            order = 2  # 12dB/oct — smooth DJ-style
+            order = 4  # 24dB/oct — steeper rolloff, less phase overlap, cleaner transitions
             sos = signal.butter(order, freq / (0.5 * sr), btype=filter_type, output='sos')
 
         start = max(0, i * step - ov)
