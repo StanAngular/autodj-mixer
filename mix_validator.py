@@ -229,6 +229,14 @@ def print_report(result: dict, mix_path: str = ''):
     print(f"  HF noise (rubberband): {c['hf_noise']}")
     print(f"  Source issues (not our fault): {c['source_issues']}")
 
+    # YouTube links placeholder (populated externally)
+    if 'youtube_links' in result and result['youtube_links']:
+        print(f"\n  YouTube Links:")
+        for link in result['youtube_links']:
+            print(f"    {link}")
+    else:
+        print(f"\n  YouTube Links: (not yet populated)")
+
     if result['issues']:
         print(f"\n  Issues:")
         for issue in result['issues']:

@@ -10,6 +10,24 @@
 - `[pipeline]` — run_pipeline, config, scripts
 - `[infra]` — структура репозитория, пути, permissions
 
+## v16.4 — 2026-06-11 [Hermes] Extended Transitions + A1F Fast Default + Russian Filter
+
+### [mixer] — A1F fast default, vocal-heavy auto-switch, extended transitions
+  • **Default analysis-mode changed to `a1f_fast`** — skip-Demucs mode for speed (~2-3 min/track), saves ~300k tokens vs full a1f
+  • **Vocal-heavy auto-detection** — if track_vocal_density > 0.5 AND mode is a1f_fast, automatically launches full A1F (with Demucs) in background for vocal precision
+  • **Extended transitions 20-60s** — CF_BARS=24 default, RAMP_SEC=25, transition rules increased:
+    - `outro→intro/inst` → **32 bars** (~60s @ 128 BPM)
+    - `outro/break→verse/bridge` → **24 bars** (~45s)
+    - Default A1F → **24 bars** (~45s)
+
+### [pipeline] — Mix numbering, YouTube URL in catalog, Russian filter
+  • **Mix numbering** — each mix gets a sequential number (`MIX-#_Style_Date.mp3`), stored in `.mix_counter`
+  • **YouTube URL in metadata** — `enrich_metadata.py` now saves `youtube_url` per track in meta.json
+  • **YouTube URL in catalog** — `catalog_utils.add_to_catalog()` accepts `youtube_url` parameter
+  • **delete_tracks.py** — NEW interactive script to delete tracks by ID with auto-recovery (catalog + WAV + ANN + A1F)
+  • **Russian track filter** — `enrich_metadata.py` detects Russian tracks (keywords: русский, москва, россия, etc.) and flags them via `is_russian` field
+  • **Report template** — `mix_validator.py` updated with YouTube links section placeholder
+
 ## v16.3.3 — 2026-06-09 [Hermes] [infra] Shared directory structure
 
   • **`/opt/autodj-mixer/shared/`** — создана единая shared-папка с группой `users` для доступа обоих агентов (Hermes + ClaudeClaw)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Smart Mixer v16.3.3 (Dynamic CF_BARS + Downbeat Snap + EQ Sweep + Dynamic Crossover)
+Smart Mixer v16.4 (Extended Transitions 20-60s + A1F Fast Default + Vocal-Heavy Auto-Switch)
 Combines v7 argparse/track-loading with v13 algorithm improvements and Gemini-spec Phase 1-3:
   - --cf-bars arg (auto/int) for dynamic crossfade length
   - Downbeat snapping to 4-bar phrase grid
@@ -33,8 +33,8 @@ import pyloudnorm as pyln
 os.environ['PATH'] = '/tmp/rubberband-extract/usr/bin:' + os.environ.get('PATH', '')
 
 SR = 44100
-CF_BARS = 16                # Default crossfade duration in bars (overridable via --cf-bars)
-RAMP_SEC = 15               # Post-crossfade BPM ramp-back duration (seconds)
+CF_BARS = 24                # Default crossfade duration in bars (overridable via --cf-bars)
+RAMP_SEC = 25               # Post-crossfade BPM ramp-back duration (seconds)
 RAMP_MIN_RMS = 0.08         # If entry RMS below this, volume-only fade instead of BPM ramp
 TAIL_FADE_BARS = 0          # Redundant with seamless blend→ramp (17th bar warp bridge)
 TARGET_LUFS = -14.0         # Loudness normalization target
@@ -415,7 +415,10 @@ def sections(audio, db, sr=SR, name=""):
     ])
 
     b_low, a_low = signal.butter(2, 200.0 / (0.5 * sr), btype='low')
-    mono_low = signal.filtfilt(b_low, a_low, mono)
+    if len(mono) > 20:
+        mono_low = signal.filtfilt(b_low, a_low, mono)
+    else:
+        mono_low = np.zeros_like(mono)
 
     bl = np.array([
         np.sqrt(np.mean(mono_low[db[i]:db[i+1]]**2)) / (br[i] + 1e-12)
@@ -685,11 +688,11 @@ def resolve_transition_params(m_a1f_label, s_a1f_label,
 
     MODE 1 — A1F mode (has_a1f=True, default):
       Segment-intersection rules based on A1F labels:
-        - LONG BLEND:  outro→intro/inst        → 16b, smooth_eq, notch=-3.5
-        - MEDIUM BLEND: outro/break→verse/bridge → 8b, smooth_eq, notch=-5.0
-        - SHORT CUT:   chorus/verse→intro/inst  → 4b, stepped, notch=-5.0
-        - DROP CUT:    anything→chorus/verse    → 4b, stepped, notch=-5.0
-        - DEFAULT:                               8b, smooth_eq, notch=-3.0
+        - LONG BLEND:    outro→intro/inst        → 32b, smooth_eq, notch=-3.5
+        - MEDIUM BLEND:  outro/break→verse/bridge → 24b, smooth_eq, notch=-5.0
+        - SHORT CUT:     chorus/verse→intro/inst  → 4b, stepped, notch=-5.0
+        - DROP CUT:      anything→chorus/verse    → 4b, stepped, notch=-5.0
+        - DEFAULT:                                24b, smooth_eq, notch=-3.0
 
     MODE 2 — Fallback mode (has_a1f=False):
       Uses search_track_genre() hints instead of blind defaults.
@@ -729,15 +732,16 @@ def resolve_transition_params(m_a1f_label, s_a1f_label,
     m = m_a1f_label.lower() if m_a1f_label else ''
     s = s_a1f_label.lower() if s_a1f_label else ''
 
+    # EXTENDED TRANSITIONS v16.4: 20-60s range
     # Vocal entry → drop cut
     if s in ('chorus', 'verse', 'bridge'):
         params = {'cf_bars': 4, 'smooth_eq': False, 'notch_db': -5.0}
     # outro → intro/inst/start: long blend
     elif m in ('outro', 'end') and s in ('intro', 'inst', 'start'):
-        params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -3.5}
+        params = {'cf_bars': 32, 'smooth_eq': True, 'notch_db': -3.5}
     # outro/break → verse/bridge: medium blend
     elif m in ('outro', 'end', 'break') and s in ('verse', 'bridge'):
-        params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -5.0}
+        params = {'cf_bars': 24, 'smooth_eq': True, 'notch_db': -5.0}
     # break → intro/inst: medium + smooth
     elif m in ('break',) and s in ('intro', 'inst', 'start'):
         params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -3.0}
@@ -749,7 +753,7 @@ def resolve_transition_params(m_a1f_label, s_a1f_label,
         params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -3.0}
     # Default
     else:
-        params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -3.0}
+        params = {'cf_bars': 24, 'smooth_eq': True, 'notch_db': -3.0}
 
     # Vocal density notch override: denser tracks get more aggressive notch
     md = m_vocal_density if m_vocal_density is not None else 0.0
@@ -1631,8 +1635,9 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
             at *= 0.707 / pk_at
 
         qe = quiet_exit(st)
-        fa = first_active(st)
-        se = first_soft_entry(st)  # BUILD preferred over ACTIVE for slave entry
+        # Find first BUILD section bar for soft entry (restored after dead code cleanup)
+        fa = next((s for s, e, l in st if l in ('ACTIVE', 'DROP')), 0)
+        se = next((s for s, e, l in st if l == 'BUILD'), fa)  # BUILD preferred over ACTIVE for slave
         dur = len(at) / sr
         print(f"    Trimmed: {int(dur // 60)}:{int(dur % 60):02d}  bars {eb}-{xb}")
         print(f"    quiet_exit={'bar' + str(qe) if qe is not None else 'none'}  "
@@ -1707,6 +1712,26 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         else:
             track_vocal_density = int(vpb.sum()) / max(len(vpb), 1)
         print(f"    vocal_density={track_vocal_density:.2f}")
+
+        # ── Vocal-heavy auto-detection: upgrade a1f_fast → full a1f ──────
+        if track_vocal_density > 0.5 and analysis_mode == 'a1f_fast':
+            print(f"    🎤 Vocal-heavy track detected (density={track_vocal_density:.2f})")
+            print(f"    ↳ Full A1F (with Demucs separation) recommended for vocal-heavy tracks")
+            print(f"    ↳ Launching full A1F analysis without --skip-separation")
+            # Check if A1F data already exists first
+            if a1f_data is None and os.path.exists(CATALOG_DIR):
+                a1f_venv = os.path.expanduser('~/ai-tools/all-in-one-fix/venv/bin/python')
+                if os.path.exists(a1f_venv):
+                    wav_abs = os.path.join(wav_dir, wav_file)
+                    cmd = [a1f_venv, '-m', 'allin1fix.cli', wav_abs,
+                           '-o', CATALOG_DIR, '--overwrite']
+                    # No --skip-separation — full Demucs for vocal precision
+                    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    print(f"    ↳ Full A1F analysis launched in background (results on next run)")
+                else:
+                    print(f"    ⚠ A1F venv not found, cannot upgrade analysis")
+            elif a1f_data is not None:
+                print(f"    ↳ A1F data already available, no action needed")
 
         TD.append({
             'name': name, 'audio': at, 'db': dbt, 'bpm': bpm,
@@ -2221,8 +2246,8 @@ if __name__ == "__main__":
     parser.add_argument("--no-stabilizer", action="store_true", help="Disable RMS stabilizer (may increase dips, less pumping)")
     parser.add_argument("--transitions-dir", default=None, help="Directory with pre-generated AI transition WAV files")
     parser.add_argument("--cf-bars", default="auto", help="Crossfade length: 'auto' (dynamic based on sections) or integer bars (1-64)")
-    parser.add_argument("--analysis-mode", default="a1f", choices=["a1f", "a1f_fast", "no_a1f"],
-                        help="Analysis mode: 'a1f' (full Demucs, default), 'a1f_fast' (skip Demucs), 'no_a1f' (skip neural)")
+    parser.add_argument("--analysis-mode", default="a1f_fast", choices=["a1f", "a1f_fast", "no_a1f"],
+                        help="Analysis mode: 'a1f' (full Demucs), 'a1f_fast' (skip Demucs, default), 'no_a1f' (skip neural)")
     args = parser.parse_args()
 
     # Auto-generate output filename if not provided

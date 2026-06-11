@@ -43,8 +43,16 @@ def lookup_track(video_id):
             info["full_analysis"] = json.load(f)
     return info
 
-def add_to_catalog(video_id, a1f_path, title="", artist=""):
-    """Add a track analysis to the catalog. Returns True on success."""
+def add_to_catalog(video_id, a1f_path, title="", artist="", youtube_url=""):
+    """Add a track analysis to the catalog. Returns True on success.
+
+    Args:
+        video_id: YouTube video ID.
+        a1f_path: Path to the A1F analysis JSON file.
+        title: Track title.
+        artist: Track artist/uploader.
+        youtube_url: Full YouTube URL for the track.
+    """
     if not os.path.exists(a1f_path):
         print(f"  ❌ File not found: {a1f_path}")
         return False
@@ -61,6 +69,7 @@ def add_to_catalog(video_id, a1f_path, title="", artist=""):
     index["tracks"][video_id] = {
         "title": title,
         "artist": artist,
+        "youtube_url": youtube_url,
         "bpm": data.get("bpm"),
         "duration": segments[-1]["end"] if segments else None,
         "structure": [{"start": s["start"], "end": s["end"], "label": s["label"]} for s in segments],

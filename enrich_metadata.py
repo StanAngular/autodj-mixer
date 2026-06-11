@@ -74,6 +74,7 @@ def fetch_ytdlp_meta(track_id):
             'tags': data.get('tags', []),
             'categories': data.get('categories', []),
             'description': (data.get('description') or '')[:500],
+            'youtube_url': url,
         }
         # Parse year from upload_date (YYYYMMDD)
         if meta['upload_date'] and len(meta['upload_date']) >= 4:
@@ -93,6 +94,11 @@ def fetch_ytdlp_meta(track_id):
             if kw in all_text:
                 meta['genre'] = genre
                 break
+
+        # Russian track filter
+        russian_keywords = ['русский', 'russian', 'москва', 'спб', 'россия', 'russia', 'санкт-петербург', 'московский']
+        all_text_for_russian = ' '.join(meta.get('tags', [])).lower() + ' ' + meta.get('description', '').lower() + ' ' + meta.get('artist', '').lower() + ' ' + meta.get('track_title', '').lower()
+        meta['is_russian'] = any(kw in all_text_for_russian for kw in russian_keywords)
         
         return meta
     except subprocess.TimeoutExpired:
@@ -158,6 +164,8 @@ def enrich_track(track_id, force=False):
             print(f"      Title:  {meta['track_title']}")
             print(f"      Year:   {meta['year']}")
             print(f"      Genre:  {meta['genre']}")
+            print(f"      Russian: {meta.get('is_russian', False)}")
+            print(f"      URL:    {meta['youtube_url']}")
         else:
             print(f"    ⚠ Failed to fetch metadata")
     else:

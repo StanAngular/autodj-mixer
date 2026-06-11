@@ -1,6 +1,6 @@
-# AutoDJ Mixer v16.3.3
+# AutoDJ Mixer v16.4
 
-**AI-powered DJ mix engine.** Автоматическое сведение треков с использованием нейросетевого структурного анализа (All-in-One Fix), машинного обучения (madmom beat tracking) и профессионального DSP (bar-by-bar warp, LR4 crossover, BPM normalization).
+**AI-powered DJ mix engine.** Автоматическое сведение треков с использованием нейросетевого структурного анализа (All-in-One Fix), машинного обучения (madmom beat tracking) и профессионального DSP (bar-by-bar warp, LR4 crossover, BPM normalization). Extended transitions 20-60s, A1F Fast default, vocal-heavy auto-switch, mix numbering, YouTube URL catalog, Russian track filter.
 
 Разрабатывается **Hermes** (A1F интеграция, DSP, структурный анализ) + **ClaudeClaw** (warp, pipeline, AI transitions).
 
@@ -79,8 +79,8 @@ uv run python3 smart_mixer.py --wav-dir ./shared/tracks --ann-dir ./shared/ann \
 ```
 
 - Автоматически запускается `smart_mixer.py` в фоне при первом обнаружении трека без A1F.
-- Режим `--analysis-mode a1f` (default): полный Demucs, 20-40 мин/трек
-- Режим `--analysis-mode a1f_fast`: без Demucs, 2-3 мин/трек
+- Режим `--analysis-mode a1f_fast` (default): без Demucs, 2-3 мин/трек
+- Режим `--analysis-mode a1f`: полный Demucs + full precision, 20-40 мин/трек (авто-включение при vocal_density > 0.5)
 - Режим `--analysis-mode no_a1f`: только fallback по тегам
 
 ---
@@ -184,7 +184,7 @@ Source WAV (24-bit/44.1kHz PCM)
 --style "Progressive House"  # Genre (auto-filename)
 --author "Hermes"            # MP3 artist tag
 --bitrate 320k               # MP3 bitrate
---analysis-mode a1f          # a1f / a1f_fast / no_a1f
+--analysis-mode a1f_fast      # a1f_fast (default) / a1f / no_a1f
 --cf-bars auto               # Dynamic CF_BARS (default)
 --transitions-dir ./transitions  # AI transitions
 --preview-only               # Preview mode (no mix)
@@ -196,6 +196,7 @@ Source WAV (24-bit/44.1kHz PCM)
 
 | Версия | Изменения |
 |--------|-----------|
+| **v16.4** | Extended transitions (20-60s). A1F Fast default. Vocal-heavy auto-switch to full A1F. Mix numbering (MIX-#). YouTube URL in catalog/metadata. Russian track filter. delete_tracks.py. |
 | **v16.3.3** | Shared directory structure (`shared/`) для dual-agent доступа. Все пути → `shared/tracks/`, `shared/a1f_results/`, `shared/ann/`. |
 | **v16.3.2** | A1F extended: vocal_intervals, beats, key/camelot. Metadata enrichment: yt-dlp artist, title, year, genre. |
 | **v16.3.1** | Camelot integration + vocal overlap avoidance. |
