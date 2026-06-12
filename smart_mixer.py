@@ -718,32 +718,34 @@ def resolve_transition_params(m_a1f_label, s_a1f_label,
         print(f"    🎯 fallback (style-based) → {params['cf_bars']}b, smooth_eq, notch={params['notch_db']}")
         return params
 
-    # ── Mode 1: A1F segment-based ──────────────────────────────────
+    # ── Mode 1: A1F segment-based — but use ENERGY type, not A1F labels ──
+    # Map A1F labels to broad energy categories for cf_bars decisions
     m = m_a1f_label.lower() if m_a1f_label else ''
     s = s_a1f_label.lower() if s_a1f_label else ''
-
-    # EXTENDED TRANSITIONS v16.6: 22-60s range, min 22s, 70% ≥ 28s, some 40-60s
-    # Vocal entry → minimum 16 bars (≥30s, 70% ≥ 28s requirement)
-    if s in ('chorus', 'verse', 'bridge'):
+    
+    # Energy-based transition lengths (28-60s flexible range)
+    # QUIET = best for transitions, ACTIVE/DROP = requires faster swap
+    # Map A1F labels to energy contexts for cf_bars decisions
+    a1f_low_energy = ('intro', 'inst', 'outro', 'start', 'end', 'break')
+    a1f_vocal = ('verse', 'chorus', 'bridge')
+    
+    if s in a1f_low_energy and m in a1f_low_energy:
+        # Both low energy → longest blend
+        params = {'cf_bars': 32, 'smooth_eq': True, 'notch_db': -3.0}
+    elif s in a1f_low_energy or m in a1f_low_energy:
+        # One side low energy → long blend
+        params = {'cf_bars': 24, 'smooth_eq': True, 'notch_db': -3.5}
+    elif m in a1f_vocal and s in a1f_vocal:
+        # Vocal→vocal: still medium-long (all tracks are mixed in active sections)
         params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -5.0}
-    # outro → intro/inst/start: very long blend (40-60s)
-    elif m in ('outro', 'end') and s in ('intro', 'inst', 'start'):
-        params = {'cf_bars': 32, 'smooth_eq': True, 'notch_db': -3.5}
-    # outro/break → verse/bridge: medium-long blend (40-60s)
-    elif m in ('outro', 'end', 'break') and s in ('verse', 'bridge'):
-        params = {'cf_bars': 24, 'smooth_eq': True, 'notch_db': -5.0}
-    # break → intro/inst: medium blend
-    elif m in ('break',) and s in ('intro', 'inst', 'start'):
-        params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -3.5}
-    # chorus/verse/drop → intro/inst: medium blend
-    elif m in ('chorus', 'verse', 'bridge', 'drop') and s in ('intro', 'inst', 'start'):
-        params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -4.0}
-    # outro/break → outro/break: medium blend
-    elif m in ('outro', 'end', 'break') and s in ('outro', 'end', 'break'):
-        params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -3.5}
-    # Default
+    elif m == 'drop' or s == 'drop':
+        # Drop involved → keep shorter for energy integrity
+        params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -5.0}
     else:
-        params = {'cf_bars': 24, 'smooth_eq': True, 'notch_db': -3.0}
+        # Default
+        params = {'cf_bars': 24, 'smooth_eq': True, 'notch_db': -3.5}
+    # old chain removed — replaced by energy-based logic above
+    pass
 
     # Vocal density notch override: denser tracks get more aggressive notch
     md = m_vocal_density if m_vocal_density is not None else 0.0
@@ -1590,68 +1592,21 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
             except (IOError, json.JSONDecodeError):
                 pass
 
-        # Key detection + Camelot
+        # ── Key detection + Camelot ───────────────────────────────────
         t_key = time.time()
         mono = audio.mean(1) if audio.ndim == 2 else audio
         key = detect_key(mono, sr)
         cam = camelot_code(key)
         print(f"    Key: {key:8s}  Camelot: {cam}  (in {time.time()-t_key:.1f}s)")
 
-        secs = sections(audio, db, sr, name=name)
-        act = [(s, e) for s, e, l in secs if l in ('ACTIVE', 'DROP')]
-        if act:
-            eb = max(0, act[0][0] - 2)
-            xb = min(len(db) - 1, act[-1][1] + 2)
-        else:
-            eb, xb = 0, len(db) - 1
-
-        s0 = int(db[eb])
-        e0 = int(db[xb]) if xb < len(db) else len(audio)
-        at = audio[s0:e0]
-        dbt = db[eb:xb+1] - s0
-        st = sections(at, dbt, sr)
-
-        # Per-bar RMS energy label for hybrid A1F+RMS scoring
-        n_bars_trimmed = len(dbt)
-        bar_energy = ['QUIET'] * n_bars_trimmed
-        for s, e, l in st:
-            for b in range(s, min(e, n_bars_trimmed)):
-                bar_energy[b] = l
-
-        at = norm_lufs(at, TARGET_LUFS, sr)
-        # ── hard peak clamp -3dB ──────────────────────────────────────────
-        pk_at = np.max(np.abs(at))
-        if pk_at > 0.707:
-            at *= 0.707 / pk_at
-
-        qe = quiet_exit(st)
-        # Find first BUILD section bar for soft entry (restored after dead code cleanup)
-        fa = next((s for s, e, l in st if l in ('ACTIVE', 'DROP')), 0)
-        se = next((s for s, e, l in st if l == 'BUILD'), fa)  # BUILD preferred over ACTIVE for slave
-        dur = len(at) / sr
-        print(f"    Trimmed: {int(dur // 60)}:{int(dur % 60):02d}  bars {eb}-{xb}")
-        print(f"    quiet_exit={'bar' + str(qe) if qe is not None else 'none'}  "
-              f"soft_entry=bar{se}({section_at_bar(st,se)})  first_active=bar{fa}")
-
-        # ── A1F Track Data + Genre Metadata ────────────────────────────
-        # Run search_track_genre() for fallback metadata (always, regardless of mode)
-        # Use filename as artist/title proxy for keyword matching
-        name_parts = wav_file.replace('.wav', '').split(' - ')
-        if len(name_parts) >= 2:
-            track_artist = name_parts[0].strip()
-            track_title = ' - '.join(name_parts[1:]).strip()
-        else:
-            track_artist = ''
-            track_title = name_parts[0][:40]
-        genre_hint = search_track_genre(track_artist, track_title)
-
+        # ── A1F Track Data (load BEFORE section analysis) ────────────
         CATALOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    'shared', 'a1f_results')
         has_a1f_data = False
         a1f_data = None
+        a1f_bar_labels = None
 
         if analysis_mode != 'no_a1f':
-            # Mode a1f or a1f_fast — try to load cached A1F data
             a1f_data = load_a1f_track_data(
                 os.path.join(wav_dir, wav_file), sr,
                 catalog_dir=CATALOG_DIR if os.path.exists(CATALOG_DIR) else None
@@ -1666,13 +1621,12 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                            '-o', CATALOG_DIR, '--overwrite']
                     if analysis_mode == 'a1f_fast':
                         cmd.append('--skip-separation')
-                    # full 'a1f' mode → no --skip-separation (Demucs + full precision)
                     subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     print(f"    ↳ A1F analysis launched in background [{analysis_mode}] (results on next run)")
 
             if a1f_data:
                 has_a1f_data = True
-                # A1F BPM cross-validation
+                # A1F BPM cross-validation only — never override beat grid
                 if a1f_data.get('bpm'):
                     a1f_bpm = float(a1f_data['bpm'])
                     if abs(a1f_bpm - bpm) / max(bpm, 1) > 0.03:
@@ -1681,27 +1635,62 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                         db, bpm = fix_ht(db, bpm)
                         print(f"    ↳ A1F BPM cross-validated: {bpm:.1f} (madmom was {old_bpm:.1f})")
 
-                # A1F downbeats → replace madmom grid when available
-                if a1f_data.get('downbeats') is not None:
-                    old_len = len(dbt)
-                    dbt = a1f_data['downbeats']
-                    print(f"    ↳ A1F downbeats: {len(dbt)} bars (was {old_len})")
+                # A1F bar_labels — load for transition params only (NOT for exit selection)
+                a1f_bar_labels = a1f_data.get('bar_labels')
 
-        if not has_a1f_data:
-            print(f"    Mode: {analysis_mode} — no A1F data, fallback to genre metadata")
+        # ── Section analysis (with final madmom grid) ────────────────
+        secs = sections(audio, db, sr, name=name)
+        act = [(s, e) for s, e, l in secs if l in ('ACTIVE', 'DROP')]
+        if act:
+            eb = max(0, act[0][0] - 2)
+            xb = min(len(db) - 1, act[-1][1] + 2)
         else:
-            print(f"    Mode: {analysis_mode} — A1F data loaded")
+            eb, xb = 0, len(db) - 1
 
+        s0 = int(db[eb])
+        e0 = int(db[xb]) if xb < len(db) else len(audio)
+        at = audio[s0:e0]
+        dbt = db[eb:xb+1] - s0
+        st = sections(at, dbt, sr)
+
+        # Per-bar RMS energy label (ENERGY-based, NOT A1F labels)
+        n_bars_trimmed = len(dbt)
+        bar_energy = ['QUIET'] * n_bars_trimmed
+        for s, e, l in st:
+            for b in range(s, min(e, n_bars_trimmed)):
+                bar_energy[b] = l
+
+        at = norm_lufs(at, TARGET_LUFS, sr)
+        # ── hard peak clamp -3dB ──────────────────────────────────────────
+        pk_at = np.max(np.abs(at))
+        if pk_at > 0.707:
+            at *= 0.707 / pk_at
+
+        qe = quiet_exit(st)
+        # Find first BUILD section bar for soft entry
+        fa = next((s for s, e, l in st if l in ('ACTIVE', 'DROP')), 0)
+        se = next((s for s, e, l in st if l == 'BUILD'), fa)
+        dur = len(at) / sr
+        print(f"    Trimmed: {int(dur // 60)}:{int(dur % 60):02d}  bars {eb}-{xb}")
+        print(f"    quiet_exit={'bar' + str(qe) if qe is not None else 'none'}  "
+              f"soft_entry=bar{se}({section_at_bar(st,se)})  first_active=bar{fa}")
+
+        # Vocal per-bar (VAD-based, NOT A1F vocal_density)
         vpb = vocal_per_bar(at, dbt, sr) if len(at) > sr else np.zeros(len(dbt) - 1, dtype=bool)
-        a1f_status = f'A1F:{len(a1f_data["bar_labels"]) if a1f_data and a1f_data["bar_labels"] else 0}bars' if has_a1f_data else 'A1F:none'
-        print(f"    {a1f_status}  vocal_bars={vpb.sum()}/{len(vpb)}")
+        track_vocal_density = int(vpb.sum()) / max(len(vpb), 1)
+        a1f_bar_count = len(a1f_bar_labels) if a1f_bar_labels else 0
+        print(f"    {'A1F' if has_a1f_data else 'no_A1F'}:{a1f_bar_count}bars  "
+              f"vocal_bars={vpb.sum()}/{len(vpb)}  vocal_density={track_vocal_density:.2f}")
 
-        # ── Vocal density (for transition param tuning) ──────────────────
-        if a1f_data and a1f_data.get('vocal_density') is not None:
-            track_vocal_density = a1f_data['vocal_density']
+        # ── Genre metadata ───────────────────────────────────────────
+        name_parts = wav_file.replace('.wav', '').split(' - ')
+        if len(name_parts) >= 2:
+            track_artist = name_parts[0].strip()
+            track_title = ' - '.join(name_parts[1:]).strip()
         else:
-            track_vocal_density = int(vpb.sum()) / max(len(vpb), 1)
-        print(f"    vocal_density={track_vocal_density:.2f}")
+            track_artist = ''
+            track_title = name_parts[0][:40]
+        genre_hint = search_track_genre(track_artist, track_title)
 
         # ── Vocal-heavy auto-detection: upgrade a1f_fast → full a1f ──────
         if track_vocal_density > 0.5 and analysis_mode == 'a1f_fast':
@@ -1847,8 +1836,11 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         print(f"    Transition: {m_a1f_label}→{s_a1f_label} | "
               f"cf_bars={resolved_cf_bars} | notch_db={used_notch_db} | smooth_eq={used_smooth_eq}")
 
-        # ── RMS energy-based cf_bars cap (v16.6: min 22s, 70% ≥ 28s) ──
-        # If both exit and entry are at high energy (ACTIVE/DROP), minimum 12b (~23s)
+        # ── Energy-based cf_bars: flexible 28-60s range ──
+        # Both sides high (ACTIVE/DROP): min 12b (~23s) — guarantee ≥22s
+        # One side high: min 16b (~30s) — guarantee ≥28s where possible
+        # No cap on upper end: resolved can be 16-32b for 30-60s
+        
         bar_energy_m = cur.get('bar_energy')
         bar_energy_s = nxt.get('bar_energy')
         m_energy = bar_energy_m[exit_bar] if bar_energy_m and exit_bar < len(bar_energy_m) else None
@@ -1856,14 +1848,16 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         if m_energy and s_energy:
             high_energy = ('ACTIVE', 'DROP')
             if m_energy in high_energy and s_energy in high_energy:
-                new_cf = min(resolved_cf_bars, 12)
-                if new_cf < resolved_cf_bars:
-                    print(f"    ↳ Energy cap: both {m_energy}/{s_energy} → cf_bars {resolved_cf_bars}→{new_cf}")
+                # Both high → floor at 12b, ceiling at 16b (keep it tight for energy)
+                new_cf = max(12, min(resolved_cf_bars, 16))
+                if new_cf != resolved_cf_bars:
+                    print(f"    ↳ Energy both-high {m_energy}/{s_energy}: cf_bars {resolved_cf_bars}→{new_cf}")
                     resolved_cf_bars = new_cf
             elif m_energy in high_energy or s_energy in high_energy:
-                new_cf = min(resolved_cf_bars, 16)
-                if new_cf < resolved_cf_bars:
-                    print(f"    ↳ Energy cap: one side {m_energy}/{s_energy} → cf_bars {resolved_cf_bars}→{new_cf}")
+                # One high → floor at 16b, no ceiling (can reach 24-32b for 40-60s)
+                new_cf = max(16, resolved_cf_bars)
+                if new_cf != resolved_cf_bars:
+                    print(f"    ↳ Energy one-high {m_energy}/{s_energy}: cf_bars {resolved_cf_bars}→{new_cf}")
                     resolved_cf_bars = new_cf
 
         # Recompute exit with actual cf_bars using best_exit_bar_v2
