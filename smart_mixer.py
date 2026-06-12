@@ -1143,22 +1143,27 @@ def eq_pow(n):
 # EQ Sweep Module (HPF/LPF/Shelving IIR Filters)
 # ============================================================
 
-def _sweep_channel(audio, sr, filter_type, start_freq, end_freq, num_steps=32):
+def _sweep_channel(audio, sr, filter_type, start_freq, end_freq, num_steps=32, pre_steps=0):
     """
     Sweep an IIR filter on mono audio using overlapped Hann-windowed frames.
     filter_type: 'highpass', 'lowpass', 'low_shelf', 'high_shelf'
+    pre_steps: number of steps at start_freq before sweeping (smooth lead-in).
     """
     n = len(audio)
     if n < 100:
         return audio.astype(np.float32)
     out = np.zeros(n, dtype=np.float64)
     weight = np.zeros(n, dtype=np.float64)
-    step = max(1, n // num_steps)
+    total_steps = num_steps + pre_steps
+    step = max(1, n // total_steps)
     ov = max(1, step // 4)
 
-    for i in range(num_steps):
-        frac = i / max(num_steps - 1, 1)
-        freq = start_freq + (end_freq - start_freq) * frac
+    for i in range(total_steps):
+        if i < pre_steps:
+            freq = start_freq  # stay at minimal setting during pre-roll
+        else:
+            frac = (i - pre_steps) / max(num_steps - 1, 1)
+            freq = start_freq + (end_freq - start_freq) * frac
         freq = max(10.0, min(freq, 0.45 * sr))
 
         if filter_type in ('low_shelf', 'high_shelf'):
@@ -1216,9 +1221,10 @@ def _shelf_coeffs(freq, q, gain_db, sr, shelf_type):
     return b, a
 
 
-def eq_sweep(audio, sr, filter_type='highpass', start_freq=20, end_freq=150, num_steps=32):
+def eq_sweep(audio, sr, filter_type='highpass', start_freq=20, end_freq=150, num_steps=32, pre_steps=0):
     """
     Apply a frequency sweep across audio using IIR filters.
+    pre_steps: smooth lead-in steps at start_freq before sweeping begins.
 
     filter_type: 'highpass' — bass cut (master outgoing)
                  'lowpass'  — treble cut (slave incoming)
@@ -1236,7 +1242,7 @@ def eq_sweep(audio, sr, filter_type='highpass', start_freq=20, end_freq=150, num
     out = np.zeros_like(audio, dtype=np.float32)
     for c in range(ch):
         out[:, c] = _sweep_channel(
-            audio[:, c], sr, filter_type, start_freq, end_freq, num_steps
+            audio[:, c], sr, filter_type, start_freq, end_freq, num_steps, pre_steps
         )
     return out
 
@@ -1476,15 +1482,20 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
         blended_high = m_high * fo[:, None] + s_high * fi[:, None]
 
         # ── EQ Sweep Bass Swap — gradual HPF on master low, LPF on slave low ──
-        # Use fewer steps to minimize filter overlap artifacts while maintaining smoothness
+        # Extend audio by 25% for filter pre-conditioning before audible part
         num_sweep_steps = max(128, cf_bars * 4)  # ~4 steps per bar
-        print(f"    EQ Sweep bass swap: {num_sweep_steps} steps", flush=True)
-        m_low_swept = eq_sweep(m_low, sr, filter_type='highpass',
-                                start_freq=20, end_freq=150,
-                                num_steps=num_sweep_steps)
-        s_low_swept = eq_sweep(s_low, sr, filter_type='lowpass',
-                                start_freq=150, end_freq=20,
-                                num_steps=num_sweep_steps)
+        pre_len = len(m_low) // 4  # ~25% = 7.5s at 30s transition
+        m_low_ext = np.concatenate([m_low[:pre_len], m_low])
+        s_low_ext = np.concatenate([s_low[:pre_len], s_low])
+        print(f"    EQ Sweep bass swap: {num_sweep_steps} steps on {pre_len}-sample pre-extended audio", flush=True)
+        m_low_swept_all = eq_sweep(m_low_ext, sr, filter_type='highpass',
+                                    start_freq=20, end_freq=150,
+                                    num_steps=num_sweep_steps)
+        s_low_swept_all = eq_sweep(s_low_ext, sr, filter_type='lowpass',
+                                    start_freq=150, end_freq=20,
+                                    num_steps=num_sweep_steps)
+        m_low_swept = m_low_swept_all[-len(m_low):]  # use tail (actual crossfade zone)
+        s_low_swept = s_low_swept_all[-len(s_low):]
 
         blended_low = m_low_swept + s_low_swept
 
