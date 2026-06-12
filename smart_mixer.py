@@ -1436,17 +1436,16 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
     # Per-chunk independent shifts created discontinuities at chunk boundaries,
     # introducing audible phase jumps. Global micro-align (step 2) handles residual.
 
-    # 3. LR4 3-Band blend with bass polarity check
+    # 3. LR4 3-Band bass swap — clean crossfade per band, NO additional EQ sweep
     if mode == 'hpss':
         # ── Dynamic crossover frequency ──────────────────────────────────
         low_cut, high_cut = find_crossover(m_zone, s_zone, sr)
-        print(f"    LR4 3-Band split @ low={low_cut}Hz high={high_cut}Hz...", flush=True)
+        print(f"    LR4 bass swap @ {low_cut}/{high_cut}Hz — 3-band crossfade, no filters", flush=True)
         m_low, m_mid, m_high = three_band_split(m_zone, low_cut, high_cut, sr)
         s_low, s_mid, s_high = three_band_split(s_zone, low_cut, high_cut, sr)
 
-        # Bass polarity check — weighted consensus across 5 points
-        bar_samples = int(bar_s(m_bpm) * sr)
-        bws = int(0.10 * SR)  # analysis window (100ms)
+        # Bass polarity: invert slave low if phase is inverted
+        bws = int(0.10 * SR)
         n_points = 5
         polarities = []
         for pi in range(n_points):
@@ -1459,35 +1458,27 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
                     polarities.append(co)
         if polarities:
             mean_corr = float(np.mean(polarities))
-            print(f"    Bass polarity: mean_corr={mean_corr:.2f} ({n_points} pts)", end='')
-            # Also check kick band (60-120Hz) separately — more critical for phase cancellation
             sos = signal.butter(4, [60, 120], btype='band', fs=sr, output='sos')
             m_kick = signal.sosfilt(sos, m_low.mean(1))
             s_kick = signal.sosfilt(sos, s_low.mean(1))
             kick_corr = np.corrcoef(m_kick, s_kick)[0, 1] if len(m_kick) > 100 else 0
-            if not np.isnan(kick_corr):
-                print(f"  kick_corr={kick_corr:.2f}", end='')
-            # Invert if EITHER full-band or kick band shows significant negative correlation
-            if mean_corr < -0.3 or kick_corr < -0.5:
+            if not np.isnan(kick_corr) and (mean_corr < -0.3 or kick_corr < -0.5):
                 s_low = -s_low
-                print(" → INVERTED")
+                print(f"    Bass polarity: INVERTED (corr={mean_corr:.2f}, kick={kick_corr:.2f})")
             else:
-                print(" → OK")
+                print(f"    Bass polarity: OK (corr={mean_corr:.2f}, kick={kick_corr:.2f})")
         else:
             print("    Bass polarity: skipped (insufficient data)")
 
+        # Clean 3-band crossfade: each band fades independently
         fo, fi = eq_pow(cf_len)
         blended_mid = m_mid * fo[:, None] + s_mid * fi[:, None]
         blended_high = m_high * fo[:, None] + s_high * fi[:, None]
 
-        # ── EQ Sweep Bass Swap (Phase 2) ─────────────────────────────────
-        # Replaces old binary 2-bar swap with gradual HPF/LPF sweeps.
-        # For smooth_eq=True, use per-sample step count for seamless sweep.
-        if smooth_eq:
-            num_sweep_steps = max(256, len(m_low) // 128)  # ~every 3ms
-        else:
-            num_sweep_steps = max(8, cf_bars * 2)  # ~2 steps per bar
-        print(f"    EQ Sweep bass swap: {num_sweep_steps} steps{' (smooth)' if smooth_eq else ''}", flush=True)
+        # ── EQ Sweep Bass Swap — gradual HPF on master low, LPF on slave low ──
+        # Use fewer steps to minimize filter overlap artifacts while maintaining smoothness
+        num_sweep_steps = max(128, cf_bars * 4)  # ~4 steps per bar
+        print(f"    EQ Sweep bass swap: {num_sweep_steps} steps", flush=True)
         m_low_swept = eq_sweep(m_low, sr, filter_type='highpass',
                                 start_freq=20, end_freq=150,
                                 num_steps=num_sweep_steps)
@@ -1497,15 +1488,10 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
 
         blended_low = m_low_swept + s_low_swept
 
-        # ── Vocal Notch Sweep (VAD Clash mitigation, profile-driven) ───
+        # ── Vocal Notch Sweep ───────────────────────────────────────────
         if vocal_clash:
-            # Duck master vocal range (1-4kHz) by notch_db from profile
-            # This clears space for the slave's vocals without 'telephone' effect
-            if smooth_eq:
-                notch_steps = max(256, blended_mid.shape[0] // 128)
-            else:
-                notch_steps = max(24, cf_bars * 4)
-            print(f"    Vocal Notch Sweep: {notch_steps} steps, {notch_db}dB @ 1-4kHz{' (smooth)' if smooth_eq else ''}", flush=True)
+            notch_steps = max(128, cf_bars * 4)
+            print(f"    Vocal Notch Sweep: {notch_steps} steps, {notch_db}dB @ 1-4kHz", flush=True)
             blended_mid = vocal_notch_sweep(
                 blended_mid, sr, num_steps=notch_steps,
                 min_freq=1000, max_freq=4000, gain_db=notch_db, q=1.5
