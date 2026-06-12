@@ -5,3 +5,14 @@
 __pycache__/
 .env
 /tmp/
+venv/
+demix/
+*.npy
+*.webm
+spec/
+old_ann/
+ann/old/
+tracks/
+shared/ann/*.txt
+shared/tracks/*.wav
+shared/tracks/*.webm

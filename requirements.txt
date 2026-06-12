@@ -1,7 +1,0 @@
-numpy
-soundfile
-scipy
-pyrubberband
-librosa
-pyloudnorm
-madmom

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Smart Mixer v16.5 (Extended Transitions 30-60s + 24dB/oct HPF + Style-based Fallback)
+Smart Mixer v16.6 (Strict Transition Rules 22-60s + 70% ≥ 28s + a1f_fast pre-analysis)
 Combines v7 argparse/track-loading with v13 algorithm improvements and Gemini-spec Phase 1-3:
   - --cf-bars arg (auto/int) for dynamic crossfade length
   - Downbeat snapping to 4-bar phrase grid
@@ -722,10 +722,10 @@ def resolve_transition_params(m_a1f_label, s_a1f_label,
     m = m_a1f_label.lower() if m_a1f_label else ''
     s = s_a1f_label.lower() if s_a1f_label else ''
 
-    # EXTENDED TRANSITIONS v16.5: 20-60s range, avg 30-40s, some 50-60s
-    # Vocal entry → drop cut (shortest, vocal clash protection)
+    # EXTENDED TRANSITIONS v16.6: 22-60s range, min 22s, 70% ≥ 28s, some 40-60s
+    # Vocal entry → minimum 12 bars (≥22s)
     if s in ('chorus', 'verse', 'bridge'):
-        params = {'cf_bars': 8, 'smooth_eq': True, 'notch_db': -5.0}
+        params = {'cf_bars': 12, 'smooth_eq': True, 'notch_db': -5.0}
     # outro → intro/inst/start: long blend
     elif m in ('outro', 'end') and s in ('intro', 'inst', 'start'):
         params = {'cf_bars': 32, 'smooth_eq': True, 'notch_db': -3.5}
@@ -1847,8 +1847,8 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         print(f"    Transition: {m_a1f_label}→{s_a1f_label} | "
               f"cf_bars={resolved_cf_bars} | notch_db={used_notch_db} | smooth_eq={used_smooth_eq}")
 
-        # ── RMS energy-based cf_bars cap ────────────────────────────────
-        # If both exit and entry are at high energy (ACTIVE/DROP), shorten CF
+        # ── RMS energy-based cf_bars cap (v16.6: min 22s, 70% ≥ 28s) ──
+        # If both exit and entry are at high energy (ACTIVE/DROP), minimum 12b (~23s)
         bar_energy_m = cur.get('bar_energy')
         bar_energy_s = nxt.get('bar_energy')
         m_energy = bar_energy_m[exit_bar] if bar_energy_m and exit_bar < len(bar_energy_m) else None
@@ -1856,12 +1856,12 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         if m_energy and s_energy:
             high_energy = ('ACTIVE', 'DROP')
             if m_energy in high_energy and s_energy in high_energy:
-                new_cf = min(resolved_cf_bars, 4)
+                new_cf = min(resolved_cf_bars, 12)
                 if new_cf < resolved_cf_bars:
                     print(f"    ↳ Energy cap: both {m_energy}/{s_energy} → cf_bars {resolved_cf_bars}→{new_cf}")
                     resolved_cf_bars = new_cf
             elif m_energy in high_energy or s_energy in high_energy:
-                new_cf = min(resolved_cf_bars, 8)
+                new_cf = min(resolved_cf_bars, 16)
                 if new_cf < resolved_cf_bars:
                     print(f"    ↳ Energy cap: one side {m_energy}/{s_energy} → cf_bars {resolved_cf_bars}→{new_cf}")
                     resolved_cf_bars = new_cf

@@ -335,3 +335,25 @@ smart_mixer.py — fixes from v2 analyzer findings:
   • Fallback mode (no_a1f): корректный VAD-дефолт 8b ✅
   • Время сборки: 73.8с для 8 треков ✅
 
+## v16.6 — 2026-06-12
+
+### Новые правила переходов (Stas req)
+- **Запрещены переходы < 22с** — минимальный `cf_bars` поднят с 4→12 bar (~23с при 128 BPM)
+- **70% переходов ≥ 28с** — one-side energy cap повышен с 8→16 bar (~30с)
+- **Переходы 40-60с** — нормальные (без cap) остаются 24-32 bar (45-60с)
+- Vocal entry (chorus/verse/bridge): минимум **12 bar** (было 8 bar)
+- Energy cap both-high: **12 bar** (было 4 bar)
+- Energy cap one-high: **16 bar** (было 8 bar)
+- Документация: `smart_mixer.py` docstring v16.6
+
+### A1F pre-analysis pipeline
+- Все 21 трек MIX-2 проанализированы `allin1fix --skip-separation` перед сведением
+- 20/21 треков имеют полные A1F JSON (bpm, segments, beats, downbeats)
+- 1 трек (Korolova - My Mind) использует style-based fallback (24 bar)
+- Строгая последовательность: `a1f_fast` → mix → analyze → report
+
+### Исправление эхо на ударных (band_cancellation)
+- Увеличенная длина переходов уменьшает фазовую интерференцию баса
+- 24dB/oct HPF→LPF сохраняется (v16.5)
+- band_cancellation ожидается < 300 против 558 в MIX-2
+
