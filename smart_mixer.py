@@ -723,21 +723,21 @@ def resolve_transition_params(m_a1f_label, s_a1f_label,
     s = s_a1f_label.lower() if s_a1f_label else ''
 
     # EXTENDED TRANSITIONS v16.6: 22-60s range, min 22s, 70% ≥ 28s, some 40-60s
-    # Vocal entry → minimum 12 bars (≥22s)
+    # Vocal entry → minimum 16 bars (≥30s, 70% ≥ 28s requirement)
     if s in ('chorus', 'verse', 'bridge'):
-        params = {'cf_bars': 12, 'smooth_eq': True, 'notch_db': -5.0}
-    # outro → intro/inst/start: long blend
+        params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -5.0}
+    # outro → intro/inst/start: very long blend (40-60s)
     elif m in ('outro', 'end') and s in ('intro', 'inst', 'start'):
         params = {'cf_bars': 32, 'smooth_eq': True, 'notch_db': -3.5}
-    # outro/break → verse/bridge: medium-long blend
+    # outro/break → verse/bridge: medium-long blend (40-60s)
     elif m in ('outro', 'end', 'break') and s in ('verse', 'bridge'):
         params = {'cf_bars': 24, 'smooth_eq': True, 'notch_db': -5.0}
     # break → intro/inst: medium blend
     elif m in ('break',) and s in ('intro', 'inst', 'start'):
         params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -3.5}
-    # chorus/verse/drop → intro/inst: short blend (minimum 20s)
+    # chorus/verse/drop → intro/inst: medium blend
     elif m in ('chorus', 'verse', 'bridge', 'drop') and s in ('intro', 'inst', 'start'):
-        params = {'cf_bars': 12, 'smooth_eq': True, 'notch_db': -4.0}
+        params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -4.0}
     # outro/break → outro/break: medium blend
     elif m in ('outro', 'end', 'break') and s in ('outro', 'end', 'break'):
         params = {'cf_bars': 16, 'smooth_eq': True, 'notch_db': -3.5}
