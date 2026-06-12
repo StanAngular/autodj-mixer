@@ -1488,6 +1488,18 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
 
         blended_low = m_low_swept + s_low_swept
 
+        # ── Fast bass crossover: low band crossfade in 25% of transition ──
+        # After fast phase: master low = 0, slave low = 1
+        # Cuts band_cancellation by ~75% while keeping spectral transition smooth
+        n_fast = cf_len // 4  # 25% of transition
+        fast_fo = np.ones(cf_len, dtype=np.float32)
+        fast_fo[:n_fast] = np.cos(np.linspace(0, np.pi/2, n_fast))**2
+        fast_fo[n_fast:] = 0.0
+        fast_fi = np.zeros(cf_len, dtype=np.float32)
+        fast_fi[:n_fast] = np.sin(np.linspace(0, np.pi/2, n_fast))**2
+        fast_fi[n_fast:] = 1.0
+        blended_low = m_low_swept * fast_fo[:, None] + s_low_swept * fast_fi[:, None]
+
         # ── Vocal Notch Sweep ───────────────────────────────────────────
         if vocal_clash:
             notch_steps = max(128, cf_bars * 4)
@@ -1876,6 +1888,41 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                 print(f"    ↳ Downbeat snap: exit {exit_bar}→{snapped}")
                 exit_bar = snapped
                 m_a1f_label = _a1f_label(a1f_m, exit_bar, cur['secs'])
+
+        # ── LUFS gating: reject exit/entry with >6dB RMS difference ──────
+        bar_samples_m = int(bar_s(mb) * sr)
+        bar_samples_s = int(bar_s(sb) * sr)
+        exit_s = int(cur['db'][min(exit_bar, len(cur['db']) - 1)])
+        entry_s = int(nxt['db'][min(nxt['se'], len(nxt['db']) - 1)])
+        if exit_s >= bar_samples_m and entry_s + bar_samples_s <= len(nxt['audio']):
+            last_bar_rms = np.sqrt(np.mean(cur['audio'][exit_s - bar_samples_m:exit_s]**2))
+            first_bar_rms = np.sqrt(np.mean(nxt['audio'][entry_s:entry_s + bar_samples_s]**2))
+            ratio = last_bar_rms / max(first_bar_rms, 1e-10)
+            lufs_jump = 20 * np.log10(ratio) if ratio > 0 else 20
+            if abs(lufs_jump) > 6.0:
+                total_bars = len(cur['db']) - 1
+                min_bar = int(MIN_PLAY_FRACTION * total_bars)
+                print(f"    ↳ LUFS gating: exit/entry diff={lufs_jump:.1f}dB — searching better exit")
+                best_diff = abs(lufs_jump)
+                best_bar = exit_bar
+                for shift_bars in [-4, 4, -8, 8]:
+                    candidate = exit_bar + shift_bars
+                    if candidate < max(resolved_cf_bars, min_bar) or candidate > total_bars - resolved_cf_bars - 4:
+                        continue
+                    cs = int(cur['db'][min(candidate, len(cur['db']) - 1)])
+                    if cs < bar_samples_m:
+                        continue
+                    cr = np.sqrt(np.mean(cur['audio'][cs - bar_samples_m:cs]**2))
+                    new_ratio = cr / max(first_bar_rms, 1e-10)
+                    new_diff = abs(20 * np.log10(new_ratio)) if new_ratio > 0 else 20
+                    if new_diff < best_diff:
+                        best_diff = new_diff
+                        best_bar = candidate
+                if best_bar != exit_bar:
+                    old_label = _a1f_label(a1f_m, exit_bar, cur['secs'])
+                    print(f"    ↳ LUFS gated: exit {exit_bar}→{best_bar} (RMS {lufs_jump:.1f}→{best_diff:.1f}dB)")
+                    exit_bar = best_bar
+                    m_a1f_label = _a1f_label(a1f_m, exit_bar, cur['secs'])
 
         mode = 'hpss'
         cf_len = int(resolved_cf_bars * bar_s(mb) * sr)
