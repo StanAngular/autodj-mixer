@@ -2254,6 +2254,34 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         np.save(stamps_path, np.array(stamps, dtype=object), allow_pickle=True)
         print(f"  Stamps saved → {stamps_path}")
 
+    # ── Post-mix hook: auto-run mix_analyzer ──────────────────
+    try:
+        analyzer_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mix_analyzer.py')
+        if os.path.exists(analyzer_path):
+            print("\n🔍 Running mix analyzer (post-mix hook)...")
+            sys.stdout.flush()
+            r = subprocess.run(
+                [sys.executable, analyzer_path, "--mix", output_mp3, "--feedback"],
+                capture_output=True, text=True, timeout=180
+            )
+            if r.returncode == 0:
+                out = r.stdout
+                # Trim to last 1500 chars for readability
+                if len(out) > 1500:
+                    print("  (analyzer output truncated to last 1500 chars)")
+                    out = out[-1500:]
+                print(out)
+                # Check for band_cancellation warnings
+                if 'band_cancellation' in out:
+                    for line in out.split('\n'):
+                        if 'band_cancellation' in line or 'WARN' in line or 'FAIL' in line:
+                            print(f"  ⚠️  {line.strip()}")
+            else:
+                print(f"  Analyzer error: {r.stderr[:300]}")
+            print("  ✅ Post-mix analysis complete")
+    except Exception as e:
+        print(f"  ⚠️  Post-mix analyzer skipped: {e}")
+
     return stamps
 
 

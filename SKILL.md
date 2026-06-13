@@ -339,3 +339,43 @@ When creating a mix for a new genre from zero tracks, follow the workflow in `re
 ### After-mix cleanup
 - After each mix, **always ask** if user wants to delete source tracks
 - Interactive deletion via `shared/catalog/delete_tracks.py`
+
+---
+
+## 🚨 PIPELINE ENFORCEMENT (v16.7f — mandatory)
+
+**Нарушение любого правила = STOP. Не продолжать.**
+
+### Pre-flight (ОБЯЗАТЕЛЬНО перед каждым миксом)
+
+```bash
+# Шаг 0 — Pre-flight скрипт
+cd /opt/autodj-mixer && python3 run_preflight.py
+# Если ERROR → STOP, не запускать микс!
+```
+
+1. `python3 run_preflight.py` — проверка headroom, аннотаций, enrich, git, Demucs
+2. `enrich_metadata.py --all` — ВСЕ треки должны иметь meta.json с youtube_url
+3. Preview + подтверждение пользователя — **НЕ ПРОПУСКАТЬ**
+4. `git pull` — синхронизация с cclaw
+5. `git status` — проверить что нет незакоммиченных правок в smart_mixer.py
+
+### Post-mix (автоматически + вручную)
+
+6. **Analyzer запускается АВТОМАТИЧЕСКИ** (post-mix hook в `smart_mixer.py`)
+   - Проверить вывод: `band_cancellation > 300` = WARN
+7. CHANGELOG.md пишется **ДО** git commit
+8. Git: `git add` всех файлов одним коммитом (CHANGELOG + mixer + analyzer + SKILL.md + preflight + tools)
+9. Transitions preview: `stamps.npy` → ffmpeg нарезка ±1s → concat с 0.5s паузами (NO beeps)
+10. DJ AGENT отчёт: 2 сообщения с YouTube ссылками
+11. Спросить: удалить source tracks? Архив вокала?
+
+### Root causes of pipeline failures
+
+| Причина | Симптом | Фикс |
+|---------|---------|------|
+| Нетерпение агента | Пропуск preview | Pre-flight STOP при ERROR |
+| enrich не сделан | Нет youtube_url в отчёте | Шаг 2 обязателен |
+| annotation format | Crash в filtfilt | Pre-flight проверяет |
+| Demucs stems нет | A1F crash | Pre-flight warns |
+| headroom revert | Клиппинг -0.09dB | Pre-flight проверяет

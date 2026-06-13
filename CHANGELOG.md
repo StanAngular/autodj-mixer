@@ -10,6 +10,32 @@
 - `[pipeline]` — run_pipeline, config, scripts
 - `[infra]` — структура репозитория, пути, permissions
 
+## v16.7g — 2026-06-13 [Hermes] [pipeline] Pipeline enforcement: pre-flight + post-mix hook + memory + SKILL rules
+
+### [pipeline] — Pre-flight скрипт (run_preflight.py)
+  • **NEW: `run_preflight.py`** — standalone checker перед миксом:
+    - Проверка norm_lufs headroom (0.707, не 0.99)
+    - Формат аннотаций (time-based, не sample-based)
+    - Enrich completeness (youtube_url в meta.json)
+    - A1F JSON validity (bpm, segments)
+    - WAV/ANN pairing (orphan detection)
+    - Demucs stem directories
+    - Git status (uncommitted, behind remote)
+    - Напоминание о preview
+  • **Exit code:** 0 = OK, 1 = WARN, 2 = ERROR (blocking — микс не запускать)
+
+### [mixer] — Post-mix hook (автоанализ)
+  • **Автоматический запуск `mix_analyzer --feedback`** после успешного микса
+  • Встроен в `mix_tracks()`, тримит вывод до 1500 символов
+  • Проверяет band_cancellation + WARN/FAIL в выводе
+  • Graceful fallback если analyzer не найден
+
+### [infra] — SKILL.md + memory enforcement
+  • **SKILL.md:** новая секция `PIPELINE ENFORCEMENT` с 11 обязательными шагами
+  • **Memory:** сохранён pipeline checklist (инжектится в каждую сессию)
+  • **Root causes:** таблица причин пропуска шагов и фиксов
+- `[infra]` — структура репозитория, пути, permissions
+
 ## v16.5 — 2026-06-12 [Hermes] Style-based Fallback + 24dB/oct HPF + Artifact Analysis Pipeline
 
 ### [mixer] — Removed keyword-based genre guessing, proper 20-60s transitions
