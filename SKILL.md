@@ -342,6 +342,52 @@ When creating a mix for a new genre from zero tracks, follow the workflow in `re
 
 ---
 
+## 🚀 AUTOMATION: delegation-first pipeline (token-efficient)
+
+**Цель:** Hermes — только оркестрация. Рутинные шаги — через `delegate_task()`. Результат — JSON/статус, без логов в контексте.
+
+### Pipeline с delegation
+
+```
+User: "сделай микс genre BPM Camelot"
+  │
+  ▼
+┌─ Hermes ──────────────────────────────────────────────────┐
+│  1. delegate_task(curator-node) → JSON 8-12 треков        │
+│     ↓ только JSON в контексте (~2KB), без 30 страниц web  │
+│                                                            │
+│  2. Валидация JSON + проверка catalog на дубликаты         │
+│                                                            │
+│  3. Preview пользователю + confirmation                    │
+│                                                            │
+│  4. delegate_task(download) → WAV + ANN готовы             │
+│     ↓ только статус в контексте (~1KB), без логов yt-dlp  │
+│                                                            │
+│  5. enrich_metadata + A1F + preflight                      │
+│                                                            │
+│  6. smart_mixer.py (post-mix hook сам запустит analyzer)   │
+│                                                            │
+│  7. DJ AGENT report + transitions preview                  │
+└────────────────────────────────────────────────────────────┘
+  │
+  ▼
+User: результат
+```
+
+### Token saving
+
+| Этап | Без delegation | С delegation | Экономия |
+|------|---------------|-------------|----------|
+| Research | ~50-80 web_search = 200K токенов | JSON = 2K | **~198K** |
+| Download | ~30 yt-dlp логов = 50K токенов | Статус = 1K | **~49K** |
+| **Итого** | **~250K** | **~3K** | **~247K (99%)** |
+
+### Когда delegation НЕ использовать
+
+- **Preview** — делаю сам (нужен контекст для треклиста)
+- **Mix** — `smart_mixer.py` сам по себе
+- **Debug/чинить ошибки** — если delegate вернул fail, я подключаюсь
+
 ## 🚨 PIPELINE ENFORCEMENT (v16.7f — mandatory)
 
 **Нарушение любого правила = STOP. Не продолжать.**
