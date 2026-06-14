@@ -1388,8 +1388,6 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
         n_s = min(cf_bars + 2, len(s_db))
         use_barwarp = (n_m >= cf_bars + 1 and n_s >= cf_bars + 1)
         warp_extra = None
-        m_db_zone = m_db[:cf_bars + 2]
-        s_db_zone = s_db[:cf_bars + 2]
 
         if use_barwarp:
             m_db_zone = m_db[:cf_bars + 2]
