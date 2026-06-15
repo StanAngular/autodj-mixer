@@ -425,3 +425,77 @@ cd /opt/autodj-mixer && python3 run_preflight.py
 | annotation format | Crash в filtfilt | Pre-flight проверяет |
 | Demucs stems нет | A1F crash | Pre-flight warns |
 | headroom revert | Клиппинг -0.09dB | Pre-flight проверяет
+
+---
+
+## 🎯 Curation pipeline (June 2026)
+
+### Sources status
+
+| Source | Status | Proxy | Output |
+|--------|--------|-------|--------|
+| **Beatport Charts** | ✅ Работает | Не нужен | 42 DJ charts (плейлисты) |
+| **Beatport Chart Tracks** | ✅ Работает | Не нужен | **125 треков** с BPM + Camelot |
+| **Discogs API** | ✅ Работает | Не нужен | 37 треков |
+| **Bandcamp** | ✅ Работает | SOCKS5 Warp | 40 альбомов |
+| 1001tracklists | ❌ Cloudflare блок | Resident proxy | — |
+| Resident Advisor | ❌ DataDome блок | Resident proxy | — |
+
+### Engine
+
+Весь скрейпинг — через `playwright_scraper.py`:
+- **Playwright + stealth** — обход Cloudflare
+- **headless=False + xvfb-run** — видимый браузер на VPS
+- **Случайные задержки** 800-2500ms между действиями
+- **SOCKS5_PROXY** — Cloudflare Warp для Bandcamp
+
+### Usage
+
+```bash
+# Один источник
+export SOCKS5_PROXY='socks5://127.0.0.1:40000'
+xvfb-run --auto-servernum uv run python3 playwright_scraper.py beatport-tracks --genre "tech house" -o tracks.json
+
+# Полный curator
+xvfb-run --auto-servernum uv run python3 curate_tracks.py \
+  --genre "techno" --bpm 140 --camelot 8A --count 3
+
+# Результат: 204+ треков в пуле, фильтр по BPM/Camelot, yt-dlp верификация
+```
+
+### What replaced RA?
+
+RA (Resident Advisor) и 1001TL заблокированы — оба требуют резидентский прокси (DataDome/Cloudflare).
+
+**Замена:** `beatport-tracks` — заходит в 10 DJ chart'ов на Beatport, парсит треки с BPM и Camelot напрямую из `__NEXT_DATA__`. Даёт **125 треков** с полными метаданными — больше, чем давали RA + 1001TL вместе.
+
+### Pipeline flow
+
+```
+curate_tracks.py:
+  1. 1001TL → ⛔ Cloudflare блок
+  2. Discogs API → 37 треков (без прокси)
+  3. Beatport Charts → 42 chart'а (без прокси)
+  4. Beatport Chart Tracks → 125 треков с BPM/Camelot (без прокси)
+  5. Bandcamp → 40 альбомов (через Warp)
+  ────────────────────────────────
+  Пул: ~204 трека
+  Фильтр BPM/Camelot: ~83 трека
+  yt-dlp верификация: 5/5
+  Итого: 3/3 треков отобрано ✅
+```
+
+### Key files
+
+- `playwright_scraper.py` — Playwright engine (stealth + delays + proxy)
+- `curate_tracks.py` — deterministic track curator (no LLM)
+- `yt_download.py` — YouTube download via yt-dlp + Warp
+
+### Fast test
+
+```bash
+cd /opt/autodj-mixer
+export SOCKS5_PROXY='socks5://127.0.0.1:40000'
+xvfb-run --auto-servernum uv run python3 curate_tracks.py \
+  --genre "techno" --bpm 140 --camelot 8A --count 3 --no-verify --no-approve
+```
