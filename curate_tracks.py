@@ -47,7 +47,7 @@ PROXIES     = {
 }
 DISCOGS_TOKEN = os.environ.get("DISCOGS_TOKEN", "")
 GOOGLE_DELAY  = 3.0
-TUNEBAT_MAX_POOL = 15  # макс размер пула для Google/Tunebat обогащения
+TUNEBAT_MAX_POOL = 100  # макс размер пула для Playwright Tunebat обогащения
 
 KEY_TO_CAMELOT = {
     "C maj": "8B",  "C min": "5A",
@@ -240,44 +240,37 @@ def warp_reconnect():
 
 def get_tunebat_bpm_key(artist: str, track: str) -> tuple[int, str]:
     """
-    BPM + Camelot из Google-сниппета Tunebat.
-    Tunebat НЕ является источником треков — только обогащение метаданных.
-    Вызывать ПОСЛЕ того как трек найден в источнике (Discogs/1001TL/etc).
-    Возвращает (bpm, camelot) или (0, \"\").
+    BPM + Camelot из Tunebat через Playwright + stealth.
+    Вызывается в batch через enrich_tracks_via_tunebat() из playwright_scraper.py.
+    
+    Этот отдельный вызов — fallback для единичного трека.
+    Для batch-обогащения используй: playwright_scraper.py --enrich <json>
+    
+    Устарел: вместо этого используй batch enrich_tracks_via_tunebat().
     """
-    query = f"site:tunebat.com {artist} {track}"
-    url = (
-        "https://www.google.com/search"
-        f"?q={requests.utils.quote(query)}&num=3&hl=en&gl=us"
-    )
+    # Импортируем и запускаем через временный JSON
+    import tempfile, subprocess, shlex
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+    json.dump([{"artist": artist, "track": track, "bpm": 0, "camelot": ""}], tmp)
+    tmp.close()
+    
     try:
-        resp = requests.get(
-            url,
-            headers={
-                **HEADERS,
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-            },
-            proxies=PROXIES,
-            timeout=20,
-        )
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        for sel in ["div.VwiC3b", "span.aCOpRe", "div.IsZvec",
-                    "div.s", "div[data-sncf]", "span.st"]:
-            for el in soup.select(sel):
-                text = el.get_text(" ", strip=True)
-                if "camelot" in text.lower() and "BPM" in text:
-                    bpm_m = re.search(r'(\d{2,3})\.\s*BPM', text)
-                    cam_m = re.search(r'(\d{1,2}[AB])\.\s*camelot', text, re.I)
-                    if bpm_m and cam_m:
-                        return int(bpm_m.group(1)), cam_m.group(1).upper()
-    except requests.RequestException as e:
-        print(f"  Tunebat/Google error: {e}")
+        cmd = f"xvfb-run --auto-servernum uv run python3 {PLAYWRIGHT_SCRAPER} --enrich {shlex.quote(tmp.name)} -o {shlex.quote(tmp.name + '_out.json')}"
+        subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=90,
+                       env={**os.environ, "SOCKS5_PROXY": os.environ.get("SOCKS5_PROXY", "socks5://127.0.0.1:40000")})
+        if os.path.exists(tmp.name + '_out.json'):
+            with open(tmp.name + '_out.json') as f:
+                data = json.load(f)
+            if data and data[0].get("bpm"):
+                return data[0]["bpm"], data[0].get("camelot", "")
+    except Exception:
+        pass
     finally:
-        warp_reconnect()
-
+        try: os.unlink(tmp.name)
+        except OSError: pass
+        try: os.unlink(tmp.name + '_out.json')
+        except OSError: pass
+    
     return 0, ""
 
 
@@ -926,31 +919,63 @@ def main():
     print(f"\n Пул: {len(raw_pool)} треков до фильтра\n")
 
     # ════════════════════════════════════════════════════════════
-    # ШАГ 2: ОБОГАЩЕНИЕ BPM/Camelot через Tunebat
+    # ШАГ 2: ОБОГАЩЕНИЕ BPM/Camelot через Tunebat (Playwright)
     # ════════════════════════════════════════════════════════════
-    print("═══ ШАГ 2: Обогащение BPM/Camelot (Tunebat) ═══")
+    print("═══ ШАГ 2: Обогащение BPM/Camelot (Tunebat Playwright) ═══")
 
-    if len(raw_pool) > TUNEBAT_MAX_POOL:
-        print(f"  Пул {len(raw_pool)} > {TUNEBAT_MAX_POOL} → Tunebat пропущен")
-        enriched_pool = raw_pool
-    else:
-        enriched_pool: list[dict] = []
-        seen_dedup: set[str] = set()
-
-        for track in raw_pool:
-            dk = f"{track['artist'].lower()}|{track['track'].lower()}"
-            if dk in seen_dedup:
-                continue
+    # Дедупликация пула перед обогащением
+    seen_dedup: set[str] = set()
+    deduped = []
+    for track in raw_pool:
+        dk = f"{track['artist'].lower()}|{track['track'].lower()}"
+        if dk not in seen_dedup:
             seen_dedup.add(dk)
+            deduped.append(track)
 
-            if track["bpm"] == 0 or not track["camelot"]:
-                tb_bpm, tb_cam = get_tunebat_bpm_key(track["artist"], track["track"])
-                if tb_bpm:
-                    track["bpm"]     = tb_bpm
-                if tb_cam:
-                    track["camelot"] = tb_cam
+    # Выделяем треки, которым нужно обогащение
+    need_enrich = [t for t in deduped if not t.get("bpm") or not t.get("camelot")]
 
-            enriched_pool.append(track)
+    if not need_enrich:
+        print("  Все треки уже имеют BPM/Camelot — пропуск")
+        enriched_pool = deduped
+    elif len(deduped) > TUNEBAT_MAX_POOL:
+        print(f"  Пул {len(deduped)} > {TUNEBAT_MAX_POOL} → Tunebat пропущен")
+        enriched_pool = deduped
+    else:
+        print(f"  Нуждаются в обогащении: {len(need_enrich)}/{len(deduped)} треков")
+
+        # Batch-обогащение через Playwright (один браузер)
+        try:
+            from playwright_scraper import enrich_tracks_via_tunebat
+            enriched_tracks = enrich_tracks_via_tunebat(need_enrich)
+
+            # Собираем enriched_pool: треки с обогащёнными + те, у кого уже были данные
+            enriched_by_key = {}
+            for t in enriched_tracks:
+                dk = f"{t['artist'].lower()}|{t['track'].lower()}"
+                enriched_by_key[dk] = t
+
+            enriched_pool = []
+            for t in deduped:
+                dk = f"{t['artist'].lower()}|{t['track'].lower()}"
+                if dk in enriched_by_key:
+                    enriched_pool.append(enriched_by_key[dk])
+                else:
+                    enriched_pool.append(t)
+
+        except ImportError as e:
+            print(f"  Не удалось импортировать playwright_scraper: {e}")
+            print("  → Пропускаю Tunebat обогащение")
+            enriched_pool = deduped
+        except Exception as e:
+            print(f"  Ошибка Tunebat обогащения: {e}")
+            print("  → Продолжаю с исходными данными")
+            enriched_pool = deduped
+
+    # Считаем, сколько теперь с данными
+    has_bpm = sum(1 for t in enriched_pool if t.get("bpm"))
+    has_camelot = sum(1 for t in enriched_pool if t.get("camelot"))
+    print(f"  После обогащения: BPM у {has_bpm}/{len(enriched_pool)}, Camelot у {has_camelot}/{len(enriched_pool)}")
 
     # ════════════════════════════════════════════════════════════
     # ШАГ 3: ФИЛЬТР BPM + Camelot
