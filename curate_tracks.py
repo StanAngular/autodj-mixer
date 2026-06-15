@@ -2,21 +2,28 @@
 """
 curate_tracks.py — детерминированный поиск треков для autodj-mixer.
 Без LLM. Каждый трек верифицирован через yt-dlp перед выдачей.
-
-Использование:
-  python3 curate_tracks.py --genre "melodic techno" --bpm 132 --camelot 8A --count 12
-  python3 curate_tracks.py --genre "melodic techno" --bpm 132 --camelot 8A --count 12 \
-    --region France --years 2025,2026 --out curator_candidates.json --urls-out urls.txt
+Авто-загрузка .env через python-dotenv.
 """
 
 import argparse
 import json
+import os
 import re
+import shlex
 import subprocess
 import sys
 import time
 from datetime import datetime
 from typing import Optional
+
+# Auto-load .env если есть
+try:
+    from dotenv import load_dotenv
+    dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(dotenv_path):
+        load_dotenv(dotenv_path)
+except ImportError:
+    pass
 
 import requests
 from bs4 import BeautifulSoup
@@ -33,6 +40,14 @@ HEADERS = {
 REQUEST_TIMEOUT = 15
 SCRAPE_DELAY = 1.5  # секунд между запросами (вежливый скрейпинг)
 YTDLP_PROXY = "socks5://127.0.0.1:40000"  # Cloudflare Warp для YouTube
+PROXY_HOST  = "127.0.0.1:40000"
+PROXIES     = {
+    "http":  f"socks5h://{PROXY_HOST}",
+    "https": f"socks5h://{PROXY_HOST}",
+}
+DISCOGS_TOKEN = os.environ.get("DISCOGS_TOKEN", "")
+GOOGLE_DELAY  = 3.0
+TUNEBAT_MAX_POOL = 15  # макс размер пула для Google/Tunebat обогащения
 
 KEY_TO_CAMELOT = {
     "C maj": "8B",  "C min": "5A",
@@ -66,6 +81,86 @@ BEATPORT_GENRE_SLUGS = {
     "organic house": "organic-house-downtempo",
 }
 
+# Маппинг жанров → Discogs стили
+DISCOGS_STYLE_MAP = {
+    "house":                ["House", "Deep House", "Chicago House"],
+    "deep house":           ["Deep House", "House", "Soulful House"],
+    "tech house":           ["Tech House", "House", "Minimal"],
+    "progressive house":    ["Progressive House", "House", "Trance"],
+    "funky house":          ["Funky", "House", "Disco"],
+    "afro house":           ["Afro House", "Afrobeat", "House"],
+    "organic house":        ["Organic House", "Downtempo", "Deep House"],
+    "soulful house":        ["Soulful House", "Deep House", "Gospel"],
+    "vocal house":          ["Vocal", "House", "Soulful House"],
+    "jackin house":         ["Jackin House", "House", "Funky"],
+    "electro house":        ["Electro House", "House", "Electro"],
+    "big room":             ["Big Room", "Progressive House", "EDM"],
+    "future house":         ["Future House", "House", "Tropical House"],
+    "tropical house":       ["Tropical House", "House", "Chill-out"],
+    "bass house":           ["Bass House", "House", "UK Bass"],
+    "slap house":           ["Slap House", "House", "Future House"],
+    "techno":               ["Techno", "Industrial", "EBM"],
+    "melodic techno":       ["Melodic Techno", "Techno", "Minimal Techno"],
+    "melodic house":        ["Melodic House", "Deep House", "Melodic Techno"],
+    "raw techno":           ["Techno", "Industrial", "Hard Techno"],
+    "hard techno":          ["Hard Techno", "Techno", "Industrial"],
+    "industrial techno":    ["Industrial", "Techno", "EBM"],
+    "peak time techno":     ["Techno", "Hard Techno"],
+    "minimal techno":       ["Minimal Techno", "Minimal", "Techno"],
+    "detroit techno":       ["Detroit Techno", "Techno", "Electro"],
+    "nu-disco":             ["Nu-Disco", "Disco", "Indie Dance"],
+    "nu disco":             ["Nu-Disco", "Disco", "Indie Dance"],
+    "french touch":         ["French House", "Nu-Disco", "Disco", "Funky"],
+    "french groovy house":  ["French House", "Nu-Disco", "Funky", "Disco"],
+    "french house":         ["French House", "House", "Nu-Disco"],
+    "indie dance":          ["Indie Dance", "Nu-Disco", "Alternative Dance"],
+    "disco":                ["Disco", "Nu-Disco", "Funk"],
+    "italo disco":          ["Italo-Disco", "Disco", "Synth-pop"],
+    "trance":               ["Trance", "Progressive Trance", "Uplifting Trance"],
+    "progressive trance":   ["Progressive Trance", "Trance", "Progressive House"],
+    "uplifting trance":     ["Uplifting Trance", "Trance", "Euphoric Trance"],
+    "psytrance":            ["Psychedelic Trance", "Psy-Trance", "Goa Trance"],
+    "hardtrance":           ["Hard Trance", "Trance", "Hardstyle"],
+    "hard trance":          ["Hard Trance", "Trance", "Hardstyle"],
+    "vocal trance":         ["Vocal", "Trance", "Uplifting Trance"],
+    "tech trance":          ["Tech Trance", "Trance", "Techno"],
+    "dark psy":             ["Dark Psytrance", "Psychedelic Trance"],
+    "drum and bass":        ["Drum n Bass", "Jungle", "Neurofunk"],
+    "dnb":                  ["Drum n Bass", "Jungle"],
+    "liquid dnb":           ["Liquid Funk", "Drum n Bass", "Jazz-Funk"],
+    "neurofunk":            ["Neurofunk", "Drum n Bass", "Industrial"],
+    "jungle":               ["Jungle", "Drum n Bass", "Ragga Jungle"],
+    "breakbeat":            ["Breakbeat", "Breaks", "Big Beat"],
+    "ambient":              ["Ambient", "Drone", "New Age"],
+    "downtempo":            ["Downtempo", "Trip Hop", "Chillout"],
+    "chillout":             ["Chillout", "Downtempo", "Ambient"],
+    "lo-fi":                ["Lo-Fi", "Downtempo", "Chillout"],
+    "trip hop":             ["Trip Hop", "Downtempo", "Hip Hop"],
+    "dark ambient":         ["Dark Ambient", "Ambient", "Industrial"],
+    "electro":              ["Electro", "Electro House", "Detroit Techno"],
+    "electroclash":         ["Electroclash", "Electro", "New Wave"],
+    "synthwave":            ["Synthwave", "Electro", "Darksynth"],
+    "darksynth":            ["Darksynth", "Synthwave", "Industrial"],
+    "vaporwave":            ["Vaporwave", "Chillwave", "Synthwave"],
+    "hardstyle":            ["Hardstyle", "Hardcore", "Rawstyle"],
+    "hardcore":             ["Hardcore", "Hardstyle", "Industrial Hardcore"],
+    "rawstyle":             ["Rawstyle", "Hardstyle"],
+    "uk garage":            ["UK Garage", "Speed Garage", "Grime"],
+    "garage":               ["UK Garage", "Speed Garage"],
+    "grime":                ["Grime", "UK Garage", "Hip Hop"],
+    "uk bass":              ["UK Bass", "Dubstep", "UK Garage"],
+    "dubstep":              ["Dubstep", "Brostep", "Grime"],
+    "future garage":        ["Future Garage", "UK Garage", "Ambient"],
+    "funk":                 ["Funk", "Soul", "Disco"],
+    "soul":                 ["Soul", "R&B", "Funk"],
+    "hip hop":              ["Hip Hop", "Rap", "Boom Bap"],
+    "afrobeat":             ["Afrobeat", "Funk", "Soul"],
+    "minimal":              ["Minimal", "Minimal Techno", "Microhouse"],
+    "experimental":         ["Experimental", "Noise", "Avant-garde"],
+    "jazz":                 ["Jazz", "Nu Jazz", "Jazz-Funk"],
+    "classical":            ["Classical", "Contemporary Classical"],
+}
+
 DURATION_MIN = 180   # 3 мин — отсекает тизеры
 DURATION_MAX = 660   # 11 мин — отсекает DJ-сеты и час-миксы
 
@@ -74,6 +169,238 @@ SEARCH_PLATFORMS = [
     {"prefix": "ytsearch", "name": "YouTube"},
     {"prefix": "scsearch", "name": "SoundCloud"},
 ]
+
+
+def get_discogs_styles(genre: str) -> list[str]:
+    """
+    Получить Discogs-стили для жанра.
+    Порядок: статическая таблица → LLM fallback через OpenRouter.
+    """
+    normalized = genre.lower().strip()
+
+    # 1. Точное совпадение
+    if normalized in DISCOGS_STYLE_MAP:
+        return DISCOGS_STYLE_MAP[normalized]
+
+    # 2. Частичное совпадение
+    for key, styles in DISCOGS_STYLE_MAP.items():
+        if key in normalized or normalized in key:
+            print(f"  Жанр '{genre}' → маппинг на '{key}' (частичное совпадение)")
+            return styles
+
+    # 3. LLM fallback — спрашиваем OpenRouter
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if openrouter_key:
+        print(f"  Жанр '{genre}' не найден в таблице → спрашиваю LLM...")
+        try:
+            resp = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openrouter_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "google/gemini-flash-1.5",
+                    "max_tokens": 100,
+                    "messages": [{
+                        "role": "user",
+                        "content": (
+                            f"List 3-5 Discogs style tags most closely related to the music genre '{genre}'. "
+                            f"Return only a JSON array of strings, no explanation. "
+                            f"Example: [\"Nu-Disco\", \"Indie Dance\", \"House\"]"
+                        )
+                    }]
+                },
+                timeout=15,
+            )
+            content = resp.json()["choices"][0]["message"]["content"]
+            match = re.search(r'\[.*?\]', content, re.DOTALL)
+            if match:
+                styles = json.loads(match.group(0))
+                print(f"  LLM стили для '{genre}': {styles}")
+                return styles
+        except Exception as e:
+            print(f"  LLM fallback error: {e}")
+
+    # 4. Последний резерв — передать жанр как есть
+    print(f"  Жанр '{genre}' → используем как есть (нет LLM ключа)")
+    return [genre.title()]
+
+
+def warp_reconnect():
+    """Переподключить Cloudflare Warp для смены IP. После Google-запросов."""
+    try:
+        subprocess.run(["warp-cli", "disconnect"], capture_output=True, timeout=10)
+        time.sleep(1.5)
+        subprocess.run(["warp-cli", "connect"], capture_output=True, timeout=10)
+        time.sleep(2.0)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        time.sleep(GOOGLE_DELAY)
+
+
+def get_tunebat_bpm_key(artist: str, track: str) -> tuple[int, str]:
+    """
+    BPM + Camelot из Google-сниппета Tunebat.
+    Tunebat НЕ является источником треков — только обогащение метаданных.
+    Вызывать ПОСЛЕ того как трек найден в источнике (Discogs/1001TL/etc).
+    Возвращает (bpm, camelot) или (0, \"\").
+    """
+    query = f"site:tunebat.com {artist} {track}"
+    url = (
+        "https://www.google.com/search"
+        f"?q={requests.utils.quote(query)}&num=3&hl=en&gl=us"
+    )
+    try:
+        resp = requests.get(
+            url,
+            headers={
+                **HEADERS,
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+            },
+            proxies=PROXIES,
+            timeout=20,
+        )
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        for sel in ["div.VwiC3b", "span.aCOpRe", "div.IsZvec",
+                    "div.s", "div[data-sncf]", "span.st"]:
+            for el in soup.select(sel):
+                text = el.get_text(" ", strip=True)
+                if "camelot" in text.lower() and "BPM" in text:
+                    bpm_m = re.search(r'(\d{2,3})\.\s*BPM', text)
+                    cam_m = re.search(r'(\d{1,2}[AB])\.\s*camelot', text, re.I)
+                    if bpm_m and cam_m:
+                        return int(bpm_m.group(1)), cam_m.group(1).upper()
+    except requests.RequestException as e:
+        print(f"  Tunebat/Google error: {e}")
+    finally:
+        warp_reconnect()
+
+    return 0, ""
+
+
+def fetch_discogs(
+    genre: str,
+    years: list[int],
+    region: str = "",
+    country: str = "",
+    pool_factor: int = 3,
+    target_count: int = 12,
+) -> list[dict]:
+    """
+    Discogs Database Search API.
+    Собирает пул в pool_factor × target_count треков.
+    Токен: discogs.com → Settings → Developers → Generate Token → DISCOGS_TOKEN в .env
+    """
+    if not DISCOGS_TOKEN:
+        print("  Discogs: нет DISCOGS_TOKEN → пропуск")
+        return []
+
+    target_pool = pool_factor * target_count
+    styles = get_discogs_styles(genre)
+    print(f"  Discogs стили: {styles}")
+
+    discogs_headers = {
+        **HEADERS,
+        "Authorization": f"Discogs token={DISCOGS_TOKEN}",
+        "User-Agent": "autodj-mixer/1.0 +https://github.com/StanAngular/autodj-mixer",
+    }
+
+    all_tracks: list[dict] = []
+    seen: set[str] = set()
+
+    for style in styles:
+        if len(all_tracks) >= target_pool:
+            break
+        for year in (years or [datetime.now().year, datetime.now().year - 1]):
+            if len(all_tracks) >= target_pool:
+                break
+
+            params: dict = {
+                "style":      style,
+                "year":       year,
+                "type":       "release",
+                "sort":       "want",
+                "sort_order": "desc",
+                "per_page":   50,
+                "page":       1,
+            }
+            if country:
+                params["country"] = country
+            elif region:
+                params["country"] = region
+
+            try:
+                resp = requests.get(
+                    "https://api.discogs.com/database/search",
+                    headers=discogs_headers,
+                    params=params,
+                    timeout=20,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+                for item in data.get("results", []):
+                    title = item.get("title", "")
+                    if " - " not in title:
+                        continue
+                    parts  = title.split(" - ", 1)
+                    artist = parts[0].strip()
+                    track  = parts[1].strip()
+
+                    # Фильтр альбомов — пропускать LP/compilations
+                    formats = item.get("format", []) or []
+                    if any(w in " ".join(formats).lower() for w in ["album","lp","compilation"]):
+                        continue
+
+                    dedup = f"{artist.lower()}|{track.lower()}"
+                    if dedup in seen:
+                        continue
+                    seen.add(dedup)
+
+                    item_year = int(item.get("year", 0) or 0)
+                    if years and item_year and item_year not in years:
+                        continue
+
+                    community    = item.get("community", {}) or {}
+                    want         = community.get("want", 0)
+                    have         = community.get("have", 0)
+                    styles_raw   = item.get("style", []) or []
+                    source_url   = item.get("uri", "")
+                    if source_url and not source_url.startswith("http"):
+                        source_url = f"https://www.discogs.com{source_url}"
+
+                    cat = "Local Underground" if (country or region) else "Mainstream"
+
+                    all_tracks.append({
+                        "artist":        artist,
+                        "track":         track,
+                        "bpm":           0,
+                        "camelot":       "",
+                        "category":      cat,
+                        "source_url":    source_url,
+                        "youtube_url":   "",
+                        "energy_markers": styles_raw[:3],
+                        "support_score": min(want, 999),
+                        "reason": (
+                            f"Discogs {style} {item_year}; "
+                            f"want={want} have={have}"
+                            + (f"; {country or region}" if (country or region) else "")
+                        ),
+                    })
+
+                time.sleep(1.0)   # Discogs rate limit
+
+            except requests.RequestException as e:
+                print(f"  Discogs error (style={style} year={year}): {e}")
+                time.sleep(2.0)
+
+    # Сортировать по want (popularity) убыв.
+    all_tracks.sort(key=lambda t: t["support_score"], reverse=True)
+    print(f"  Discogs: собрано {len(all_tracks)} треков в пул")
+    return all_tracks
 
 
 # ─── Camelot-совместимость ───────────────────────────────────────────────────
@@ -209,255 +536,174 @@ def verify_and_resolve_url(
     return None
 
 
-# ─── Источник 1: Beatport Charts ─────────────────────────────────────────────
+# ─── Playwright Scraper Helper ────────────────────────────────────────────────
+
+PLAYWRIGHT_SCRAPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "playwright_scraper.py")
+XVFB_RUN = "xvfb-run --auto-servernum" if os.system("which xvfb-run >/dev/null 2>&1") == 0 else ""
+
+
+def _run_playwright_scraper(source: str, genre: str) -> list[dict]:
+    """
+    Запускает playwright_scraper.py через subprocess и возвращает список треков.
+    Использует SOCKS5_PROXY из окружения (Cloudflare Warp).
+    """
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+        tmp_path = tmp.name
+    
+    cmd = (
+        f"{XVFB_RUN} uv run python3 {PLAYWRIGHT_SCRAPER} "
+        f"{source} --genre {shlex.quote(genre)} --output {shlex.quote(tmp_path)}"
+    )
+    try:
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=120,
+            env={**os.environ, "SOCKS5_PROXY": os.environ.get("SOCKS5_PROXY", "socks5://127.0.0.1:40000")}
+        )
+        if result.returncode != 0:
+            print(f"  Playwright {source} error (exit {result.returncode})")
+            if result.stderr:
+                for line in result.stderr.split("\n")[-3:]:
+                    print(f"    {line.strip()}")
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            return []
+        
+        # Читаем из временного файла
+        if os.path.exists(tmp_path):
+            with open(tmp_path) as f:
+                data = json.load(f)
+            os.unlink(tmp_path)
+            return data if isinstance(data, list) else []
+        
+        return []
+    except subprocess.TimeoutExpired:
+        print(f"  Playwright {source} timeout (120s)")
+        return []
+    except Exception as e:
+        print(f"  Playwright {source} error: {e}")
+        return []
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+# ─── Источник 1: Beatport Charts (через Playwright) ──────────────────────────
 
 def fetch_beatport_charts(genre: str, years: list[int]) -> list[dict]:
-    """Скрейпить Beatport top-100 для жанра."""
-    slug = BEATPORT_GENRE_SLUGS.get(genre.lower(), genre.lower().replace(" ", "-"))
-    url = f"https://www.beatport.com/genre/{slug}/top-100"
-    tracks = []
-
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        # Beatport хранит данные в JSON внутри <script id="__NEXT_DATA__">
-        script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
-        if not script_tag:
-            print(f"  Beatport: не найден __NEXT_DATA__ для {slug}")
-            return []
-
-        data = json.loads(script_tag.string)
-        # путь к трекам в Beatport Next.js payload
-        track_list = (
-            data.get("props", {})
-                .get("pageProps", {})
-                .get("dehydratedState", {})
-                .get("queries", [{}])[0]
-                .get("state", {})
-                .get("data", {})
-                .get("results", [])
-        )
-
-        for item in track_list:
-            try:
-                release_year = int(
-                    item.get("release_date", "0000")[:4]
-                )
-                if years and release_year not in years:
-                    continue
-
-                raw_key = item.get("key", {})
-                key_str = (
-                    f"{raw_key.get('letter', '')} "
-                    f"{'maj' if raw_key.get('chord') == 'major' else 'min'}"
-                ).strip()
-                camelot = KEY_TO_CAMELOT.get(key_str, "")
-
-                bpm = item.get("bpm") or 0
-                artists = ", ".join(
-                    a.get("name", "") for a in item.get("artists", [])
-                )
-                track_name = item.get("name", "")
-                source_url = f"https://www.beatport.com/track/{item.get('slug', '')}/{item.get('id', '')}"
-
-                if artists and track_name and bpm and camelot:
-                    tracks.append({
-                        "artist": artists,
-                        "track": track_name,
-                        "bpm": int(bpm),
-                        "camelot": camelot,
-                        "category": "Mainstream",
-                        "source_url": source_url,
-                        "youtube_url": "",
-                        "energy_markers": [],
-                        "support_score": 10,  # базовый балл за попадание в top-100
-                        "reason": f"Beatport top-100 {genre} {release_year}",
-                    })
-            except (KeyError, TypeError, ValueError):
-                continue
-
-        time.sleep(SCRAPE_DELAY)
-
-    except requests.RequestException as e:
-        print(f"  Beatport scrape error: {e}")
-
-    return tracks
+    """
+    Скрейпить Beatport charts через Playwright + stealth.
+    Старые /genre/*/top-100 — 404. Новый эндпоинт: /charts.
+    Возвращает DJ charts (плейлисты), не отдельные треки.
+    """
+    tracks = _run_playwright_scraper("beatport", genre)
+    
+    # Конвертируем в единый формат
+    result = []
+    for t in tracks:
+        result.append({
+            "artist":        t.get("artist", "Various"),
+            "track":         t.get("track", ""),
+            "bpm":           0,
+            "camelot":       "",
+            "category":      "Mainstream",
+            "source_url":    t.get("source_url", ""),
+            "youtube_url":   "",
+            "energy_markers": [],
+            "support_score": t.get("support_score", 5),
+            "reason":        t.get("reason", f"Beatport chart: {genre}"),
+        })
+    
+    print(f"  Beatport: {len(result)} charts (через Playwright)")
+    return result
 
 
-# ─── Источник 2: 1001Tracklists ──────────────────────────────────────────────
+# ─── Источник 2: 1001Tracklists (через Playwright + SOCKS5) ───────────────────
 
 def fetch_1001tracklists(genre: str, years: list[int]) -> list[dict]:
     """
-    Поиск треков с высоким DJ-саппортом через 1001tracklists.
-    Использует search endpoint.
+    1001tracklists — DJ саппорт. Playwright + SOCKS5 прокси.
+    Поиск → tracklist'ы → парсинг отдельных треков.
     """
-    tracks = []
-    year_str = " OR ".join(str(y) for y in years) if years else str(datetime.now().year)
-    query = f"{genre} {year_str}"
-    url = f"https://www.1001tracklists.com/search/track/?q={requests.utils.quote(query)}"
-
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        rows = soup.select("div.tlpItem, div.trk-item, tr.search-result")
-        for row in rows[:30]:  # первые 30 результатов
-            try:
-                # Извлечь artist/track из типичных селекторов 1001TL
-                artist_el = row.select_one(".artist, .artistName, td.artist")
-                track_el = row.select_one(".trackName, .title, td.trackname")
-                count_el = row.select_one(".playedByCount, .support-count, .tlCount")
-
-                if not artist_el or not track_el:
-                    continue
-
-                artist = artist_el.get_text(strip=True)
-                track = track_el.get_text(strip=True)
-                support_score = 0
-                if count_el:
-                    nums = re.findall(r'\d+', count_el.get_text())
-                    if nums:
-                        support_score = int(nums[0])
-
-                if artist and track:
-                    tracks.append({
-                        "artist": artist,
-                        "track": track,
-                        "bpm": 0,       # нет BPM на 1001TL — заполним после верификации
-                        "camelot": "",  # нет Key на 1001TL
-                        "category": "Mainstream",
-                        "source_url": url,
-                        "youtube_url": "",
-                        "energy_markers": [],
-                        "support_score": support_score,
-                        "reason": f"1001TL: {support_score} played by; {genre}",
-                    })
-            except (AttributeError, ValueError):
-                continue
-
-        time.sleep(SCRAPE_DELAY)
-
-    except requests.RequestException as e:
-        print(f"  1001TL scrape error: {e}")
-
-    # Треки без BPM/Key нельзя фильтровать — они будут пропущены фильтром.
-    # Возвращаем только те у кого support_score > 0 (реальный саппорт)
-    return [t for t in tracks if t["support_score"] > 0]
+    tracks = _run_playwright_scraper("1001tl", genre)
+    
+    result = []
+    for t in tracks:
+        result.append({
+            "artist":        t.get("artist", ""),
+            "track":         t.get("track", ""),
+            "bpm":           0,
+            "camelot":       "",
+            "category":      "Mainstream",
+            "source_url":    t.get("source_url", ""),
+            "youtube_url":   "",
+            "energy_markers": [],
+            "support_score": t.get("support_score", 5),
+            "reason":        t.get("reason", f"1001TL tracklist; {genre}"),
+        })
+    
+    print(f"  1001TL: {len(result)} треков (через Playwright)")
+    return result
 
 
 # ─── Источник 3: Resident Advisor Charts ─────────────────────────────────────
 
 def fetch_ra_charts(genre: str) -> list[dict]:
-    """Скрейпить RA genre charts — треки с редакционным весом."""
-    tracks = []
-    # RA использует slug типа "melodic-techno" или "techno"
-    slug = genre.lower().replace(" ", "-")
-    url = f"https://ra.co/charts/genre/{slug}"
-
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        # RA хранит данные в Next.js __NEXT_DATA__
-        script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
-        if not script_tag:
-            return []
-
-        data = json.loads(script_tag.string)
-        chart_tracks = (
-            data.get("props", {})
-                .get("pageProps", {})
-                .get("data", {})
-                .get("chartTracks", [])
-        )
-
-        for item in chart_tracks:
-            try:
-                artist = item.get("artist", {}).get("name", "")
-                track = item.get("title", "")
-                if artist and track:
-                    tracks.append({
-                        "artist": artist,
-                        "track": track,
-                        "bpm": 0,
-                        "camelot": "",
-                        "category": "Mainstream",
-                        "source_url": f"https://ra.co{item.get('slug', '')}",
-                        "youtube_url": "",
-                        "energy_markers": [],
-                        "support_score": 8,  # базовый балл за RA chart
-                        "reason": f"RA chart: {genre}",
-                    })
-            except (KeyError, TypeError):
-                continue
-
-        time.sleep(SCRAPE_DELAY)
-
-    except requests.RequestException as e:
-        print(f"  RA scrape error: {e}")
-
-    return tracks
+    """
+    Скрейпить RA genre charts.
+    ВНИМАНИЕ: RA под DataDome. Нужен резидентский прокси (RESIDENTIAL_PROXY).
+    Без него не работает. Пропускаем.
+    """
+    print(f"  RA: пропущен — нужен резидентский прокси (DataDome)")
+    return []
 
 
-# ─── Источник 4: Bandcamp Underground ────────────────────────────────────────
+# ─── Источник 4: Bandcamp (через Playwright + SOCKS5) ─────────────────────────
 
 def fetch_bandcamp_underground(genre: str, region: str) -> list[dict]:
-    """Скрейпить Bandcamp tag page для локального андеграунда."""
-    tracks = []
-    tag = genre.lower().replace(" ", "-")
-    url = f"https://bandcamp.com/tag/{tag}?tab=all_releases&s=pop&p=0"
-
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        items = soup.select("li.music-grid-item, div.discover-item")
-        for item in items[:40]:
-            try:
-                title_el = item.select_one("p.title, .track-title, .itemTitle")
-                artist_el = item.select_one("p.artistName, .artist-name, .itemArtist")
-                link_el = item.select_one("a")
-
-                if not title_el or not artist_el:
-                    continue
-
-                track = title_el.get_text(strip=True)
-                artist = artist_el.get_text(strip=True)
-                source_url = link_el["href"] if link_el and link_el.get("href") else ""
-
-                # Проверить регион в URL или тексте (мягко)
-                region_match = region.lower() in (artist + track + source_url).lower()
-
-                tracks.append({
-                    "artist": artist,
-                    "track": track,
-                    "bpm": 0,
-                    "camelot": "",
-                    "category": "Local Underground",
-                    "source_url": source_url,
-                    "youtube_url": "",
-                    "energy_markers": [],
-                    "support_score": 0,
-                    "reason": (
-                        f"Bandcamp {genre} tag"
-                        + (f"; {region} scene" if region_match else "")
-                        + "; Hidden Gem"
-                    ),
-                })
-            except (AttributeError, KeyError):
-                continue
-
-        time.sleep(SCRAPE_DELAY)
-
-    except requests.RequestException as e:
-        print(f"  Bandcamp scrape error: {e}")
-
-    return tracks
+    """
+    Bandcamp discover page. Playwright + SOCKS5 прокси.
+    Парсит альбомы из DOM.
+    """
+    tracks = _run_playwright_scraper("bandcamp", genre)
+    
+    result = []
+    for t in tracks:
+        artist = t.get("artist", "")
+        track = t.get("track", "")
+        source_url = t.get("source_url", "")
+        
+        if not artist or not track:
+            continue
+        
+        region_match = (
+            region.lower() in source_url.lower()
+            or region.lower() in artist.lower()
+        ) if region else False
+        
+        result.append({
+            "artist":        artist,
+            "track":         track,
+            "bpm":           0,
+            "camelot":       "",
+            "category":      "Local Underground" if region_match else "Underground",
+            "source_url":    source_url,
+            "youtube_url":   "",
+            "energy_markers": [],
+            "support_score": 0,
+            "reason": (
+                f"Bandcamp {genre}"
+                + (f"; {region} scene" if region_match else "")
+                + "; Hidden Gem"
+            ),
+        })
+    
+    print(f"  Bandcamp: {len(result)} альбомов (через Playwright)")
+    return result
 
 
 # ─── Получить BPM/Key/стиль через Beatport search ──────────────────────────
@@ -599,178 +845,279 @@ def main():
     parser = argparse.ArgumentParser(
         description="Детерминированный поиск треков для autodj-mixer"
     )
-    parser.add_argument("--genre", required=True, help='Жанр: "melodic techno"')
-    parser.add_argument("--bpm", type=int, required=True, help="Целевой BPM: 132")
-    parser.add_argument("--camelot", required=True, help="Целевой ключ: 8A")
-    parser.add_argument("--count", type=int, required=True, help="Сколько треков нужно")
-    parser.add_argument("--region", default="", help="Регион андеграунда: France, Ukraine")
-    parser.add_argument(
-        "--years", default="",
-        help="Годы через запятую: 2025,2026 (дефолт: текущий + прошлый)"
-    )
-    parser.add_argument("--out", default="curator_candidates.json")
+    parser.add_argument("--genre",    required=True)
+    parser.add_argument("--bpm",      type=int, default=0,
+                        help="Целевой BPM (или используй --bpm-min/--bpm-max)")
+    parser.add_argument("--bpm-min",  type=int, default=0)
+    parser.add_argument("--bpm-max",  type=int, default=0)
+    parser.add_argument("--camelot",  required=True)
+    parser.add_argument("--count",    type=int, required=True)
+    parser.add_argument("--region",   default="",
+                        help="Регион для тегов (Bandcamp/Discogs)")
+    parser.add_argument("--country",  default="",
+                        help="Страна Discogs country filter (France, Germany…)")
+    parser.add_argument("--years",    default="")
+    parser.add_argument("--out",      default="curator_candidates.json")
+    parser.add_argument("--urls-out", default="")
+    parser.add_argument("--style",    default="")
     parser.add_argument("--bpm-tolerance", type=int, default=4)
-    parser.add_argument(
-        "--no-verify", action="store_true",
-        help="Пропустить yt-dlp верификацию (для дебага)"
-    )
-    parser.add_argument(
-        "--style", default="",
-        help='Стиль музыки: "French Touch", "melodic techno" (добавляется в каждый трек)'
-    )
-    parser.add_argument(
-        "--urls-out", default="",
-        help='Сохранить список YouTube URL в текстовый файл для yt_download.py --url-file'
-    )
+    parser.add_argument("--pool-factor",   type=int, default=3,
+                        help="Собрать pool_factor×count кандидатов перед фильтром")
+    parser.add_argument("--no-verify", action="store_true")
+    parser.add_argument("--no-approve", action="store_true",
+                        help="Не останавливаться на апруве плейлиста")
     args = parser.parse_args()
 
-    # Парсинг лет
-    current_year = datetime.now().year
-    if args.years:
-        years = [int(y.strip()) for y in args.years.split(",")]
+    # ── Диапазон BPM ──────────────────────────────────────────────
+    if args.bpm_min and args.bpm_max:
+        bpm_center = (args.bpm_min + args.bpm_max) // 2
+        bpm_tolerance = (args.bpm_max - args.bpm_min) // 2
+    elif args.bpm:
+        bpm_center    = args.bpm
+        bpm_tolerance = args.bpm_tolerance
     else:
-        years = [current_year, current_year - 1]
+        print("ОШИБКА: укажи --bpm или --bpm-min + --bpm-max")
+        sys.exit(1)
 
-    print(f"\n{'─'*50}")
-    print(f" autodj-mixer Curator")
-    print(f" Жанр: {args.genre} | BPM: {args.bpm}±{args.bpm_tolerance} | "
-          f"Camelot: {args.camelot} | Стиль: {args.style or '(не указан)'} | Нужно: {args.count} треков")
-    print(f" Годы: {years}" + (f" | Регион: {args.region}" if args.region else ""))
+    # ── Годы ──────────────────────────────────────────────────────
+    current_year = datetime.now().year
+    years = (
+        [int(y.strip()) for y in args.years.split(",")]
+        if args.years else [current_year, current_year - 1]
+    )
+
+    print(f"\n{'═'*55}")
+    print(f" autodj-mixer Curator v4")
+    print(f" Жанр:    {args.genre}")
+    print(f" BPM:     {bpm_center}±{bpm_tolerance}"
+          + (f"  ({args.bpm_min}–{args.bpm_max})" if args.bpm_min else ""))
+    print(f" Camelot: {args.camelot}")
+    print(f" Нужно:   {args.count} треков  |  пул: {args.pool_factor}×")
+    print(f" Годы:    {years}"
+          + (f"  |  Страна: {args.country}" if args.country else "")
+          + (f"  |  Регион: {args.region}" if args.region else ""))
     print()
 
     try:
         compatible_keys = get_compatible_keys(args.camelot)
     except ValueError as e:
-        print(f"ОШИБКА: {e}")
-        sys.exit(1)
+        print(f"ОШИБКА: {e}"); sys.exit(1)
 
     print(f" Совместимые ключи: {sorted(compatible_keys)}\n")
 
-    found = []
-    seen = set()
+    # ════════════════════════════════════════════════════════════
+    # ШАГ 1: СБОР ПУЛА (pool_factor × count)
+    # ════════════════════════════════════════════════════════════
+    print("═══ ШАГ 1: Сбор пула ═══")
 
-    # Источники в порядке приоритета
-    print("─── Источник 1: Beatport Charts ───")
-    sources = [fetch_beatport_charts(args.genre, years)]
+    print("─── 1001Tracklists (прокси) ───")
+    raw_pool = fetch_1001tracklists(args.genre, years)
 
-    print("─── Источник 2: 1001Tracklists ────")
-    sources.append(fetch_1001tracklists(args.genre, years))
+    print("─── Discogs API ───────────────")
+    raw_pool += fetch_discogs(
+        args.genre, years,
+        region=args.region, country=args.country,
+        pool_factor=args.pool_factor, target_count=args.count
+    )
 
-    print("─── Источник 3: Resident Advisor ──")
-    sources.append(fetch_ra_charts(args.genre))
+    print("─── Beatport Charts ───────────")
+    raw_pool += fetch_beatport_charts(args.genre, years)
 
-    if args.region:
-        print(f"─── Источник 4: Bandcamp [{args.region}] ──")
-        sources.append(fetch_bandcamp_underground(args.genre, args.region))
+    print("─── Resident Advisor ──────────")
+    raw_pool += fetch_ra_charts(args.genre)
 
-    print()
-
-    for source_tracks in sources:
-        for track in source_tracks:
-            if len(found) >= args.count:
-                break
-
-            dedup_key = f"{track['artist'].lower().strip()}|{track['track'].lower().strip()}"
-            if dedup_key in seen:
-                continue
-            seen.add(dedup_key)
-
-            # ── BPM фильтр ──────────────────────────────────────────────────
-            if track["bpm"] != 0:
-                if abs(track["bpm"] - args.bpm) > args.bpm_tolerance:
-                    continue
-
-            # ── Camelot фильтр ───────────────────────────────────────────────
-            if track["camelot"] and track["camelot"] not in compatible_keys:
-                continue
-
-            # ── yt-dlp верификация ───────────────────────────────────────────
-            print(f"Проверяю: {track['artist']} - {track['track']}")
-
-            if args.no_verify:
-                track["youtube_url"] = f"ytsearch1:{track['artist']} - {track['track']}"
-            else:
-                yt = verify_and_resolve_url(track["artist"], track["track"])
-                if yt is None:
-                    print(f"  ✗ не верифицирован — пропуск")
-                    continue
-                track["youtube_url"] = yt["url"]
-                print(f"  ✓ {yt.get('source', 'YouTube')}: {yt['title'][:60]}")
-
-                # Если BPM/Key/стиль неизвестны — поиск через Beatport search
-                if track["bpm"] == 0 or not track["camelot"] or (args.style and not track.get("style")):
-                    enriched_bpm, enriched_key, enriched_style = search_beatport_track(
-                        track["artist"], track["track"]
-                    )
-                    if track["bpm"] == 0 and enriched_bpm:
-                        track["bpm"] = enriched_bpm
-                        print(f"  ℹ Beatport BPM: {enriched_bpm}")
-                    if not track["camelot"] and enriched_key:
-                        track["camelot"] = enriched_key
-                        print(f"  ℹ Beatport Key: {enriched_key}")
-                    if enriched_style and (not track.get("style") or args.style):
-                        track["style"] = enriched_style
-                        print(f"  ℹ Beatport стиль: {enriched_style}")
-
-                # BPM/Key — nice to have, визначаються пізніше A1F аналізатором
-                if track["bpm"] == 0 or not track["camelot"]:
-                    yt_bpm, yt_key = enrich_from_youtube_description(track["youtube_url"])
-                    if track["bpm"] == 0 and yt_bpm:
-                        track["bpm"] = yt_bpm
-                        print(f"  ℹ YouTube BPM: {yt_bpm}")
-                    if not track["camelot"] and yt_key:
-                        track["camelot"] = yt_key
-                        print(f"  ℹ YouTube Key: {yt_key}")
-
-            # ── Додати style ────────────────────────────────────────────
-            if args.style and not track.get("style"):
-                track["style"] = args.style
-
-            # ── Додати гармонічне відношення в reason (якщо є camelot) ──
-            if track.get("camelot"):
-                relation = camelot_relation(args.camelot, track["camelot"])
-                if relation not in track.get("reason", ""):
-                    track["reason"] = track.get("reason", "") + f"; {track['camelot']} = {relation}"
-
-            found.append(track)
-            print(
-                f"  [{len(found)}/{args.count}] ✓ "
-                f"{track['artist']} — {track['track']} "
-                f"({track['bpm'] or '?'} BPM, {track['camelot'] or '?'})"
-            )
-            print()
-
-        if len(found) >= args.count:
-            break
-
-    # ── Итог ────────────────────────────────────────────────────────────────
-    print(f"\n{'─'*50}")
-    print(f"Готово: {len(found)} треков из {args.count} запрошенных")
-
-    if len(found) < args.count:
-        print(
-            f"⚠  Набрано меньше чем нужно. "
-            f"Попробуй: --bpm-tolerance 6 или другой --camelot"
+    if args.region or args.country:
+        print(f"─── Bandcamp [{args.region or args.country}] ───")
+        raw_pool += fetch_bandcamp_underground(
+            args.genre, args.region or args.country
         )
 
+    print(f"\n Пул: {len(raw_pool)} треков до фильтра\n")
+
+    # ════════════════════════════════════════════════════════════
+    # ШАГ 2: ОБОГАЩЕНИЕ BPM/Camelot через Tunebat
+    # ════════════════════════════════════════════════════════════
+    print("═══ ШАГ 2: Обогащение BPM/Camelot (Tunebat) ═══")
+
+    if len(raw_pool) > TUNEBAT_MAX_POOL:
+        print(f"  Пул {len(raw_pool)} > {TUNEBAT_MAX_POOL} → Tunebat пропущен")
+        enriched_pool = raw_pool
+    else:
+        enriched_pool: list[dict] = []
+        seen_dedup: set[str] = set()
+
+        for track in raw_pool:
+            dk = f"{track['artist'].lower()}|{track['track'].lower()}"
+            if dk in seen_dedup:
+                continue
+            seen_dedup.add(dk)
+
+            if track["bpm"] == 0 or not track["camelot"]:
+                tb_bpm, tb_cam = get_tunebat_bpm_key(track["artist"], track["track"])
+                if tb_bpm:
+                    track["bpm"]     = tb_bpm
+                if tb_cam:
+                    track["camelot"] = tb_cam
+
+            enriched_pool.append(track)
+
+    # ════════════════════════════════════════════════════════════
+    # ШАГ 3: ФИЛЬТР BPM + Camelot
+    # ════════════════════════════════════════════════════════════
+    print("\n═══ ШАГ 3: Фильтр BPM/Camelot ═══")
+
+    filtered: list[dict] = []
+    for track in enriched_pool:
+        if track["bpm"] != 0:
+            if abs(track["bpm"] - bpm_center) > bpm_tolerance:
+                continue
+        if track["camelot"] and track["camelot"] not in compatible_keys:
+            continue
+        filtered.append(track)
+
+    filtered.sort(
+        key=lambda t: (
+            bool(t["bpm"] and t["camelot"]),
+            t["support_score"]
+        ),
+        reverse=True
+    )
+
+    print(f" После фильтра: {len(filtered)} треков")
+
+    if len(filtered) < args.count:
+        print(
+            f"⚠  Пул после фильтра меньше нужного ({len(filtered)}/{args.count}). "
+            f"Попробуй: --bpm-tolerance {bpm_tolerance + 2} или --pool-factor {args.pool_factor + 1}"
+        )
+
+    # ════════════════════════════════════════════════════════════
+    # ШАГ 4: ВЕРИФИКАЦИЯ через yt-dlp (count + 2 запаса)
+    # ════════════════════════════════════════════════════════════
+    print("\n═══ ШАГ 4: Верификация yt-dlp ═══")
+
+    target = args.count + 2   # +2 запаса на случай браковки
+    verified: list[dict] = []
+
+    for track in filtered:
+        if len(verified) >= target:
+            break
+
+        print(f"Проверяю: {track['artist']} — {track['track']}")
+
+        if args.no_verify:
+            track["youtube_url"] = (
+                f"ytsearch1:{track['artist']} - {track['track']}"
+            )
+        else:
+            yt = verify_and_resolve_url(track["artist"], track["track"])
+            if yt is None:
+                print(f"  ✗ не найдено — пропуск")
+                continue
+            track["youtube_url"] = yt["url"]
+            print(f"  ✓ {yt.get('source', 'YouTube')}: {yt['title'][:55]}")
+
+            # Beatport search если BPM/Key всё ещё неизвестны
+            if track["bpm"] == 0 or not track["camelot"]:
+                eb, ek, es = search_beatport_track(track["artist"], track["track"])
+                if eb: track["bpm"]     = eb; print(f"  ℹ Beatport BPM: {eb}")
+                if ek: track["camelot"] = ek; print(f"  ℹ Beatport Key: {ek}")
+                if es and not track.get("style"): track["style"] = es
+
+            # YouTube description как последний fallback
+            if track["bpm"] == 0 or not track["camelot"]:
+                yb, yk = enrich_from_youtube_description(track["youtube_url"])
+                if yb: track["bpm"]     = yb; print(f"  ℹ YT desc BPM: {yb}")
+                if yk: track["camelot"] = yk; print(f"  ℹ YT desc Key: {yk}")
+
+        # style fallback
+        if args.style and not track.get("style"):
+            track["style"] = args.style
+
+        # Camelot relation в reason
+        if track.get("camelot"):
+            rel = camelot_relation(args.camelot, track["camelot"])
+            if rel not in track.get("reason", ""):
+                track["reason"] = track.get("reason", "") + f"; {track['camelot']} = {rel}"
+
+        verified.append(track)
+        print(
+            f"  [{len(verified)}/{target}] ✓  "
+            f"{track['artist']} — {track['track']} "
+            f"({track['bpm'] or '?'} BPM, {track['camelot'] or '?'})\n"
+        )
+
+    # ════════════════════════════════════════════════════════════
+    # ШАГ 5: АПРУВ плейлиста (если не --no-approve)
+    # ════════════════════════════════════════════════════════════
+    final: list[dict] = []
+
+    if args.no_approve or not sys.stdin.isatty():
+        final = verified[:args.count]
+    else:
+        print("\n═══ ШАГ 5: Апрув плейлиста ═══")
+        print(f"{'─'*55}")
+        for i, t in enumerate(verified, 1):
+            print(
+                f"  {i:2}. {t['artist']} — {t['track']}"
+                f"  [{t['bpm'] or '?'} BPM, {t['camelot'] or '?'}]"
+                f"  score={t['support_score']}"
+            )
+        print(f"{'─'*55}")
+        print("Введи номера треков для УДАЛЕНИЯ через пробел (или Enter для принятия всего):")
+
+        try:
+            user_input = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            user_input = ""
+
+        if user_input:
+            reject_idxs = set()
+            for token in user_input.split():
+                if token.isdigit():
+                    idx = int(token) - 1
+                    if 0 <= idx < len(verified):
+                        reject_idxs.add(idx)
+                        print(f"  ✗ Удалён: {verified[idx]['artist']} — {verified[idx]['track']}")
+
+            kept     = [t for i, t in enumerate(verified) if i not in reject_idxs]
+            rejected = len(reject_idxs)
+
+            replacements = [t for i, t in enumerate(verified)
+                            if i not in reject_idxs and i >= args.count]
+            final = kept[:args.count]
+
+            if len(final) < args.count:
+                print(
+                    f"⚠  После удаления {rejected} треков — недостаточно. "
+                    f"Запусти снова с --pool-factor {args.pool_factor + 1} для большего буфера."
+                )
+        else:
+            final = verified[:args.count]
+            print("  ✓ Принято без изменений")
+
+    # ════════════════════════════════════════════════════════════
+    # ШАГ 6: СОХРАНЕНИЕ
+    # ════════════════════════════════════════════════════════════
+    print(f"\n{'═'*55}")
+    print(f"Итого: {len(final)} треков из {args.count} запрошенных")
+
     with open(args.out, "w", encoding="utf-8") as f:
-        json.dump(found, f, ensure_ascii=False, indent=2)
+        json.dump(final, f, ensure_ascii=False, indent=2)
+    print(f"JSON → {args.out}")
 
-    print(f"Сохранено → {args.out}")
-
-    # ── Сохранить URL-файл для yt_download.py ──
     if args.urls_out:
         with open(args.urls_out, "w", encoding="utf-8") as f:
-            for t in found:
-                f.write(t["youtube_url"] + "\n")
+            for t in final:
+                if t.get("youtube_url"):
+                    f.write(t["youtube_url"] + "\n")
         print(f"URLs → {args.urls_out}")
 
     print(f"\nСледующий шаг:")
     if args.urls_out:
         print(f"  python3 yt_download.py --url-file {args.urls_out}")
     else:
-        for t in found:
-            print(f"  python3 yt_download.py \"{t['youtube_url']}\"")
+        print(f"  python3 yt_download.py --candidates {args.out}")
 
 
 if __name__ == "__main__":
