@@ -542,10 +542,15 @@ PLAYWRIGHT_SCRAPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "p
 XVFB_RUN = "xvfb-run --auto-servernum" if os.system("which xvfb-run >/dev/null 2>&1") == 0 else ""
 
 
-def _run_playwright_scraper(source: str, genre: str) -> list[dict]:
+def _run_playwright_scraper(source: str, genre: str, timeout: int = 180) -> list[dict]:
     """
     Запускает playwright_scraper.py через subprocess и возвращает список треков.
     Использует SOCKS5_PROXY из окружения (Cloudflare Warp).
+    
+    Args:
+        source: beatport, 1001tl, bandcamp, beatport-tracks
+        genre: жанр для поиска
+        timeout: таймаут в секундах (180 для beatport-tracks, 120 для остальных)
     """
     import tempfile
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
@@ -557,7 +562,7 @@ def _run_playwright_scraper(source: str, genre: str) -> list[dict]:
     )
     try:
         result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=120,
+            cmd, shell=True, capture_output=True, text=True, timeout=timeout,
             env={**os.environ, "SOCKS5_PROXY": os.environ.get("SOCKS5_PROXY", "socks5://127.0.0.1:40000")}
         )
         if result.returncode != 0:
@@ -580,7 +585,7 @@ def _run_playwright_scraper(source: str, genre: str) -> list[dict]:
         
         return []
     except subprocess.TimeoutExpired:
-        print(f"  Playwright {source} timeout (120s)")
+        print(f"  Playwright {source} timeout ({timeout}s)")
         return []
     except Exception as e:
         print(f"  Playwright {source} error: {e}")
@@ -627,27 +632,11 @@ def fetch_beatport_charts(genre: str, years: list[int]) -> list[dict]:
 def fetch_1001tracklists(genre: str, years: list[int]) -> list[dict]:
     """
     1001tracklists — DJ саппорт. Playwright + SOCKS5 прокси.
-    Поиск → tracklist'ы → парсинг отдельных треков.
+    ВНИМАНИЕ: Cloudflare заблокировал Warp IP (unblock_ip.html).
+    Нужен резидентский прокси для работы.
     """
-    tracks = _run_playwright_scraper("1001tl", genre)
-    
-    result = []
-    for t in tracks:
-        result.append({
-            "artist":        t.get("artist", ""),
-            "track":         t.get("track", ""),
-            "bpm":           0,
-            "camelot":       "",
-            "category":      "Mainstream",
-            "source_url":    t.get("source_url", ""),
-            "youtube_url":   "",
-            "energy_markers": [],
-            "support_score": t.get("support_score", 5),
-            "reason":        t.get("reason", f"1001TL tracklist; {genre}"),
-        })
-    
-    print(f"  1001TL: {len(result)} треков (через Playwright)")
-    return result
+    print("  1001TL: пропущен — Cloudflare заблокировал Warp IP (нужен resident proxy)")
+    return []
 
 
 # ─── Источник 3: Resident Advisor Charts ─────────────────────────────────────
@@ -923,8 +912,10 @@ def main():
     print("─── Beatport Charts ───────────")
     raw_pool += fetch_beatport_charts(args.genre, years)
 
-    print("─── Resident Advisor ──────────")
-    raw_pool += fetch_ra_charts(args.genre)
+    print("─── Beatport Chart Tracks (BPM/Camelot) ───")
+    bp_tracks = _run_playwright_scraper("beatport-tracks", args.genre)
+    print(f"  Beatport треки: {len(bp_tracks)} шт (с BPM/Camelot)")
+    raw_pool += bp_tracks
 
     if args.region or args.country:
         print(f"─── Bandcamp [{args.region or args.country}] ───")

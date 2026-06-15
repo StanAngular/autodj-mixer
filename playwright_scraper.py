@@ -389,7 +389,7 @@ def scrape_1001tl(page, url: str) -> ScraperResult:
     # Шаг 2: Получаем ссылки на tracklist'ы из результатов поиска
     tracklist_urls = page.evaluate("""() => {
         const links = document.querySelectorAll('a[href*="/tracklist/"]');
-        return Array.from(links).slice(0, 5).map(a => a.href);
+        return Array.from(links).slice(0, 20).map(a => a.href);
     }""")
     
     log(f"Найдено {len(tracklist_urls)} tracklist'ов")
@@ -570,11 +570,160 @@ def scrape_bandcamp(page, url: str) -> ScraperResult:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Источник 1b: Beatport Chart Tracks (парсинг треков внутри chart'ов)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def scrape_beatport_tracks(page, url: str) -> ScraperResult:
+    """
+    Парсит отдельные треки из Beatport chart'ов.
+    Сначала получает список chart'ов (/charts), затем заходит в каждый
+    и извлекает треки с BPM и Camelot.
+    """
+    result = ScraperResult(source="beatport_tracks")
+    
+    # Шаг 1: Получаем chart URL'ы из /charts
+    data_str = page.evaluate("() => { const el = document.querySelector('script#__NEXT_DATA__'); return el ? el.textContent : null; }")
+    if not data_str:
+        log("__NEXT_DATA__ не найден")
+        return result
+    
+    try:
+        data = json.loads(data_str)
+        queries = data.get("props", {}).get("pageProps", {}).get("dehydratedState", {}).get("queries", [])
+        if len(queries) < 2:
+            return result
+        
+        modules = queries[1].get("state", {}).get("data", {}).get("modules", [])
+        if not modules:
+            return result
+        
+        chart_items = modules[0].get("module_items", [])
+        
+        # Определяем жанр
+        from urllib.parse import parse_qs, urlparse
+        parsed_url = urlparse(url)
+        genre = parse_qs(parsed_url.query).get("genre", ["all"])[0]
+        
+        # Собираем chart URL'ы с фильтром по жанру
+        chart_urls = []
+        for item in chart_items:
+            if not isinstance(item, dict):
+                continue
+            chart = item.get("item")
+            if not isinstance(chart, dict):
+                continue
+            
+            genres = [g.get("name", "").lower() for g in chart.get("genres", []) if isinstance(g, dict)]
+            
+            # Фильтр по жанру
+            if genre and genre.lower() != "all":
+                genre_lower = genre.lower()
+                genre_match = False
+                for g in genres:
+                    if genre_lower in g or g in genre_lower:
+                        genre_match = True
+                        break
+                    genre_words = genre_lower.replace("/", " ").replace("-", " ").split()
+                    if all(w in g for w in genre_words):
+                        genre_match = True
+                        break
+                if not genre_match:
+                    continue
+            
+            chart_id = chart.get("id", "")
+            chart_slug = chart.get("slug", "")
+            if chart_id:
+                chart_urls.append(f"https://www.beatport.com/chart/{chart_slug}/{chart_id}")
+        
+        log(f"Найдено {len(chart_urls)} chart'ов для парсинга треков")
+        
+        # Шаг 2: Заходим в каждый chart и парсим треки
+        all_tracks = []
+        for i, chart_url in enumerate(chart_urls[:10]):  # макс 10 chart'ов (20 треков × 10 = 200)
+            log(f"Парсю chart {i+1}/{min(len(chart_urls), 10)}: {chart_url[:60]}...")
+            try:
+                page.goto(chart_url, wait_until=NAVIGATION_WAIT, timeout=PAGE_LOAD_TIMEOUT)
+                human_delay()
+                
+                tracks = _parse_beatport_chart_tracks(page, genre)
+                log(f"  → {len(tracks)} треков")
+                all_tracks.extend(tracks)
+            except Exception as e:
+                log(f"  → ошибка: {e}")
+        
+        result.data = all_tracks
+        log(f"Всего: {len(all_tracks)} треков из {len(chart_urls[:10])} chart'ов")
+        
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
+        log(f"Ошибка: {e}")
+    
+    return result
+
+
+def _parse_beatport_chart_tracks(page, genre: str) -> list[dict]:
+    """Парсит треки внутри Beatport chart из __NEXT_DATA__."""
+    data_str = page.evaluate("() => { const el = document.querySelector('script#__NEXT_DATA__'); return el ? el.textContent : null; }")
+    if not data_str:
+        return []
+    
+    try:
+        data = json.loads(data_str)
+        queries = data.get("props", {}).get("pageProps", {}).get("dehydratedState", {}).get("queries", [])
+        
+        # Ищем query с результатами (треками)
+        for q in queries:
+            qdata = q.get("state", {}).get("data", {})
+            if isinstance(qdata, dict):
+                results = qdata.get("results", [])
+                if results and isinstance(results, list) and len(results) > 0:
+                    tracks = []
+                    for item in results:
+                        try:
+                            artists = ", ".join(
+                                a.get("name", "") for a in item.get("artists", [])
+                            )
+                            track_name = item.get("name", "")
+                            bpm = item.get("bpm") or 0
+                            
+                            # Key → Camelot
+                            raw_key = item.get("key", {})
+                            key_str = ""
+                            if raw_key:
+                                key_str = (
+                                    f"{raw_key.get('letter', '')} "
+                                    f"{'maj' if raw_key.get('chord') == 'major' else 'min'}"
+                                ).strip()
+                            camelot = KEY_TO_CAMELOT.get(key_str, "")
+                            
+                            if artists and track_name:
+                                tracks.append({
+                                    "artist": artists,
+                                    "track": track_name,
+                                    "bpm": int(bpm),
+                                    "camelot": camelot,
+                                    "category": "Mainstream",
+                                    "source_url": page.url,
+                                    "youtube_url": "",
+                                    "energy_markers": [],
+                                    "support_score": 10,
+                                    "reason": f"Beatport chart track: {genre}",
+                                })
+                        except (KeyError, TypeError, ValueError):
+                            continue
+                    return tracks
+    except (json.JSONDecodeError, KeyError, TypeError):
+        pass
+    
+    return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # CLI
 # ═══════════════════════════════════════════════════════════════════════════════
 
 SCRAPE_FUNCTIONS = {
     "beatport": (scrape_beatport, lambda genre: f"https://www.beatport.com/charts?genre={quote(genre)}"),
+    "beatport-tracks": (scrape_beatport_tracks, lambda genre: f"https://www.beatport.com/charts?genre={quote(genre)}"),
     "1001tl": (scrape_1001tl, lambda genre: f"https://www.1001tracklists.com/search/track/?q={quote(genre + ' 2026')}"),
     "ra": (scrape_ra, lambda genre: f"https://ra.co/charts/genre/{genre.lower().replace(' ', '-')}"),
     "bandcamp": (scrape_bandcamp, lambda genre: f"https://bandcamp.com/tag/{genre.lower().replace(' ', '-')}"),
