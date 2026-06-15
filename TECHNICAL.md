@@ -753,3 +753,164 @@ Threshold-based валидация:
 ---
 
 *Документ актуален для v16.7f (2026-06-13). Операционный гайд: `/opt/autodj-mixer/SKILL.md`*
+
+---
+
+## 12. Curation & Scraping pipeline
+
+### 12.1 Обзор
+
+Система поиска и отбора треков для микса. Замена старого LLM-драйвен подхода (50% галлюцинаций) на детерминированный скрейпинг.
+
+**Движок:** `playwright_scraper.py` — Playwright + stealth для обхода Cloudflare/антибот систем.  
+**Оркестратор:** `curate_tracks.py` — запускает все источники, собирает пул, фильтрует по BPM/Camelot, верифицирует через yt-dlp.
+
+### 12.2 Архитектура
+
+```
+playwright_scraper.py           curate_tracks.py
+┌─────────────────────┐         ┌──────────────────────┐
+│ Beatport /charts    │──────→  │  1. 1001TL (blocked) │
+│  → 42 DJ charts     │         │  2. Discogs API      │
+│                     │         │  3. Beatport Charts  │
+│ Beatport Chart Tracks│──────→ │  4. Beatport Tracks  │
+│  → 10 charts × 20   │         │  5. Bandcamp         │
+│    = 200 треков     │         │                      │
+│                     │         │  Пул: ~204 трека     │
+│ Bandcamp discover   │──────→ │  ↓ BPM/Camelot фильтр │
+│  → 40 albums (DOM)  │         │  ↓ yt-dlp проверка  │
+│                     │         │  ↓ JSON + urls.txt   │
+│ Discogs API         │         └──────────────────────┘
+│  (через requests)   │                    ↓
+└─────────────────────┘         yt_download.py → WAV
+```
+
+### 12.3 Компоненты
+
+#### playwright_scraper.py
+
+**Запуск:** через subprocess из curate_tracks.py с xvfb-run (headless=False требует X-сервер).
+
+**Технологии:**
+- Playwright Sync API + `playwright-stealth` (прячет автоматизацию)
+- `headless=False` — видимый браузер на VPS через xvfb-run
+- Случайные задержки `random.randint(800, 2500)ms` между действиями
+- Три уровня прокси: `RESIDENTIAL_PROXY` > `SOCKS5_PROXY` > без прокси
+- Retry с exponential backoff (но MAX_RETRIES=1 из-за Playwright async error при пересоздании)
+
+**Источники:**
+
+| Функция | Эндпоинт | Парсинг | Метод |
+|---------|----------|---------|-------|
+| `scrape_beatport()` | `/charts` | `__NEXT_DATA__` → DJ charts | Без прокси |
+| `scrape_beatport_tracks()` | `/chart/{slug}/{id}` | Навигация по 10 charts → `__NEXT_DATA__` → треки с BPM+Camelot | Без прокси |
+| `scrape_1001tl()` | `/search/track/` | Client-side JS поиск → tracklist'ы → треки | **Блок: Cloudflare** |
+| `scrape_ra()` | `/charts/genre/{slug}` | `__NEXT_DATA__` | **Блок: DataDome** |
+| `scrape_bandcamp()` | `/tag/{genre}` | DOM-парсинг `<a href="/album/">` | SOCKS5 Warp |
+
+**Формат выдачи:**
+```python
+{
+    "artist": "Pearson Sound",
+    "track": "Sinkhole",
+    "bpm": 129,
+    "camelot": "6A",
+    "category": "Mainstream",
+    "source_url": "https://www.beatport.com/chart/...",
+    "support_score": 10,
+    "reason": "Beatport chart track: techno",
+    "track_count": 20,      # только для chart'ов
+    "chart_id": 815070,     # только для chart'ов
+    "genres": ["techno"],   # только для chart'ов
+}
+```
+
+#### curate_tracks.py
+
+**Поток:**
+```
+1. 1001TL       → ⛔ Cloudflare блок (заглушка)
+2. Discogs API  → 37 треков (без прокси, через requests)
+3. Beatport     → 42 chart'а (через playwright_scraper subprocess)
+4. Beatport Tracks → 125 треков с BPM/Camelot (через playwright_scraper subprocess)
+5. Bandcamp     → 40 альбомов (через playwright_scraper subprocess + Warp)
+                 ─────────────────
+                 Пул: ~204 трека
+6. Tunebat      → обогащение BPM/Camelot (если пул ≤ 15)
+7. Фильтр       → по BPM tolerance ±4, совместимые Camelot ключи
+                 → ~83 трека после фильтра
+8. yt-dlp       → верификация: ytsearch1 для каждого трека
+                 → ~5 треков на финальный отбор
+```
+
+**Запуск:**
+```bash
+export SOCKS5_PROXY='socks5://127.0.0.1:40000'
+xvfb-run --auto-servernum uv run python3 curate_tracks.py \
+  --genre "techno" --bpm 140 --camelot 8A --count 3
+```
+
+**Параметры:**
+| Флаг | Описание |
+|------|----------|
+| `--genre` | Жанр (обязательный) |
+| `--bpm` | Целевой BPM |
+| `--bpm-min / --bpm-max` | Диапазон BPM |
+| `--camelot` | Целевой Camelot ключ (обязательный) |
+| `--count` | Сколько треков нужно |
+| `--pool-factor` | Множитель пула (дефолт: 3×) |
+| `--out` | JSON-файл результата |
+| `--urls-out` | Файл со списком URL для yt-dlp |
+| `--no-verify` | Пропустить yt-dlp верификацию |
+| `--style` | Стиль для fallback transition params |
+| `--bpm-tolerance` | Допуск BPM (дефолт: ±4) |
+
+### 12.4 Прокси-стратегия
+
+| Прокси | Когда использовать | Пример |
+|--------|------------------|--------|
+| Без прокси | Beatport, Techno (оба эндпоинта) | По умолчанию |
+| `SOCKS5_PROXY=socks5://127.0.0.1:40000` | Bandcamp, YouTube download | Cloudflare Warp |
+| `RESIDENTIAL_PROXY=http://user:pass@host:port` | RA (DataDome), 1001TL (Cloudflare) | IPRoyal, BrightData |
+
+**SOCKS5 (Cloudflare Warp):** Настроен как systemd-сервис `warp-srv` на порту 40000. Поднимается автоматически при старте VPS. Для Batch YouTube скачивания требуется reconnect между треками:
+```bash
+warp-cli --accept-tos disconnect; sleep 1; connect; sleep 3
+```
+
+### 12.5 Статус источников (June 2026)
+
+| Источник | Статус | Прокси | Треков | BPM/Camelot |
+|----------|--------|--------|--------|-------------|
+| Beatport Charts | ✅ | Нет | 42 chart'а | Нет (charts) |
+| Beatport Chart Tracks | ✅ | Нет | ~125 | ✅ Да |
+| Discogs API | ✅ | Нет | ~37 | Нет (Tunebat) |
+| Bandcamp | ✅ | Warp | ~40 | Нет (Tunebat) |
+| 1001tracklists | ❌ Cloudflare | Resident | — | — |
+| Resident Advisor | ❌ DataDome | Resident | — | — |
+
+**Итого:** ~204 трека в пуле, ~83 проходят BPM/Camelot фильтр.
+
+### 12.6 Замена заблокированных источников
+
+**RA (Resident Advisor)** — под DataDome. Заменён на `beatport-tracks`: заходит в 10 DJ chart'ов, каждый содержит 20 треков с BPM и Camelot. 200 треков > того, что давал RA.
+
+**1001tracklists** — Cloudflare забанил Warp IP (редирект на `/info/unblock_ip.html`). Заменён тем же `beatport-tracks`.
+
+### 12.7 Известные проблемы
+
+1. **Playwright async error при MAX_RETRIES > 1** — закрытие и пересоздание браузера в одном процессе вызывает `"It looks like you are using Playwright Sync API inside the asyncio loop"`. Фикс: `MAX_RETRIES=1`.
+
+2. **Beatport genre matching** — Beatport использует составные жанры ("Melodic House/Techno"). Фильтр по жанру использует частичное совпадение: `"melodic techno" in "melodic house/techno"` = True.
+
+3. **Bandcamp Cloudflare challenge** — без SOCKS5 прокси Bandcamp выдаёт `"Client Challenge"`. Фикс: `SOCKS5_PROXY='socks5://127.0.0.1:40000'`.
+
+4. **1001TL search** — поиск выполняется на стороне клиента (JS). Playwright заполняет поле поиска и нажимает Enter. Даже с этим — Cloudflare блокирует Warp IP с июня 2026.
+
+5. **Discogs rate limit** — 60 запросов/мин с токеном. `DISCOGS_TOKEN` в `.env`.
+
+6. **Tunebat rate limit** — после ~5 запросов возвращает 429. `TUNEBAT_MAX_POOL=15` — если пул > 15, Tunebat пропускается.
+
+---
+
+*Документ актуален для v16.7f (2026-06-15).*
