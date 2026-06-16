@@ -282,6 +282,47 @@ def fmt_field(track: dict, field: str, suffix: str = "") -> str:
     return f"{s} ({src})" if src else s
 
 
+def extract_video_id(url: str) -> str:
+    """
+    Извлечь 11-символьный YouTube video_id из URL или строки.
+    Возвращает '' если это не YouTube (например SoundCloud) или ID не найден.
+    """
+    if not url:
+        return ""
+    if "soundcloud.com" in url:
+        return ""
+    m = re.search(r'[?&]v=([0-9A-Za-z_-]{11})', url)
+    if m:
+        return m.group(1)
+    m = re.search(r'(?:youtu\.be/|/embed/|/shorts/|/v/)([0-9A-Za-z_-]{11})', url)
+    if m:
+        return m.group(1)
+    if re.fullmatch(r'[0-9A-Za-z_-]{11}', url.strip()):
+        return url.strip()
+    return ""
+
+
+def build_youtube_playlist_url(tracks: list[dict], limit: int = 50) -> str:
+    """
+    Собрать ссылку на временный YouTube-плейлист из video_id треков.
+    YouTube создаёт временный (несохраняемый) плейлист по такому URL.
+    Лимит ~50 видео. SoundCloud и треки без YouTube-ссылки пропускаются.
+    Возвращает '' если ни одного YouTube-ID не найдено. Чистая функция.
+    """
+    ids: list[str] = []
+    seen: set[str] = set()
+    for t in tracks:
+        vid = extract_video_id(t.get("youtube_url", ""))
+        if vid and vid not in seen:
+            seen.add(vid)
+            ids.append(vid)
+        if len(ids) >= limit:
+            break
+    if not ids:
+        return ""
+    return "https://www.youtube.com/watch_videos?video_ids=" + ",".join(ids)
+
+
 def format_approval_table(tracks: list[dict], target_camelot: str = "") -> str:
     """
     Читаемая таблица для апрува. Чистая функция (без сети) — тестируема.
@@ -335,6 +376,11 @@ def format_approval_table(tracks: list[dict], target_camelot: str = "") -> str:
     if keys:
         summary += f" · ключи: {', '.join(keys)}"
     lines.append(summary)
+
+    playlist = build_youtube_playlist_url(tracks)
+    if playlist:
+        n = playlist.count(",") + 1
+        lines.append(f"\n▶ Превью-плейлист ({n} видео, временный): {playlist}")
 
     return "\n".join(lines)
 
@@ -1302,6 +1348,11 @@ def main():
                 if t.get("youtube_url"):
                     f.write(t["youtube_url"] + "\n")
         print(f"URLs → {args.urls_out}")
+
+    playlist = build_youtube_playlist_url(final)
+    if playlist:
+        n = playlist.count(",") + 1
+        print(f"\n▶ Превью-плейлист ({n} видео, временный):\n  {playlist}")
 
     print(f"\nСледующий шаг:")
     if args.urls_out:

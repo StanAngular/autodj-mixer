@@ -194,3 +194,66 @@ class TestApprovalTable:
         t = {"artist": "A", "track": "T"}
         out = ct.format_approval_table([t])
         assert "?" in out                         # пустые поля → '?'
+
+
+# ── P3b: temporary YouTube playlist link ───────────────────────────────────
+
+class TestVideoId:
+    def test_watch_url(self):
+        assert ct.extract_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+
+    def test_watch_url_with_extra_params(self):
+        assert ct.extract_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RD&t=10") == "dQw4w9WgXcQ"
+
+    def test_short_url(self):
+        assert ct.extract_video_id("https://youtu.be/dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+
+    def test_bare_id(self):
+        assert ct.extract_video_id("dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+
+    def test_soundcloud_returns_empty(self):
+        assert ct.extract_video_id("https://soundcloud.com/artist/track") == ""
+
+    def test_empty(self):
+        assert ct.extract_video_id("") == ""
+
+
+class TestPlaylistUrl:
+    def test_builds_url(self):
+        tracks = [
+            {"youtube_url": "https://www.youtube.com/watch?v=aaaaaaaaaaa"},
+            {"youtube_url": "https://youtu.be/bbbbbbbbbbb"},
+        ]
+        url = ct.build_youtube_playlist_url(tracks)
+        assert url == "https://www.youtube.com/watch_videos?video_ids=aaaaaaaaaaa,bbbbbbbbbbb"
+
+    def test_dedups_preserving_order(self):
+        tracks = [
+            {"youtube_url": "https://youtu.be/aaaaaaaaaaa"},
+            {"youtube_url": "https://www.youtube.com/watch?v=aaaaaaaaaaa"},
+            {"youtube_url": "https://youtu.be/ccccccccccc"},
+        ]
+        url = ct.build_youtube_playlist_url(tracks)
+        assert url.endswith("video_ids=aaaaaaaaaaa,ccccccccccc")
+
+    def test_skips_soundcloud_and_empty(self):
+        tracks = [
+            {"youtube_url": "https://soundcloud.com/a/b"},
+            {"youtube_url": ""},
+            {"youtube_url": "https://youtu.be/ddddddddddd"},
+        ]
+        url = ct.build_youtube_playlist_url(tracks)
+        assert url.endswith("video_ids=ddddddddddd")
+
+    def test_caps_at_limit(self):
+        tracks = [{"youtube_url": f"https://youtu.be/{'x'*10}{i}"} for i in range(10)]
+        url = ct.build_youtube_playlist_url(tracks, limit=3)
+        assert url.count(",") == 2          # 3 ids → 2 commas
+
+    def test_empty_when_no_youtube(self):
+        assert ct.build_youtube_playlist_url([{"youtube_url": ""}]) == ""
+
+    def test_appears_in_approval_table(self):
+        tracks = [{"artist": "A", "track": "T", "youtube_url": "https://youtu.be/eeeeeeeeeee"}]
+        out = ct.format_approval_table(tracks)
+        assert "watch_videos?video_ids=eeeeeeeeeee" in out
