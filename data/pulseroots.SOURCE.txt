@@ -1,0 +1,4 @@
+PulseRoots genre tree — vendored data
+Source : https://github.com/Mendiak/pulse.roots  (data/pulseroots.genres.json)
+License: MIT (© Mendiak). Vendored for offline style resolution in autodj-mixer.
+Update : curl -sL https://raw.githubusercontent.com/Mendiak/pulse.roots/main/data/pulseroots.genres.json -o data/pulseroots.genres.json
