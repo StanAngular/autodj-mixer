@@ -252,6 +252,93 @@ def merge_provenance(kept: dict, dup: dict) -> None:
             set_field(kept, f, dup[f], dup.get(f"{f}_src", ""))
 
 
+# ─── Форматирование таблицы апрува (P3) ──────────────────────────────────────
+
+def fmt_duration(sec: int) -> str:
+    """Секунды → 'M:SS', или '?' если неизвестно."""
+    if not sec:
+        return "?"
+    return f"{sec // 60}:{sec % 60:02d}"
+
+
+def fmt_views(n: int) -> str:
+    """Просмотры → компактно (1.2M / 12K / 850), или '—' если неизвестно."""
+    if not n:
+        return "—"
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}K"
+    return str(n)
+
+
+def fmt_field(track: dict, field: str, suffix: str = "") -> str:
+    """'value+suffix (src)' или '?' если поле пустое."""
+    val = track.get(field)
+    if _is_empty(val):
+        return "?"
+    src = track.get(f"{field}_src", "")
+    s = f"{val}{suffix}"
+    return f"{s} ({src})" if src else s
+
+
+def format_approval_table(tracks: list[dict], target_camelot: str = "") -> str:
+    """
+    Читаемая таблица для апрува. Чистая функция (без сети) — тестируема.
+    На каждый трек: №, артист — трек, длительность, стиль, BPM(src),
+    Key(src)▸отношение, страна(src), просмотры, ссылка, статус.
+    Группирует по полю 'segment', если оно присутствует (готовность к P6).
+    """
+    lines: list[str] = []
+
+    segments: dict[str, list[tuple[int, dict]]] = {}
+    for i, t in enumerate(tracks, 1):
+        segments.setdefault(t.get("segment", ""), []).append((i, t))
+
+    rel_short = {
+        "exact match": "=", "wheel neighbour": "▸±1",
+        "major/minor swap": "▸maj/min", "diagonal energy boost": "▸energy",
+    }
+
+    for seg, items in segments.items():
+        if seg:
+            lines.append(f"\nСЕГМЕНТ: {seg}")
+        for i, t in items:
+            key_str = fmt_field(t, "camelot")
+            cam = t.get("camelot")
+            if cam and target_camelot:
+                try:
+                    key_str += rel_short.get(camelot_relation(target_camelot, cam), "")
+                except Exception:
+                    pass
+
+            status = t.get("youtube_status", "")
+            lines.append(f"{i:3}. {t['artist']} — {t['track']}")
+            lines.append(
+                f"      {fmt_duration(t.get('duration_sec', 0))} · "
+                f"{t.get('style') or '?'} · "
+                f"{fmt_field(t, 'bpm', ' BPM')} · {key_str} · "
+                f"{fmt_field(t, 'country')} · ▶{fmt_views(t.get('youtube_views', 0))}"
+                + (f" · {status}" if status else "")
+            )
+            if t.get("youtube_url"):
+                lines.append(f"      {t['youtube_url']}")
+
+    total_sec = sum(t.get("duration_sec", 0) for t in tracks)
+    bpms = [t["bpm"] for t in tracks if t.get("bpm")]
+    keys = sorted({t["camelot"] for t in tracks if t.get("camelot")})
+    summary = f"\nΣ {len(tracks)} треков"
+    if total_sec:
+        summary += f" · ~{total_sec // 60} мин"
+    if bpms:
+        summary += f" · BPM {min(bpms)}–{max(bpms)}"
+    if keys:
+        summary += f" · ключи: {', '.join(keys)}"
+    lines.append(summary)
+
+    return "\n".join(lines)
+
+
 def get_discogs_styles(genre: str) -> list[str]:
     """
     Получить Discogs-стили для жанра.
@@ -574,7 +661,7 @@ def verify_and_resolve_url(
                     "yt-dlp",
                     "--proxy", YTDLP_PROXY,
                     "--flat-playlist",
-                    "--print", "%(url)s\t%(title)s\t%(uploader)s\t%(duration)s",
+                    "--print", "%(url)s\t%(title)s\t%(uploader)s\t%(duration)s\t%(view_count)s",
                     "--no-warnings",
                     "--quiet",
                     query,
@@ -598,13 +685,15 @@ def verify_and_resolve_url(
                 continue
             url, title, uploader = parts[0], parts[1], parts[2]
             duration = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+            views    = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0
 
             # Для SoundCloud duration може бути 0 — пропускаємо перевірку
             if duration and not (DURATION_MIN <= duration <= DURATION_MAX):
                 continue
 
             if title_matches(artist, track, title, uploader):
-                return {"url": url, "title": title, "uploader": uploader, "source": name}
+                return {"url": url, "title": title, "uploader": uploader,
+                        "source": name, "duration": duration, "views": views}
 
         # Якщо на YouTube не знайшли — пробуємо SoundCloud
         print(f"  {name}: не знайдено, пробую іншу платформу...")
@@ -1120,6 +1209,8 @@ def main():
             track["youtube_url"] = yt["url"]
             track["youtube_status"] = "verified"
             track["youtube_src"] = yt.get("source", "YouTube")
+            track["duration_sec"] = yt.get("duration", 0)
+            track["youtube_views"] = yt.get("views", 0)
             print(f"  ✓ {yt.get('source', 'YouTube')}: {yt['title'][:55]}")
 
             # Beatport search если BPM/Key всё ещё неизвестны
@@ -1161,13 +1252,7 @@ def main():
         final = verified[:args.count]
     else:
         print("\n═══ ШАГ 5: Апрув плейлиста ═══")
-        print(f"{'─'*55}")
-        for i, t in enumerate(verified, 1):
-            print(
-                f"  {i:2}. {t['artist']} — {t['track']}"
-                f"  [{t['bpm'] or '?'} BPM, {t['camelot'] or '?'}]"
-                f"  score={t['support_score']}"
-            )
+        print(format_approval_table(verified, args.camelot))
         print(f"{'─'*55}")
         print("Введи номера треков для УДАЛЕНИЯ через пробел (или Enter для принятия всего):")
 

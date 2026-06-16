@@ -131,3 +131,66 @@ class TestMergeProvenance:
         assert set(kept["found_in"]) == {"Discogs", "Beatport"}
         assert kept["bpm"] == 124 and kept["bpm_src"] == "Beatport"
         assert kept["country"] == "FR" and kept["country_src"] == "Discogs"
+
+
+# ── P3: approval table formatting ──────────────────────────────────────────
+
+class TestFormatting:
+    def test_fmt_duration(self):
+        assert ct.fmt_duration(372) == "6:12"
+        assert ct.fmt_duration(60) == "1:00"
+        assert ct.fmt_duration(0) == "?"
+
+    def test_fmt_views(self):
+        assert ct.fmt_views(1_200_000) == "1.2M"
+        assert ct.fmt_views(12_000) == "12K"
+        assert ct.fmt_views(850) == "850"
+        assert ct.fmt_views(0) == "—"
+
+    def test_fmt_field_with_src(self):
+        t = {"bpm": 124, "bpm_src": "Beatport"}
+        assert ct.fmt_field(t, "bpm", " BPM") == "124 BPM (Beatport)"
+
+    def test_fmt_field_empty(self):
+        assert ct.fmt_field({}, "camelot") == "?"
+
+    def test_fmt_field_no_src(self):
+        assert ct.fmt_field({"bpm": 124}, "bpm", " BPM") == "124 BPM"
+
+
+class TestApprovalTable:
+    def _track(self):
+        return {
+            "artist": "Daft Punk", "track": "One More Time",
+            "bpm": 123, "bpm_src": "Beatport",
+            "camelot": "7A", "camelot_src": "Tunebat",
+            "country": "FR", "country_src": "Discogs",
+            "style": "French House",
+            "duration_sec": 320, "youtube_views": 1_200_000,
+            "youtube_url": "https://youtu.be/abc", "youtube_status": "verified",
+        }
+
+    def test_contains_link_and_sources(self):
+        out = ct.format_approval_table([self._track()], target_camelot="7A")
+        assert "https://youtu.be/abc" in out      # ссылка
+        assert "(Beatport)" in out                # провенанс BPM
+        assert "(Tunebat)" in out                 # провенанс Key
+        assert "(Discogs)" in out                 # провенанс страны
+        assert "5:20" in out                      # длительность
+        assert "1.2M" in out                      # просмотры
+        assert "French House" in out              # стиль
+        assert "verified" in out
+
+    def test_key_relation_shown(self):
+        out = ct.format_approval_table([self._track()], target_camelot="7A")
+        assert "=" in out                         # 7A vs 7A → exact
+
+    def test_summary_line(self):
+        out = ct.format_approval_table([self._track()])
+        assert "1 треков" in out
+        assert "BPM 123–123" in out
+
+    def test_unknown_fields_render_placeholder(self):
+        t = {"artist": "A", "track": "T"}
+        out = ct.format_approval_table([t])
+        assert "?" in out                         # пустые поля → '?'
