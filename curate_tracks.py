@@ -171,6 +171,87 @@ SEARCH_PLATFORMS = [
 ]
 
 
+# ─── Провенанс источников (P1) ───────────────────────────────────────────────
+# Каждое обогащаемое поле (bpm/camelot/country) несёт спутник {field}_src с
+# именем источника. set_field уважает приоритет: данные из более авторитетного
+# источника могут перезаписать менее авторитетные, но не наоборот. Это позволяет
+# таблице апрува (P3) и итоговому JSON честно показывать «откуда инфа».
+
+SOURCE_PRIORITY = {
+    "user":           100,   # ручная правка — высший приоритет
+    "Beatport":        50,
+    "Tunebat":         50,
+    "MusicBrainz":     40,
+    "Discogs":         40,
+    "1001Tracklists":  30,
+    "Bandcamp":        30,
+    "YouTube-desc":    20,
+    "":                 0,   # нет источника
+}
+
+# Поля, для которых ведётся провенанс {field} + {field}_src
+PROV_FIELDS = ("bpm", "camelot", "country")
+
+
+def _src_priority(src: str) -> int:
+    """Приоритет источника; неизвестный источник получает средний вес 10."""
+    return SOURCE_PRIORITY.get(src, 10)
+
+
+def _is_empty(value) -> bool:
+    """0 / '' / None трактуются как «нет значения»."""
+    return value is None or value == "" or value == 0
+
+
+def set_field(track: dict, field: str, value, src: str) -> None:
+    """
+    Записать track[field]=value и track[field+'_src']=src с учётом приоритета.
+    Пустые значения (0/''/None) игнорируются. Перезапись только если новый
+    источник строго авторитетнее текущего (при равенстве — побеждает первый).
+    """
+    if _is_empty(value):
+        return
+    cur     = track.get(field)
+    cur_src = track.get(f"{field}_src", "")
+    if _is_empty(cur) or _src_priority(src) > _src_priority(cur_src):
+        track[field] = value
+        track[f"{field}_src"] = src
+
+
+def tag_src(tracks: list[dict], src: str) -> list[dict]:
+    """
+    Проштамповать провенанс для полей, которые уже заполнил фетчер источника, и
+    записать источник в found_in («каждый источник, где трек обнаружен»).
+    Возвращает тот же список — удобно для цепочек: raw_pool += tag_src(fetch(), "X").
+    """
+    for t in tracks:
+        fi = t.setdefault("found_in", [])
+        if src not in fi:
+            fi.append(src)
+        for f in PROV_FIELDS:
+            if not _is_empty(t.get(f)) and not t.get(f"{f}_src"):
+                t[f"{f}_src"] = src
+    return tracks
+
+
+def dedup_key(artist: str, track: str) -> str:
+    """Ключ дедупликации. P1: сырой lower-case (P2 заменит на normalize_text)."""
+    return f"{artist.lower().strip()}|{track.lower().strip()}"
+
+
+def merge_provenance(kept: dict, dup: dict) -> None:
+    """
+    Слить дубликат в оставшийся трек: объединить found_in и дозаполнить
+    провенанс-поля (с уважением приоритета источников).
+    """
+    for s in dup.get("found_in", []):
+        if s not in kept.setdefault("found_in", []):
+            kept["found_in"].append(s)
+    for f in PROV_FIELDS:
+        if not _is_empty(dup.get(f)):
+            set_field(kept, f, dup[f], dup.get(f"{f}_src", ""))
+
+
 def get_discogs_styles(genre: str) -> list[str]:
     """
     Получить Discogs-стили для жанра.
@@ -366,12 +447,14 @@ def fetch_discogs(
                         source_url = f"https://www.discogs.com{source_url}"
 
                     cat = "Local Underground" if (country or region) else "Mainstream"
+                    rel_country = item.get("country", "") or country or region or ""
 
                     all_tracks.append({
                         "artist":        artist,
                         "track":         track,
                         "bpm":           0,
                         "camelot":       "",
+                        "country":       rel_country,
                         "category":      cat,
                         "source_url":    source_url,
                         "youtube_url":   "",
@@ -893,28 +976,28 @@ def main():
     print("═══ ШАГ 1: Сбор пула ═══")
 
     print("─── 1001Tracklists (прокси) ───")
-    raw_pool = fetch_1001tracklists(args.genre, years)
+    raw_pool = tag_src(fetch_1001tracklists(args.genre, years), "1001Tracklists")
 
     print("─── Discogs API ───────────────")
-    raw_pool += fetch_discogs(
+    raw_pool += tag_src(fetch_discogs(
         args.genre, years,
         region=args.region, country=args.country,
         pool_factor=args.pool_factor, target_count=args.count
-    )
+    ), "Discogs")
 
     print("─── Beatport Charts ───────────")
-    raw_pool += fetch_beatport_charts(args.genre, years)
+    raw_pool += tag_src(fetch_beatport_charts(args.genre, years), "Beatport")
 
     print("─── Beatport Chart Tracks (BPM/Camelot) ───")
     bp_tracks = _run_playwright_scraper("beatport-tracks", args.genre)
     print(f"  Beatport треки: {len(bp_tracks)} шт (с BPM/Camelot)")
-    raw_pool += bp_tracks
+    raw_pool += tag_src(bp_tracks, "Beatport")
 
     if args.region or args.country:
         print(f"─── Bandcamp [{args.region or args.country}] ───")
-        raw_pool += fetch_bandcamp_underground(
+        raw_pool += tag_src(fetch_bandcamp_underground(
             args.genre, args.region or args.country
-        )
+        ), "Bandcamp")
 
     print(f"\n Пул: {len(raw_pool)} треков до фильтра\n")
 
@@ -923,14 +1006,16 @@ def main():
     # ════════════════════════════════════════════════════════════
     print("═══ ШАГ 2: Обогащение BPM/Camelot (Tunebat Playwright) ═══")
 
-    # Дедупликация пула перед обогащением
-    seen_dedup: set[str] = set()
+    # Дедупликация пула перед обогащением (со слиянием провенанса)
+    seen_dedup: dict[str, dict] = {}
     deduped = []
     for track in raw_pool:
-        dk = f"{track['artist'].lower()}|{track['track'].lower()}"
+        dk = dedup_key(track["artist"], track["track"])
         if dk not in seen_dedup:
-            seen_dedup.add(dk)
+            seen_dedup[dk] = track
             deduped.append(track)
+        else:
+            merge_provenance(seen_dedup[dk], track)
 
     # Выделяем треки, которым нужно обогащение
     need_enrich = [t for t in deduped if not t.get("bpm") or not t.get("camelot")]
@@ -952,16 +1037,18 @@ def main():
             # Собираем enriched_pool: треки с обогащёнными + те, у кого уже были данные
             enriched_by_key = {}
             for t in enriched_tracks:
-                dk = f"{t['artist'].lower()}|{t['track'].lower()}"
+                dk = dedup_key(t["artist"], t["track"])
                 enriched_by_key[dk] = t
 
             enriched_pool = []
             for t in deduped:
-                dk = f"{t['artist'].lower()}|{t['track'].lower()}"
+                dk = dedup_key(t["artist"], t["track"])
                 if dk in enriched_by_key:
-                    enriched_pool.append(enriched_by_key[dk])
-                else:
-                    enriched_pool.append(t)
+                    et = enriched_by_key[dk]
+                    # Дозаполнить BPM/Camelot из Tunebat, сохранив found_in/страну
+                    set_field(t, "bpm",     et.get("bpm"),     "Tunebat")
+                    set_field(t, "camelot", et.get("camelot"), "Tunebat")
+                enriched_pool.append(t)
 
         except ImportError as e:
             print(f"  Не удалось импортировать playwright_scraper: {e}")
@@ -1031,20 +1118,22 @@ def main():
                 print(f"  ✗ не найдено — пропуск")
                 continue
             track["youtube_url"] = yt["url"]
+            track["youtube_status"] = "verified"
+            track["youtube_src"] = yt.get("source", "YouTube")
             print(f"  ✓ {yt.get('source', 'YouTube')}: {yt['title'][:55]}")
 
             # Beatport search если BPM/Key всё ещё неизвестны
             if track["bpm"] == 0 or not track["camelot"]:
                 eb, ek, es = search_beatport_track(track["artist"], track["track"])
-                if eb: track["bpm"]     = eb; print(f"  ℹ Beatport BPM: {eb}")
-                if ek: track["camelot"] = ek; print(f"  ℹ Beatport Key: {ek}")
+                if eb: set_field(track, "bpm", eb, "Beatport"); print(f"  ℹ Beatport BPM: {eb}")
+                if ek: set_field(track, "camelot", ek, "Beatport"); print(f"  ℹ Beatport Key: {ek}")
                 if es and not track.get("style"): track["style"] = es
 
             # YouTube description как последний fallback
             if track["bpm"] == 0 or not track["camelot"]:
                 yb, yk = enrich_from_youtube_description(track["youtube_url"])
-                if yb: track["bpm"]     = yb; print(f"  ℹ YT desc BPM: {yb}")
-                if yk: track["camelot"] = yk; print(f"  ℹ YT desc Key: {yk}")
+                if yb: set_field(track, "bpm", yb, "YouTube-desc"); print(f"  ℹ YT desc BPM: {yb}")
+                if yk: set_field(track, "camelot", yk, "YouTube-desc"); print(f"  ℹ YT desc Key: {yk}")
 
         # style fallback
         if args.style and not track.get("style"):
