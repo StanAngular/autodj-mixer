@@ -1498,35 +1498,28 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
         blended_mid = m_mid * fo[:, None] + s_mid * fi[:, None]
         blended_high = m_high * fo[:, None] + s_high * fi[:, None]
 
-        # ── EQ Sweep Bass Swap — gradual HPF on master low, LPF on slave low ──
-        # Extend audio by 25% for filter pre-conditioning before audible part
-        num_sweep_steps = max(128, cf_bars * 4)  # ~4 steps per bar
-        pre_len = len(m_low) // 4  # ~25% = 7.5s at 30s transition
-        m_low_ext = np.concatenate([m_low[:pre_len], m_low])
-        s_low_ext = np.concatenate([s_low[:pre_len], s_low])
-        print(f"    EQ Sweep bass swap: {num_sweep_steps} steps on {pre_len}-sample pre-extended audio", flush=True)
-        m_low_swept_all = eq_sweep(m_low_ext, sr, filter_type='highpass',
-                                    start_freq=20, end_freq=150,
-                                    num_steps=num_sweep_steps)
-        s_low_swept_all = eq_sweep(s_low_ext, sr, filter_type='lowpass',
-                                    start_freq=150, end_freq=20,
-                                    num_steps=num_sweep_steps)
-        m_low_swept = m_low_swept_all[-len(m_low):]  # use tail (actual crossfade zone)
-        s_low_swept = s_low_swept_all[-len(s_low):]
-
-        blended_low = m_low_swept + s_low_swept
-
-        # ── Fast bass crossover: low band crossfade in 25% of transition ──
-        # After fast phase: master low = 0, slave low = 1
-        # Cuts band_cancellation by ~75% while keeping spectral transition smooth
-        n_fast = cf_len // 4  # 25% of transition
+        # ── Bass swap (low band): single constant-sum crossfade ──────────
+        # Bass is correlated, mono-ish content — you want exactly ONE kick at a
+        # time, never two overlapping. The previous version stacked a spectral
+        # EQ sweep (HPF on master, LPF on slave) ON TOP of this amplitude
+        # crossfade, which (a) attenuated the low band twice and (b) used a
+        # lowpass sweep 150→20Hz on the *incoming* slave that swept its own bass
+        # away by the end of the transition, leaving an audible bass hole that
+        # only snapped back when the raw track resumed. We now swap the raw LR4
+        # low bands with a single equal-amplitude (cos²/sin², sum = 1) curve so
+        # the combined low-end level stays flat and only one track owns the bass.
+        #
+        # Fast swap: bass fully handed to the slave within the first 25% of the
+        # transition (mids/highs keep crossfading over the full length).
+        n_fast = max(1, cf_len // 4)
         fast_fo = np.ones(cf_len, dtype=np.float32)
-        fast_fo[:n_fast] = np.cos(np.linspace(0, np.pi/2, n_fast))**2
+        fast_fo[:n_fast] = np.cos(np.linspace(0, np.pi / 2, n_fast)) ** 2
         fast_fo[n_fast:] = 0.0
         fast_fi = np.zeros(cf_len, dtype=np.float32)
-        fast_fi[:n_fast] = np.sin(np.linspace(0, np.pi/2, n_fast))**2
+        fast_fi[:n_fast] = np.sin(np.linspace(0, np.pi / 2, n_fast)) ** 2
         fast_fi[n_fast:] = 1.0
-        blended_low = m_low_swept * fast_fo[:, None] + s_low_swept * fast_fi[:, None]
+        print(f"    Bass swap: constant-sum crossfade over {n_fast/sr:.1f}s (25% of CF)", flush=True)
+        blended_low = m_low * fast_fo[:, None] + s_low * fast_fi[:, None]
 
         # ── Vocal Notch Sweep ───────────────────────────────────────────
         if vocal_clash:
