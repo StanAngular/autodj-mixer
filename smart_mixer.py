@@ -285,12 +285,17 @@ def find_crossover(audio_m, audio_s, sr=SR, default_low=150, default_high=3000):
 
 def three_band_split(audio, low_cut, high_cut, sr):
     """
-    Splits audio into Low, Mid, and High bands using sosfilt
-    and 4th-order Linkwitz-Riley crossovers (minimum-phase, no pre-ringing).
+    Split audio into Low / Mid / High using TRUE 4th-order Linkwitz-Riley
+    crossovers — two cascaded 2nd-order Butterworth sections per split
+    (-6 dB at fc, -24 dB/oct). Causal IIR (sosfilt) => no pre-ringing.
+    Mid is derived subtractively, so Low + Mid + High reconstructs the input
+    sample-exact regardless of crossover phase.
     """
     nyq = 0.5 * sr
-    sos_low = signal.butter(2, low_cut / nyq, btype='low', output='sos')
-    sos_high = signal.butter(2, high_cut / nyq, btype='high', output='sos')
+    # LR4 = Butterworth(2) applied twice. Stack the SOS sections so a single
+    # sosfilt pass realises the 4th-order cascade (-24 dB/oct, -6 dB at fc).
+    sos_low = np.vstack([signal.butter(2, low_cut / nyq, btype='low', output='sos')] * 2)
+    sos_high = np.vstack([signal.butter(2, high_cut / nyq, btype='high', output='sos')] * 2)
 
     low = np.zeros_like(audio, dtype=np.float32)
     high = np.zeros_like(audio, dtype=np.float32)
@@ -370,30 +375,40 @@ def calc_bpm(db, sr=SR):
     return 4 * 60.0 / np.mean(ok) if len(ok) else 120.0
 
 
-def fix_ht(db, bpm):
-    """
-    Fix half-time (or double-time) BPM detection by checking beat-to-beat
-    distance ratios against expected 4-beat-bar spacing.
-    """
-    if len(db) < 8:
-        return db, bpm
-    ns = int(db[8]) - int(db[4])
-    if ns <= 0:
-        return db, bpm
-    ratio = ns / max(int(bar_s(bpm) * SR / 4), 1)
+def _grid_densify(db):
+    """Insert a downbeat at the midpoint of every bar (doubles grid density)."""
+    if len(db) < 2:
+        return db
+    dl = []
+    for i in range(len(db) - 1):
+        dl.append(int(db[i]))
+        dl.append((int(db[i]) + int(db[i + 1])) // 2)
+    dl.append(int(db[-1]))
+    return np.array(dl, dtype=int)
 
-    if 1.9 < ratio < 2.1:
-        # Half-time detected: skip every other downbeat to go from 1 every 2 beats → 1 per beat
+
+def fix_ht(db, bpm, bpm_min=85.0, bpm_max=165.0):
+    """
+    Correct half-time / double-time tempo detection.
+
+    `db` holds one downbeat per bar, so `bpm` and calc_bpm(db) are derived from
+    the SAME grid and are self-consistent — a half/double error is invisible from
+    the grid alone (the old beat-spacing ratio could never fire). Instead we test
+    the tempo against a plausible dance-music window and rescale the downbeat grid
+    and the BPM together, so db and bpm stay coherent (the warp engine relies on
+    them agreeing).
+
+    bpm_min/bpm_max define the expected tempo window; tune per genre if needed.
+    """
+    if len(db) < 4:
+        return db, bpm
+
+    # Half-time (tempo too slow): densify grid -> doubles BPM
+    if bpm < bpm_min and bpm * 2 <= bpm_max * 1.05:
+        db = _grid_densify(db)
+    # Double-time (tempo too fast): thin grid -> halves BPM
+    elif bpm > bpm_max and bpm / 2 >= bpm_min * 0.95:
         db = db[::2]
-    elif 2.9 < ratio < 3.1:
-        # Third-time detected
-        db = db[::3]
-    elif 0.45 < ratio < 0.55:
-        # Double-time detected: insert a downbeat midway between each pair
-        dl = []
-        for d in db:
-            dl.extend([d, d + (db[1] - db[0]) // 2])
-        db = np.array(dl, dtype=int)
 
     return db, calc_bpm(db)
 
@@ -1596,10 +1611,18 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                 a1f_bpm = a1f_data.get('bpm')
                 if a1f_bpm:
                     old_bpm = bpm
-                    bpm = float(a1f_bpm)
-                    # Recompute downbeats to match corrected BPM
-                    db, bpm = fix_ht(db, bpm)
-                    print(f"    ↳ A1F BPM source of truth: {bpm:.1f} (madmom was {old_bpm:.1f})")
+                    a1f_bpm = float(a1f_bpm)
+                    # A1F is an external tempo reference: use it to fix a half/double
+                    # error in the madmom grid, then keep bpm tied to the (rescaled)
+                    # grid so warp math stays coherent. (The old code reassigned bpm
+                    # then immediately discarded it inside fix_ht.)
+                    ratio = a1f_bpm / max(bpm, 1e-6)
+                    if 1.8 < ratio < 2.2:
+                        db = _grid_densify(db)
+                    elif 0.45 < ratio < 0.55:
+                        db = db[::2]
+                    bpm = calc_bpm(db)
+                    print(f"    ↳ A1F BPM cross-check: {bpm:.1f} (A1F {a1f_bpm:.1f}, madmom {old_bpm:.1f})")
             except (IOError, json.JSONDecodeError):
                 pass
 
@@ -1642,9 +1665,15 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                     a1f_bpm = float(a1f_data['bpm'])
                     if abs(a1f_bpm - bpm) / max(bpm, 1) > 0.03:
                         old_bpm = bpm
-                        bpm = a1f_bpm
-                        db, bpm = fix_ht(db, bpm)
-                        print(f"    ↳ A1F BPM cross-validated: {bpm:.1f} (madmom was {old_bpm:.1f})")
+                        # Only rescale the grid for genuine half/double errors;
+                        # otherwise leave the madmom grid untouched (never override).
+                        ratio = a1f_bpm / max(bpm, 1e-6)
+                        if 1.8 < ratio < 2.2:
+                            db = _grid_densify(db)
+                        elif 0.45 < ratio < 0.55:
+                            db = db[::2]
+                        bpm = calc_bpm(db)
+                        print(f"    ↳ A1F BPM cross-validated: {bpm:.1f} (A1F {a1f_bpm:.1f}, madmom {old_bpm:.1f})")
 
                 # A1F bar_labels — load for transition params only (NOT for exit selection)
                 a1f_bar_labels = a1f_data.get('bar_labels')

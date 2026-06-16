@@ -10,6 +10,22 @@
 - `[pipeline]` — run_pipeline, config, scripts
 - `[infra]` — структура репозитория, пути, permissions
 
+## v16.8 — 2026-06-16 [Opus 4.7 → Agent] [fix_ht][mixer] Три багфикса: fix_ht, A1F BPM override, LR4
+
+### [fix_ht] — Полная переписка fix_ht
+  • **Старая ratio-логика мёртва** — ratio ≈ 16 всегда, half/double-time не детектились.
+  • **Новая логика:** сравнение с окном 85–165 BPM + `_grid_densify()` для half-time, прореживание для double-time.
+  • **NEW: `_grid_densify()`** — хелпер, вставляет даунбит в середину каждого бара (удвоение плотности сетки).
+
+### [mixer] — A1F BPM source of truth больше не затирается
+  • **Баг:** `bpm = float(a1f_bpm)` тут же перезаписывался внутри `fix_ht()` → `calc_bpm(db)`.
+  • **Фикс:** A1F — внешний референс для half/double коррекции сетки, bpm остаётся согласован с пересобранной сеткой.
+
+### [mixer] — Настоящий LR4 в three_band_split
+  • **Баг:** `butter(2)` одним проходом = −3 dB на срезе, −12 dB/окт (Butterworth 2nd order, не LR4).
+  • **Фикс:** каскад `np.vstack([butter(2)]*2)` → честный −6 dB на срезе, −24 dB/окт.
+  • Бас-бэнд теперь реально изолирован, меньше протечки кика в мид.
+
 ## v16.7g — 2026-06-13 [Hermes] [pipeline] Pipeline enforcement: pre-flight + post-mix hook + memory + SKILL rules
 
 ### [pipeline] — Pre-flight скрипт (run_preflight.py)
