@@ -499,3 +499,34 @@ export SOCKS5_PROXY='socks5://127.0.0.1:40000'
 xvfb-run --auto-servernum uv run python3 curate_tracks.py \
   --genre "techno" --bpm 140 --camelot 8A --count 3 --no-verify --no-approve
 ```
+
+---
+
+## 🧠 Critical lessons (Opus 4.7 audit, 2026-06-16)
+
+### Data model — Variant A (CANONICAL, do not drift)
+- `db` = **one downbeat per bar** (что даёт `load_dbeats` — только beat-position 1)
+- `calc_bpm()` = `240 / bar_seconds` — считает по **тактам**, не по битам
+- `fix_ht()` = **half/double correction only** (окно 85–165 BPM, конфигурируется)
+- **Инвариант:** `db` и `bpm` всегда согласованы. Внешний BPM (A1F) → пересобрать сетку, а не присвоить поверх старой (warp использует оба)
+
+### Tests are the spec
+- Если код и тесты расходятся — **STOP, спросить человека**. Не переписывать код под тесты и не переписывать тесты под код молча
+- `pytest tests/unit` **перед каждым пушем** — CI был красным долгое время
+- Верифицировать DSP **численно** (RMS, АЧХ), а не по докстрингам — docstring может врать
+
+### Real bugs found in smart_mixer.py (all fixed)
+
+| # | Баг | Чем был | Фикс |
+|---|-----|---------|------|
+| 1 | **fix_ht ratio dead** | ratio делил 4 бара на 1 бит → ≈16 всегда, триггеры не срабатывали | Сравнение с окном 85–165 BPM + `_grid_densify()` |
+| 2 | **A1F BPM затирался** | `bpm = float(a1f_bpm)` → fix_ht() → `calc_bpm(db)` игнорировал присвоение | A1F = референс для rescale сетки |
+| 3 | **LR4 — не LR4** | `butter(2)` одним проходом = −3 dB/−12 dB/oct | Каскад `butter(2)×2` = честный −6 dB/−24 dB/oct |
+| 4 | **Bass-дыра в build_cf_lr4** | eq_sweep LPF 150→20 Гц на слейве + fast_fo/fast_fi → двойное ослабление + провал низа ~96% к концу перехода | Убран eq_sweep на низах, только constant-sum cos²/sin² на сырых LR4 |
+| 5 | **eq_sweep dead module** | eq_sweep, _sweep_channel, _shelf_coeffs нигде не вызывались после фикса #4 | Все три удалены (−108 строк) |
+
+### Workflow rules
+- `git apply --check <patch>` **перед** применением любого патча
+- `git log origin/main` — проверить что пуш лёг
+- Не выдумывать commit hashes/specs — ссылаться только на то, что показывает `git log` / `git grep`
+- Один concern на коммит
