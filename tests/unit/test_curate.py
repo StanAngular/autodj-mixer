@@ -257,3 +257,23 @@ class TestPlaylistUrl:
         tracks = [{"artist": "A", "track": "T", "youtube_url": "https://youtu.be/eeeeeeeeeee"}]
         out = ct.format_approval_table(tracks)
         assert "watch_videos?video_ids=eeeeeeeeeee" in out
+
+
+# ── Wiring: PulseRoots resolver tier in get_discogs_styles ─────────────────
+
+class TestGetDiscogsStyles:
+    def test_exact_static_map_wins(self):
+        # Ручная таблица имеет приоритет над резолвером
+        assert ct.get_discogs_styles("deep house") == ct.DISCOGS_STYLE_MAP["deep house"]
+
+    def test_pulseroots_tier_for_unmapped(self):
+        # 'filter house' нет в статической таблице, но точно есть в PulseRoots
+        styles = ct.get_discogs_styles("filter house")
+        assert styles[0] == "Filter House"
+        assert len(styles) > 1            # + смежные стили
+
+    def test_fallthrough_to_as_is(self, monkeypatch):
+        # Не в таблице, слабый матч PulseRoots, нет LLM-ключа → жанр как есть
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        styles = ct.get_discogs_styles("zzqq nonexistent style")
+        assert styles == ["Zzqq Nonexistent Style"]

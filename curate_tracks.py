@@ -388,13 +388,27 @@ def format_approval_table(tracks: list[dict], target_camelot: str = "") -> str:
 def get_discogs_styles(genre: str) -> list[str]:
     """
     Получить Discogs-стили для жанра.
-    Порядок: статическая таблица → LLM fallback через OpenRouter.
+    Порядок: точная таблица → PulseRoots-резолвер (офлайн) → частичная таблица
+    → LLM fallback (OpenRouter) → жанр как есть.
     """
     normalized = genre.lower().strip()
 
-    # 1. Точное совпадение
+    # 1. Точное совпадение со статической таблицей (ручная — побеждает всё)
     if normalized in DISCOGS_STYLE_MAP:
         return DISCOGS_STYLE_MAP[normalized]
+
+    # 1.5. PulseRoots-резолвер (офлайн, детерминированный): уверенный матч (≥0.8)
+    #      даёт канонический стиль + смежные — точнее грубого substring ниже и
+    #      без сети. Слабый матч пропускаем дальше по цепочке.
+    try:
+        import style_resolver
+        r = style_resolver.resolve(genre, threshold=0.8)
+        if r["matched"]:
+            styles = [r["style"]] + style_resolver.similar_styles(genre)[:3]
+            print(f"  Жанр '{genre}' → PulseRoots: {styles} (score={r['score']})")
+            return styles
+    except Exception as e:
+        print(f"  PulseRoots resolver недоступен: {e}")
 
     # 2. Частичное совпадение
     for key, styles in DISCOGS_STYLE_MAP.items():
