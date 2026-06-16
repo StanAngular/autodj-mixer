@@ -34,7 +34,7 @@ HUMAN_DELAY_MIN = 800
 HUMAN_DELAY_MAX = 2500
 PAGE_LOAD_TIMEOUT = 45000
 NAVIGATION_WAIT = "domcontentloaded"
-MAX_RETRIES = 1  # >1 вызывает Playwright async error при пересоздании браузера
+MAX_RETRIES = int(os.environ.get("SCRAPER_MAX_RETRIES", "3"))  # свежий браузер + ротация IP на каждую попытку
 RETRY_BASE_DELAY = 2.0
 XVFB_AVAILABLE = os.system("which xvfb-run >/dev/null 2>&1") == 0
 
@@ -186,22 +186,64 @@ def safe_goto(page, url: str) -> bool:
         return False
 
 
-def page_is_blocked(page) -> Optional[str]:
-    html = page.content()[:2000].lower()
-    title = page.title().lower()
-    if "just a moment" in html:
-        return "cloudflare"
-    if "cf-browser-verification" in html:
-        return "cloudflare_verify"
-    if "access denied" in html or "access denied" in title:
-        return "access_denied"
-    if "geo.captcha-delivery.com" in html:
-        return "datadome"
-    if "403" in title:
+_BLOCK_SIGNATURES = [
+    ("just a moment",            "cloudflare"),
+    ("checking your browser",    "cloudflare"),
+    ("cf-browser-verification",  "cloudflare_verify"),
+    ("verify you are human",     "cloudflare_challenge"),
+    ("geo.captcha-delivery.com", "datadome"),
+    ("unusual traffic",          "google_ratelimit"),
+    ("/recaptcha/",              "recaptcha"),
+    ("hcaptcha.com",             "hcaptcha"),
+    ("access denied",            "access_denied"),
+]
+
+
+def detect_block(html: str, title: str = "") -> Optional[str]:
+    """
+    Определить тип антибот-блокировки по HTML/заголовку. Чистая функция (тестируема).
+    Возвращает строку-тип или None если блокировки не обнаружено.
+    """
+    h = (html or "").lower()
+    t = (title or "").lower()
+    for sig, kind in _BLOCK_SIGNATURES:
+        if sig in h or sig in t:
+            return kind
+    if "403" in t:
         return "http_403"
-    if "404" in title and "error" in title:
+    if "404" in t and "error" in t:
         return "http_404"
     return None
+
+
+def page_is_blocked(page) -> Optional[str]:
+    return detect_block(page.content()[:4000], page.title())
+
+
+def rotate_ip() -> bool:
+    """
+    Сменить IP перед повторной попыткой после блокировки.
+    Residential-прокси с ротацией меняет IP сам на новом соединении (новый
+    браузер) — тогда просто пауза. Иначе пробуем Cloudflare Warp reconnect.
+    Defensive: при отсутствии warp-cli просто ждёт. Возвращает True, если смена
+    IP реально предпринята.
+    """
+    import subprocess
+    if os.environ.get("RESIDENTIAL_PROXY"):
+        log("Ротация IP: residential proxy сменит IP на новом соединении")
+        time.sleep(RETRY_BASE_DELAY)
+        return True
+    try:
+        subprocess.run(["warp-cli", "disconnect"], capture_output=True, timeout=10)
+        time.sleep(1.5)
+        subprocess.run(["warp-cli", "connect"], capture_output=True, timeout=10)
+        time.sleep(2.0)
+        log("Ротация IP: Warp переподключён")
+        return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        log("Ротация IP недоступна (нет warp-cli) — пауза")
+        time.sleep(RETRY_BASE_DELAY)
+        return False
 
 
 def retry_scrape(url: str, scrape_fn, max_retries: int = MAX_RETRIES) -> ScraperResult:
@@ -211,34 +253,38 @@ def retry_scrape(url: str, scrape_fn, max_retries: int = MAX_RETRIES) -> Scraper
         try:
             pw, browser, page = launch_browser(headless=False)
             log(f"Попытка {attempt + 1}/{max_retries}: {url}")
-            
+
             if not safe_goto(page, url):
                 close_browser(pw, browser)
+                if attempt < max_retries - 1:
+                    rotate_ip()
+                    time.sleep(RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1))
                 continue
-            
+
             block = page_is_blocked(page)
             if block:
                 log(f"БЛОКИРОВКА: {block}")
                 close_browser(pw, browser)
-                delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1)
-                time.sleep(delay)
+                if attempt < max_retries - 1:
+                    rotate_ip()
+                    time.sleep(RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1))
                 continue
-            
+
             result = scrape_fn(page, url)
             result.success = True
             result.page_url = page.url
             result.page_title = page.title()
-            
+
             close_browser(pw, browser)
             return result
-            
+
         except Exception as e:
             log(f"Ошибка: {e}")
             close_browser(pw, browser)
             if attempt < max_retries - 1:
-                delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1)
-                time.sleep(delay)
-    
+                rotate_ip()
+                time.sleep(RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1))
+
     return ScraperResult(error=f"Все {max_retries} попыток исчерпаны")
 
 
