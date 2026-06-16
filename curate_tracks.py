@@ -385,6 +385,36 @@ def format_approval_table(tracks: list[dict], target_camelot: str = "") -> str:
     return "\n".join(lines)
 
 
+# ─── Режимы discovery: ранжирование пула (B4) ────────────────────────────────
+
+def _meta_known(t: dict) -> int:
+    """1 если у трека известны и BPM, и Camelot — такие всегда ранжируются выше."""
+    return 1 if (t.get("bpm") and t.get("camelot")) else 0
+
+
+def discovery_rank(tracks: list[dict], mode: str = "popular") -> list[dict]:
+    """
+    Отсортировать пул под режим запроса. Чистая функция (тестируема офлайн).
+      popular     — популярное/чартовое сверху (support_score, затем просмотры)
+      newest      — свежие релизы сверху (year), затем популярность
+      underground — наименее популярное / Bandcamp сверху (низкий support/просмотры)
+    Во всех режимах треки с полными метаданными (BPM+Camelot) идут выше прочих.
+    """
+    def is_bandcamp(t):
+        return 1 if "Bandcamp" in (t.get("found_in") or []) else 0
+
+    if mode == "newest":
+        key = lambda t: (_meta_known(t), t.get("year", 0), t.get("support_score", 0))
+    elif mode == "underground":
+        key = lambda t: (_meta_known(t), is_bandcamp(t),
+                         -t.get("support_score", 0), -t.get("youtube_views", 0))
+    else:  # popular (по умолчанию)
+        key = lambda t: (_meta_known(t), t.get("support_score", 0),
+                         t.get("youtube_views", 0))
+
+    return sorted(tracks, key=key, reverse=True)
+
+
 def get_discogs_styles(genre: str) -> list[str]:
     """
     Получить Discogs-стили для жанра.
@@ -607,6 +637,7 @@ def fetch_discogs(
                         "youtube_url":   "",
                         "energy_markers": styles_raw[:3],
                         "support_score": min(want, 999),
+                        "year":          item_year,
                         "reason": (
                             f"Discogs {style} {item_year}; "
                             f"want={want} have={have}"
@@ -1075,6 +1106,9 @@ def main():
     parser.add_argument("--urls-out", default="")
     parser.add_argument("--style",    default="")
     parser.add_argument("--bpm-tolerance", type=int, default=4)
+    parser.add_argument("--discovery", choices=["popular", "newest", "underground"],
+                        default="popular",
+                        help="режим отбора: популярное / новинки / андеграунд")
     parser.add_argument("--pool-factor",   type=int, default=3,
                         help="Собрать pool_factor×count кандидатов перед фильтром")
     parser.add_argument("--no-verify", action="store_true")
@@ -1227,13 +1261,7 @@ def main():
             continue
         filtered.append(track)
 
-    filtered.sort(
-        key=lambda t: (
-            bool(t["bpm"] and t["camelot"]),
-            t["support_score"]
-        ),
-        reverse=True
-    )
+    filtered = discovery_rank(filtered, args.discovery)
 
     print(f" После фильтра: {len(filtered)} треков")
 

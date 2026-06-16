@@ -277,3 +277,38 @@ class TestGetDiscogsStyles:
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         styles = ct.get_discogs_styles("zzqq nonexistent style")
         assert styles == ["Zzqq Nonexistent Style"]
+
+
+# ── B4: discovery ranking modes ────────────────────────────────────────────
+
+class TestDiscoveryRank:
+    def _pool(self):
+        return [
+            {"artist": "A", "track": "1", "bpm": 124, "camelot": "8A",
+             "support_score": 900, "youtube_views": 50000, "year": 2024, "found_in": ["Discogs"]},
+            {"artist": "B", "track": "2", "bpm": 120, "camelot": "7A",
+             "support_score": 10, "youtube_views": 2000, "year": 2026, "found_in": ["Bandcamp"]},
+            {"artist": "C", "track": "3", "bpm": 0, "camelot": "",
+             "support_score": 999, "youtube_views": 9999999, "year": 2025, "found_in": ["Beatport"]},
+        ]
+
+    def test_popular_high_support_first(self):
+        out = ct.discovery_rank(self._pool(), "popular")
+        assert out[0]["artist"] == "A"        # highest support among meta-known
+        assert out[-1]["artist"] == "C"       # no metadata → last
+
+    def test_underground_low_support_bandcamp_first(self):
+        out = ct.discovery_rank(self._pool(), "underground")
+        assert out[0]["artist"] == "B"        # bandcamp + low popularity, meta known
+
+    def test_newest_year_first(self):
+        out = ct.discovery_rank(self._pool(), "newest")
+        assert out[0]["artist"] == "B"        # 2026, meta known
+
+    def test_unknown_mode_defaults_popular(self):
+        assert ct.discovery_rank(self._pool(), "whatever")[0]["artist"] == "A"
+
+    def test_meta_known_always_above_unknown(self):
+        for mode in ("popular", "newest", "underground"):
+            out = ct.discovery_rank(self._pool(), mode)
+            assert out[-1]["artist"] == "C"   # C has no bpm/camelot → always last
