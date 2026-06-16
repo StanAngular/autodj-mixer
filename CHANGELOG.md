@@ -10,6 +10,12 @@
 - `[pipeline]` — run_pipeline, config, scripts
 - `[infra]` — структура репозитория, пути, permissions
 
+## v16.10 — 2026-06-16 [Opus 4.7 → Agent] [mixer] Удалён мёртвый EQ Sweep Module (eq_sweep, _sweep_channel, _shelf_coeffs)
+
+### [mixer] — Cleanup: удалена неиспользуемая цепочка eq_sweep
+  • `eq_sweep()`, `_sweep_channel()`, `_shelf_coeffs()` — удалены. После фикса bass swap (v16.9) eq_sweep нигде не вызывается, внешних импортов нет.
+  • Vocal notch тракт (`vocal_notch_sweep`) не затронут.
+
 ## v16.9 — 2026-06-16 [Opus 4.7 → Agent] [mixer] Bass-дыра в build_cf_lr4: убран eq_sweep на низкой полосе
 
 ### [mixer] — Bass swap fix: двойное ослабление + бас-дыра в конце перехода
