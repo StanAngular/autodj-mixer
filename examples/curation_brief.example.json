@@ -1,0 +1,17 @@
+{
+  "title": "Eurasia → America: ambient to hardtrance",
+  "years": [2025, 2026],
+  "duration_minutes": [60, 80],
+  "trajectory": { "bpm": "ramp", "key": "harmonic_walk", "energy": "rising" },
+  "segments": [
+    { "name": "intro-eurasia", "styles": ["Ambient", "Downtempo"], "similar_styles": true,
+      "countries": ["RU", "KZ", "CN"], "bpm_range": [70, 90],
+      "discovery": "underground", "count": 3 },
+    { "name": "build", "styles": ["Progressive House"],
+      "countries": ["DE"], "bpm_range": [115, 125],
+      "discovery": "popular", "count": 5 },
+    { "name": "peak-america", "styles": ["Hard Trance"],
+      "countries": ["US"], "bpm_range": [150, 170],
+      "discovery": "newest", "count": 4 }
+  ]
+}
