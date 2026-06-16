@@ -105,13 +105,13 @@ def tmp_ann_dir(tmp_path):
 
 @pytest.fixture
 def downbeats_120bpm():
-    """Beat positions (sample indices) for 120 BPM beats (0.5s intervals).
+    """Downbeat positions (sample indices) for a 120 BPM track.
 
-    fix_ht works with beat-level annotations as produced by madmom.
-    At 120 BPM: beat interval = 0.5s, which is in the valid BEAT range (0.25-1.0s).
+    Variant A: db holds ONE downbeat per bar (as load_dbeats produces).
+    At 120 BPM a bar = 4 beats = 2.0s, so downbeats are 2.0s apart.
     """
-    beat_samples = int(60.0 / 120.0 * SR)  # 0.5s × 44100 = 22050
-    return np.array([i * beat_samples for i in range(65)], dtype=int)  # ~32 bars
+    bar_samples = int(240.0 / 120.0 * SR)  # 2.0s × 44100 = 88200
+    return np.array([i * bar_samples for i in range(33)], dtype=int)  # ~32 bars
 
 
 @pytest.fixture
