@@ -16,3 +16,4 @@ tracks/
 shared/ann/*.txt
 shared/tracks/*.wav
 shared/tracks/*.webm
+data/enrich_cache.json

@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Optional
 
 import curation_config
+import enrich_cache
 
 # Auto-load .env если есть
 try:
@@ -1260,26 +1261,38 @@ def select_enrich_candidates(deduped: list[dict], discovery: str = "popular",
 def enrich_pool(deduped: list[dict], seg: dict | None = None,
                 limit: int | None = None) -> list[dict]:
     """
-    Шаг 2: обогащение BPM/Camelot через Tunebat (Playwright). In-place set_field.
-    Обогащаются только топ-`limit` кандидатов (ранжированных под discovery
-    сегмента), а не весь пул — иначе Tunebat упирается в таймаут на больших пулах.
+    Шаг 2: обогащение BPM/Camelot. Сначала дисковый кэш (мгновенно), затем Tunebat
+    только для остатка (топ-`limit` под discovery). Новые результаты кэшируются.
     """
     discovery = (seg or {}).get("discovery", "popular")
-    total_need = sum(1 for t in deduped if not t.get("bpm") or not t.get("camelot"))
-    need = select_enrich_candidates(deduped, discovery, limit)
-
-    if not need:
+    incomplete = [t for t in deduped if not t.get("bpm") or not t.get("camelot")]
+    if not incomplete:
         print("  Все треки уже имеют BPM/Camelot — пропуск")
         return deduped
-    # Старый предохранитель работает только без явного лимита
+
+    # 1. Кэш обогащения — дозаполняем без Tunebat
+    cache = enrich_cache.load_cache()
+    hits, misses = enrich_cache.split_by_cache(incomplete, cache)
+    for t, bpm, cam in hits:
+        set_field(t, "bpm",     bpm, "cache")
+        set_field(t, "camelot", cam, "cache")
+    if hits:
+        print(f"  Кэш: {len(hits)} попаданий (без Tunebat)")
+
+    # 2. Остаток без метаданных → ранжируем под discovery и берём топ-limit
+    need = select_enrich_candidates(misses, discovery, limit)
+
+    if not need:
+        print("  Остаток покрыт кэшем — Tunebat пропущен")
+        return deduped
     if limit is None and len(deduped) > TUNEBAT_MAX_POOL:
         print(f"  Пул {len(deduped)} > {TUNEBAT_MAX_POOL} → Tunebat пропущен")
         return deduped
 
-    if len(need) < total_need:
-        print(f"  Обогащаю топ-{len(need)} из {total_need} кандидатов (discovery={discovery})")
+    if len(need) < len(misses):
+        print(f"  Обогащаю топ-{len(need)} из {len(misses)} (после кэша, discovery={discovery})")
     else:
-        print(f"  Нуждаются в обогащении: {len(need)}/{len(deduped)} треков")
+        print(f"  Обогащаю {len(need)} (после кэша)")
 
     try:
         from playwright_scraper import enrich_tracks_via_tunebat
@@ -1290,6 +1303,14 @@ def enrich_pool(deduped: list[dict], seg: dict | None = None,
             if et:
                 set_field(t, "bpm",     et.get("bpm"),     "Tunebat")
                 set_field(t, "camelot", et.get("camelot"), "Tunebat")
+        # 3. Новые полные результаты → в кэш
+        stored = 0
+        for t in deduped:
+            if enrich_cache.cache_put(cache, t["artist"], t["track"],
+                                      t.get("bpm"), t.get("camelot")):
+                stored += 1
+        if enrich_cache.save_cache(cache):
+            print(f"  Кэш обновлён: {stored} записей всего")
     except ImportError as e:
         print(f"  playwright_scraper недоступен: {e} → пропуск Tunebat")
     except Exception as e:
