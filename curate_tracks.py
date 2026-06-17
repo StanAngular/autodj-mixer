@@ -531,6 +531,69 @@ def trajectory_summary(tracks: list[dict]) -> str:
     return line
 
 
+# ─── Умный селектор: count лучших на сегмент (якоря + гармония) ───────────────
+
+def select_segment_tracks(candidates: list[dict], count: int,
+                          speed: str = "thorough") -> list[dict]:
+    """
+    Выбрать count лучших треков сегмента. Чистая, детерминированная функция.
+      fast     — просто топ-count по текущему ранжированию (discovery).
+      thorough — топ-якоря по популярности (≈половина слотов) + остальное
+                 добираем по гармонической совместимости с уже выбранными.
+    Прозрачно и без глобального оптимизатора: якоря фиксированы, добор жадный.
+    """
+    if count <= 0:
+        return []
+    if len(candidates) <= count:
+        return list(candidates)
+    if speed == "fast":
+        return candidates[:count]
+
+    n_anchor = max(1, (count + 1) // 2)        # ceil(count/2) под якоря
+    selected = candidates[:n_anchor]
+    pool = candidates[n_anchor:]
+
+    rel_score = {"exact match": 3, "wheel neighbour": 2,
+                 "major/minor swap": 2, "diagonal energy boost": 1}
+
+    while len(selected) < count and pool:
+        last = next((t["camelot"] for t in reversed(selected) if t.get("camelot")), "")
+
+        def score(t):
+            if last and t.get("camelot"):
+                try:
+                    return rel_score.get(camelot_relation(last, t["camelot"]), 0)
+                except Exception:
+                    return 0
+            return 0
+
+        pool.sort(key=score, reverse=True)     # стабильно: при равенстве — по рангу
+        selected.append(pool.pop(0))
+
+    return selected
+
+
+def select_mix(verified: list[dict], config: dict,
+               speed: str = "thorough") -> list[dict]:
+    """Отобрать по seg['count'] на каждый сегмент, сохраняя порядок сегментов.
+    Чистая функция."""
+    counts = {s["name"]: s["count"] for s in config["segments"]}
+    order: list[str] = []
+    groups: dict[str, list[dict]] = {}
+    for t in verified:
+        seg = t.get("segment", "")
+        if seg not in groups:
+            groups[seg] = []
+            order.append(seg)
+        groups[seg].append(t)
+
+    out: list[dict] = []
+    for seg in order:
+        c = counts.get(seg, len(groups[seg]))
+        out.extend(select_segment_tracks(groups[seg], c, speed))
+    return out
+
+
 def get_discogs_styles(genre: str) -> list[str]:
     """
     Получить Discogs-стили для жанра.
@@ -1537,6 +1600,9 @@ def main():
     # ════════════════════════════════════════════════════════════
     # ШАГ 4.5: СБОРКА по траектории (порядок сегментов + BPM-ramp/harmonic)
     # ════════════════════════════════════════════════════════════
+    # ШАГ 4.4: умный отбор — count лучших на сегмент (якоря + гармония)
+    verified = select_mix(verified, config, config["speed"])
+
     verified = assemble_mix(verified, config["trajectory"])
     _curve = trajectory_summary(verified)
     if _curve:

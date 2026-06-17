@@ -506,3 +506,50 @@ class TestResolveSpeed:
 
     def test_flag_with_fast_config(self):
         assert ct.resolve_speed("fast", True) == "fast"
+
+
+# ── Smart selector: select_segment_tracks / select_mix ─────────────────────
+
+class TestSelectSegmentTracks:
+    def _cands(self):
+        # ранжированы по популярности (как приходят из discovery_rank)
+        return [
+            {"artist": "p1", "track": "x", "camelot": "8A", "support_score": 99},
+            {"artist": "p2", "track": "x", "camelot": "2A", "support_score": 90},  # несовм. с 8A
+            {"artist": "p3", "track": "x", "camelot": "9A", "support_score": 80},  # сосед 8A
+            {"artist": "p4", "track": "x", "camelot": "5A", "support_score": 70},
+        ]
+
+    def test_returns_all_if_fewer(self):
+        c = self._cands()[:2]
+        assert ct.select_segment_tracks(c, 5) == c
+
+    def test_fast_takes_top_n(self):
+        out = ct.select_segment_tracks(self._cands(), 2, "fast")
+        assert [t["artist"] for t in out] == ["p1", "p2"]   # топ по рангу
+
+    def test_thorough_anchor_plus_harmonic(self):
+        # count=2 → 1 якорь (p1/8A), добор по гармонии: p3(9A сосед) важнее p2(2A)
+        out = ct.select_segment_tracks(self._cands(), 2, "thorough")
+        names = [t["artist"] for t in out]
+        assert names[0] == "p1"                 # якорь — топ-популярный
+        assert names[1] == "p3"                 # гармонический добор, не p2
+
+    def test_count_zero(self):
+        assert ct.select_segment_tracks(self._cands(), 0) == []
+
+
+class TestSelectMix:
+    def test_per_segment_counts_and_order(self):
+        verified = [
+            {"artist": "i1", "track": "x", "segment": "intro", "camelot": "8A", "support_score": 50},
+            {"artist": "i2", "track": "x", "segment": "intro", "camelot": "9A", "support_score": 40},
+            {"artist": "i3", "track": "x", "segment": "intro", "camelot": "7A", "support_score": 30},
+            {"artist": "p1", "track": "x", "segment": "peak",  "camelot": "8A", "support_score": 90},
+            {"artist": "p2", "track": "x", "segment": "peak",  "camelot": "9A", "support_score": 80},
+        ]
+        config = {"segments": [{"name": "intro", "count": 2}, {"name": "peak", "count": 1}]}
+        out = ct.select_mix(verified, config, "fast")
+        segs = [t["segment"] for t in out]
+        assert segs == ["intro", "intro", "peak"]    # 2 intro + 1 peak, порядок сегментов
+        assert len([t for t in out if t["segment"] == "intro"]) == 2
