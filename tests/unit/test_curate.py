@@ -492,3 +492,17 @@ class TestEnrichBudget:
 
     def test_fast_smaller_than_thorough(self):
         assert ct.enrich_budget(8, "fast") < ct.enrich_budget(8, "thorough")
+
+
+class TestResolveSpeed:
+    def test_flag_forces_fast(self):
+        assert ct.resolve_speed("thorough", True) == "fast"
+
+    def test_no_flag_keeps_config_speed(self):
+        assert ct.resolve_speed("thorough", False) == "thorough"
+
+    def test_json_fast_preserved_without_flag(self):
+        assert ct.resolve_speed("fast", False) == "fast"   # "speed":"fast" в JSON
+
+    def test_flag_with_fast_config(self):
+        assert ct.resolve_speed("fast", True) == "fast"

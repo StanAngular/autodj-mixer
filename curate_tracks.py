@@ -57,6 +57,15 @@ ENRICH_FACTOR_FAST = 2  # fast: вдвое меньше кандидатов н�
 ENRICH_MIN_FAST = 6     # fast: меньший пол
 
 
+def resolve_speed(config_speed: str, fast_flag: bool) -> str:
+    """
+    Финальный режим скорости: флаг --fast включает fast; без флага сохраняется
+    speed из конфига (чтобы "speed":"fast" в JSON тоже работал). Однонаправленно —
+    флаг только ускоряет, никогда не возвращает в thorough. Чистая функция.
+    """
+    return "fast" if fast_flag else config_speed
+
+
 def enrich_budget(count: int, speed: str = "thorough") -> int:
     """Сколько кандидатов гнать через Tunebat на сегмент в зависимости от режима.
     thorough (по умолчанию) — щедро для хорошего отбора; fast — быстрее. Чистая функция."""
@@ -1407,6 +1416,9 @@ def main():
     except (OSError, ValueError) as e:
         print(f"ОШИБКА чтения --config: {e}")
         sys.exit(1)
+
+    # --fast применяется к ОБОИМ путям (и --config, и старый CLI)
+    config["speed"] = resolve_speed(config["speed"], args.fast)
 
     years = config["years"] or [current_year, current_year - 1]
     total_count = sum(s["count"] for s in config["segments"])
