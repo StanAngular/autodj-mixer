@@ -10,7 +10,6 @@ import json
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import time
@@ -1089,34 +1088,6 @@ def enrich_from_youtube_description(yt_url: str) -> tuple[int, str]:
 
 # ─── Главный цикл ─────────────────────────────────────────────────────────────
 
-def xvfb_preflight(display: str, xvfb_run_path: str) -> tuple[bool, str]:
-    """
-    Проверка окружения для headed-скрейпинга (Tunebat/Beatport идут через
-    видимый Chromium для обхода анти-бота, а ему нужен X-дисплей).
-    Чистая функция — тестируема.
-
-      display       — значение $DISPLAY ('' если нет)
-      xvfb_run_path — путь к xvfb-run ('' если не найден)
-
-    Возвращает (ok, сообщение). ok=False → headed-браузер не стартует, обогащение
-    Tunebat/Beatport будет пропущено (BPM/Camelot доберутся из других источников).
-    """
-    if display:
-        return True, ""
-    if xvfb_run_path:
-        return False, (
-            "⚠ DISPLAY не задан, но xvfb-run найден. Запусти curate ПОД xvfb:\n"
-            "    xvfb-run --auto-servernum python3 curate_tracks.py ...\n"
-            "  Иначе Tunebat/Beatport (headed-скрейпинг) будут пропущены."
-        )
-    return False, (
-        "⚠ Нет ни DISPLAY, ни xvfb-run — headed-скрейпинг (Tunebat/Beatport) будет\n"
-        "  пропущен. Установи Xvfb (один раз) и запускай под ним:\n"
-        "    bash scripts/setup_xvfb.sh\n"
-        "    xvfb-run --auto-servernum python3 curate_tracks.py ..."
-    )
-
-
 def _dedup_pool(raw_pool: list[dict]) -> list[dict]:
     """Дедуп пула со слиянием провенанса (found_in/поля)."""
     seen: dict[str, dict] = {}
@@ -1284,12 +1255,6 @@ def main():
     print(" autodj-mixer Curator v5 (сегменты)")
     print(curation_config.describe(config))
     print(f"{'═'*55}\n")
-
-    # Префлайт: headed-скрейпинг (Tunebat/Beatport) требует X-дисплея (xvfb)
-    ok_xvfb, xvfb_msg = xvfb_preflight(
-        os.environ.get("DISPLAY", ""), shutil.which("xvfb-run") or "")
-    if not ok_xvfb:
-        print(xvfb_msg + "\n")
 
     # ════════════════════════════════════════════════════════════
     # ШАГИ 1-3: СБОР + ОБОГАЩЕНИЕ + ФИЛЬТР по каждому сегменту

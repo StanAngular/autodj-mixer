@@ -357,22 +357,3 @@ class TestFilterRankTag:
         # underground → среди meta-known первым идёт низкий support_score (A=50 < C=70)
         meta = [t for t in out if t.get("bpm") and t.get("camelot")]
         assert meta[0]["artist"] == "A"
-
-
-# ── xvfb preflight (headed scraping environment check) ─────────────────────
-
-class TestXvfbPreflight:
-    def test_display_present_ok(self):
-        ok, msg = ct.xvfb_preflight(":99", "/usr/bin/xvfb-run")
-        assert ok and msg == ""
-
-    def test_no_display_but_xvfb_run(self):
-        ok, msg = ct.xvfb_preflight("", "/usr/bin/xvfb-run")
-        assert not ok
-        assert "xvfb-run --auto-servernum" in msg
-        assert "setup_xvfb.sh" not in msg          # xvfb есть → не предлагаем установку
-
-    def test_no_display_no_xvfb_run(self):
-        ok, msg = ct.xvfb_preflight("", "")
-        assert not ok
-        assert "setup_xvfb.sh" in msg              # предлагаем установку
