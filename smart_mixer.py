@@ -17,6 +17,8 @@ Or configure via a Python config file:
 import sys, os, time, subprocess, argparse, json
 from datetime import datetime
 
+import a1f
+
 import numpy as np
 np.float = np.float64
 np.int = np.int64
@@ -668,7 +670,7 @@ def run_a1f_analysis(wav_path, cache_dir, timeout=600):
     if os.path.exists(out_path):
         return True  # already cached
 
-    a1f_venv = os.path.expanduser('~/ai-tools/all-in-one-fix/venv/bin/python')
+    a1f_venv = a1f.a1f_python()
     if not os.path.exists(a1f_venv):
         print(f"    ⚠ A1F venv not found at {a1f_venv}")
         return False
@@ -1533,7 +1535,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
 
             # If not cached, launch background analysis
             if a1f_data is None and os.path.exists(CATALOG_DIR):
-                a1f_venv = os.path.expanduser('~/ai-tools/all-in-one-fix/venv/bin/python')
+                a1f_venv = a1f.a1f_python()
                 if os.path.exists(a1f_venv):
                     wav_abs = os.path.join(wav_dir, wav_file)
                     cmd = [a1f_venv, '-m', 'allin1fix.cli', wav_abs,
@@ -1624,7 +1626,7 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
             print(f"    ↳ Launching full A1F analysis without --skip-separation")
             # Check if A1F data already exists first
             if a1f_data is None and os.path.exists(CATALOG_DIR):
-                a1f_venv = os.path.expanduser('~/ai-tools/all-in-one-fix/venv/bin/python')
+                a1f_venv = a1f.a1f_python()
                 if os.path.exists(a1f_venv):
                     wav_abs = os.path.join(wav_dir, wav_file)
                     cmd = [a1f_venv, '-m', 'allin1fix.cli', wav_abs,

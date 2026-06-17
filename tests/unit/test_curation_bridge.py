@@ -69,3 +69,19 @@ class TestRecommendAnalysis:
     def test_long_mix_recommends_a1f(self):
         cands = [{"segment": "s", "bpm": 124} for _ in range(12)]
         assert cb.recommend_analysis(cands)["a1f"] is True
+
+
+class TestA1fMode:
+    def test_a1f_mode_fast_when_recommended(self):
+        cands = [{"segment": "intro", "bpm": 90}, {"segment": "peak", "bpm": 160}]
+        r = cb.recommend_analysis(cands)
+        assert r["a1f"] is True and r["a1f_mode"] == "fast"
+
+    def test_a1f_mode_none_when_simple(self):
+        cands = [{"segment": "s", "bpm": 124}, {"segment": "s", "bpm": 125}]
+        r = cb.recommend_analysis(cands)
+        assert r["a1f"] is False and r["a1f_mode"] == "none"
+
+    def test_note_present(self):
+        r = cb.recommend_analysis([{"segment": "s", "bpm": 124}])
+        assert "Demucs" in r["note"]

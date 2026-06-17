@@ -123,7 +123,16 @@ def recommend_analysis(candidates: list[dict]) -> dict:
         reason = "A1F рекомендуется: " + ", ".join(reasons)
     else:
         reason = f"A1F не нужен: короткий однородный набор ({n} тр., разброс BPM {spread})"
-    return {"madmom": True, "a1f": a1f, "reason": reason}
+    # Режим A1F: fast (--skip-separation, CPU) когда A1F нужен. Полный Demucs —
+    # только для вокал-интервалов, по metadata курации не определить → ручной выбор.
+    a1f_mode = "fast" if a1f else "none"
+    return {
+        "madmom": True,
+        "a1f": a1f,
+        "a1f_mode": a1f_mode,
+        "reason": reason,
+        "note": "Полный Demucs (без --skip-separation) — вручную, для вокал-чувствительных миксов",
+    }
 
 
 def _main():
@@ -160,7 +169,11 @@ def _main():
     print(f"  python3 yt_download.py {urls_path}")
     print(f"  python3 batch_annotate.py            # madmom даунбиты → {args.ann_dir}")
     if rec["a1f"]:
-        print(f"  # A1F рекомендован — прогнать структурный анализ перед миксом")
+        import a1f
+        a1f_cmd = " ".join(a1f.a1f_command("<wav>", args.ann_dir, fast=True))
+        print(f"  # A1F рекомендован (режим {rec['a1f_mode']}). Пример вызова на трек:")
+        print(f"  {a1f_cmd}")
+        print(f"  # {rec['note']}")
     print(f"  python3 run_pipeline.py --wav-dir {args.wav_dir} --ann-dir {args.ann_dir} --config {cfg_path}")
 
 
