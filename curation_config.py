@@ -192,6 +192,60 @@ def config_from_cli(args) -> dict:
     })
 
 
+def schema() -> dict:
+    """
+    Машиночитаемый контракт конфига курации (единый источник правды — enum'ы берутся
+    из тех же констант модуля). Для агентов/интеграций: получить схему, сгенерировать
+    валидный конфиг, не читая исходники. Пример внутри сам проходит load_config().
+    """
+    return {
+        "description": "Конфиг курации: упорядоченный список сегментов + траектория. "
+                       "НЕ путать с mix_config.py (трек-лист для микшера).",
+        "fields": {
+            "title":            {"type": "string", "required": False, "default": ""},
+            "years":            {"type": "list[int]", "required": False, "default": []},
+            "duration_minutes": {"type": "[min,max]", "required": False, "default": []},
+            "speed":            {"type": "enum", "allowed": list(SPEED_MODES),
+                                 "required": False, "default": DEFAULT_SPEED},
+            "trajectory": {
+                "bpm":    {"allowed": list(TRAJECTORY_BPM),    "default": DEFAULT_TRAJECTORY["bpm"]},
+                "key":    {"allowed": list(TRAJECTORY_KEY),    "default": DEFAULT_TRAJECTORY["key"]},
+                "energy": {"allowed": list(TRAJECTORY_ENERGY), "default": DEFAULT_TRAJECTORY["energy"]},
+            },
+            "segments": {
+                "type": "list", "required": True, "note": "непустой список",
+                "item": {
+                    "name":           {"type": "string", "default": "segment-N"},
+                    "styles":         {"type": "list[str]",
+                                       "note": "обязателен styles ИЛИ seed_artists"},
+                    "similar_styles": {"type": "bool", "default": False},
+                    "countries":      {"type": "list[str ISO]", "default": [],
+                                       "example": ["RU", "US"]},
+                    "bpm_range":      {"type": "[min,max]", "default": []},
+                    "target_key":     {"type": "string Camelot, напр. 8A", "default": ""},
+                    "discovery":      {"allowed": list(DISCOVERY_MODES), "default": "popular"},
+                    "seed_artists":   {"type": "list[str]", "default": []},
+                    "count":          {"type": "int>0", "required": True},
+                },
+            },
+        },
+        "example": {
+            "title": "Eurasia → America",
+            "years": [2025, 2026],
+            "duration_minutes": [60, 80],
+            "speed": "thorough",
+            "trajectory": {"bpm": "ramp", "key": "harmonic_walk", "energy": "rising"},
+            "segments": [
+                {"name": "intro", "styles": ["Ambient"], "similar_styles": True,
+                 "countries": ["RU", "KZ"], "bpm_range": [70, 90],
+                 "discovery": "underground", "count": 3},
+                {"name": "peak", "styles": ["Hard Trance"], "countries": ["US"],
+                 "bpm_range": [150, 170], "discovery": "newest", "count": 4},
+            ],
+        },
+    }
+
+
 def describe(config: dict) -> str:
     """Человекочитаемый план конфига (для печати на апруве плана)."""
     lines = [f"Микс: {config['title'] or '—'}"]

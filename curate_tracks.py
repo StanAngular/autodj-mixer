@@ -1475,10 +1475,18 @@ def main():
                              "Если задан — переопределяет --genre/--bpm/--camelot/--country")
     parser.add_argument("--fast", action="store_true",
                         help="Быстрый режим: меньше кандидатов на обогащение Tunebat")
+    parser.add_argument("--print-config-schema", action="store_true",
+                        help="Вывести JSON-схему конфига курации и выйти "
+                             "(для агентов/интеграций — не запускает курацию)")
     parser.add_argument("--no-verify", action="store_true")
     parser.add_argument("--no-approve", action="store_true",
                         help="Не останавливаться на апруве плейлиста")
     args = parser.parse_args()
+
+    # Ранний выход: вывести схему конфига и завершиться (для агентов/интеграций)
+    if args.print_config_schema:
+        print(json.dumps(curation_config.schema(), ensure_ascii=False, indent=2))
+        sys.exit(0)
 
     current_year = datetime.now().year
 

@@ -131,3 +131,24 @@ class TestSpeed:
             camelot = "8A"; count = 5; country = ""; region = ""; years = ""
             discovery = "popular"; fast = True
         assert cc.config_from_cli(A())["speed"] == "fast"
+
+
+class TestSchema:
+    def test_structure(self):
+        s = cc.schema()
+        assert "fields" in s and "example" in s
+        assert "segments" in s["fields"]
+        assert s["fields"]["segments"]["item"]["count"]["required"] is True
+
+    def test_enums_in_sync_with_constants(self):
+        # схема не должна разойтись с реальными константами валидации
+        s = cc.schema()
+        assert s["fields"]["speed"]["allowed"] == list(cc.SPEED_MODES)
+        assert s["fields"]["segments"]["item"]["discovery"]["allowed"] == list(cc.DISCOVERY_MODES)
+        assert s["fields"]["trajectory"]["bpm"]["allowed"] == list(cc.TRAJECTORY_BPM)
+
+    def test_example_is_valid(self):
+        # ключевой инвариант: пример в схеме сам проходит load_config
+        cfg = cc.load_config(cc.schema()["example"])
+        assert len(cfg["segments"]) == 2
+        assert cfg["trajectory"]["bpm"] == "ramp"
