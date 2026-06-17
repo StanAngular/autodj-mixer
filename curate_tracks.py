@@ -51,6 +51,8 @@ PROXIES     = {
 DISCOGS_TOKEN = os.environ.get("DISCOGS_TOKEN", "")
 GOOGLE_DELAY  = 3.0
 TUNEBAT_MAX_POOL = 100  # макс размер пула для Playwright Tunebat обогащения
+ENRICH_FACTOR = 4       # обогащаем через Tunebat count×ENRICH_FACTOR кандидатов на сегмент
+ENRICH_MIN = 12         # но не меньше этого (буфер на отсев при фильтре)
 
 KEY_TO_CAMELOT = {
     "C maj": "8B",  "C min": "5A",
@@ -1222,16 +1224,44 @@ def _dedup_pool(raw_pool: list[dict]) -> list[dict]:
     return out
 
 
-def enrich_pool(deduped: list[dict]) -> list[dict]:
-    """Шаг 2: обогащение BPM/Camelot через Tunebat (Playwright). In-place set_field."""
+def select_enrich_candidates(deduped: list[dict], discovery: str = "popular",
+                             limit: int | None = None) -> list[dict]:
+    """
+    Кого гнать через Tunebat: только треки без полных метаданных (нет BPM или
+    Camelot), ранжированные под discovery и обрезанные до limit. Это и есть
+    оптимизация — обогащаем самых перспективных кандидатов, а не весь пул, иначе
+    headed-браузер упирается в таймаут на больших пулах. Чистая функция.
+    """
     need = [t for t in deduped if not t.get("bpm") or not t.get("camelot")]
+    if limit is not None and len(need) > limit:
+        need = discovery_rank(need, discovery)[:limit]
+    return need
+
+
+def enrich_pool(deduped: list[dict], seg: dict | None = None,
+                limit: int | None = None) -> list[dict]:
+    """
+    Шаг 2: обогащение BPM/Camelot через Tunebat (Playwright). In-place set_field.
+    Обогащаются только топ-`limit` кандидатов (ранжированных под discovery
+    сегмента), а не весь пул — иначе Tunebat упирается в таймаут на больших пулах.
+    """
+    discovery = (seg or {}).get("discovery", "popular")
+    total_need = sum(1 for t in deduped if not t.get("bpm") or not t.get("camelot"))
+    need = select_enrich_candidates(deduped, discovery, limit)
+
     if not need:
         print("  Все треки уже имеют BPM/Camelot — пропуск")
         return deduped
-    if len(deduped) > TUNEBAT_MAX_POOL:
+    # Старый предохранитель работает только без явного лимита
+    if limit is None and len(deduped) > TUNEBAT_MAX_POOL:
         print(f"  Пул {len(deduped)} > {TUNEBAT_MAX_POOL} → Tunebat пропущен")
         return deduped
-    print(f"  Нуждаются в обогащении: {len(need)}/{len(deduped)} треков")
+
+    if len(need) < total_need:
+        print(f"  Обогащаю топ-{len(need)} из {total_need} кандидатов (discovery={discovery})")
+    else:
+        print(f"  Нуждаются в обогащении: {len(need)}/{len(deduped)} треков")
+
     try:
         from playwright_scraper import enrich_tracks_via_tunebat
         enriched = enrich_tracks_via_tunebat(need)
@@ -1304,7 +1334,8 @@ def collect_segment(seg: dict, years: list[int], pool_factor: int) -> list[dict]
 
     print(f"  [{seg['name']}] пул: {len(raw)} до фильтра")
     deduped = _dedup_pool(raw)
-    enriched = enrich_pool(deduped)
+    enrich_budget = max(seg["count"] * ENRICH_FACTOR, ENRICH_MIN)
+    enriched = enrich_pool(deduped, seg, enrich_budget)
     filtered = filter_rank_tag(enriched, seg)
     print(f"  [{seg['name']}] после фильтра: {len(filtered)}")
     return filtered

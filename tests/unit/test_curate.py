@@ -433,3 +433,44 @@ class TestTrajectorySummary:
 
     def test_empty(self):
         assert ct.trajectory_summary([]) == ""
+
+
+# ── Tunebat-opt: select_enrich_candidates (top-N enrichment) ───────────────
+
+class TestSelectEnrichCandidates:
+    def _pool(self):
+        # 5 без метаданных (разный support), 2 с полными метаданными
+        return [
+            {"artist": "n1", "track": "x", "bpm": 0,   "camelot": "",   "support_score": 10},
+            {"artist": "n2", "track": "x", "bpm": 120, "camelot": "",   "support_score": 90},  # нет camelot
+            {"artist": "n3", "track": "x", "bpm": 0,   "camelot": "8A", "support_score": 50},  # нет bpm
+            {"artist": "n4", "track": "x", "bpm": 0,   "camelot": "",   "support_score": 70},
+            {"artist": "n5", "track": "x", "bpm": 0,   "camelot": "",   "support_score": 30},
+            {"artist": "ok1","track": "x", "bpm": 124, "camelot": "7A", "support_score": 99},
+            {"artist": "ok2","track": "x", "bpm": 126, "camelot": "9A", "support_score": 99},
+        ]
+
+    def test_only_incomplete_meta_selected(self):
+        out = select_names = ct.select_enrich_candidates(self._pool())
+        names = {t["artist"] for t in select_names}
+        assert "ok1" not in names and "ok2" not in names    # полные — не трогаем
+        assert names == {"n1", "n2", "n3", "n4", "n5"}
+
+    def test_limit_caps_and_ranks_by_discovery(self):
+        # popular → топ по support_score: n2(90), n4(70), n3(50)
+        out = ct.select_enrich_candidates(self._pool(), "popular", limit=3)
+        assert len(out) == 3
+        assert [t["artist"] for t in out] == ["n2", "n4", "n3"]
+
+    def test_underground_prefers_low_support(self):
+        out = ct.select_enrich_candidates(self._pool(), "underground", limit=2)
+        # underground → низкий support первым: n1(10), n5(30)
+        assert [t["artist"] for t in out] == ["n1", "n5"]
+
+    def test_no_limit_returns_all_incomplete(self):
+        out = ct.select_enrich_candidates(self._pool(), "popular", limit=None)
+        assert len(out) == 5
+
+    def test_limit_above_need_returns_all(self):
+        out = ct.select_enrich_candidates(self._pool(), "popular", limit=100)
+        assert len(out) == 5
