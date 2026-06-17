@@ -32,6 +32,8 @@ import json
 import re
 
 DISCOVERY_MODES = ("popular", "newest", "underground")
+SPEED_MODES = ("thorough", "fast")
+DEFAULT_SPEED = "thorough"
 TRAJECTORY_BPM = ("ramp", "constant")
 TRAJECTORY_KEY = ("harmonic_walk", "per_segment", "none")
 TRAJECTORY_ENERGY = ("rising", "flat")
@@ -135,9 +137,14 @@ def load_config(data: dict) -> dict:
     if years and not all(isinstance(y, int) and not isinstance(y, bool) for y in years):
         raise CurationConfigError("'years' должен быть списком целых")
 
+    speed = data.get("speed", DEFAULT_SPEED)
+    if speed not in SPEED_MODES:
+        raise CurationConfigError(f"'speed' должен быть из {SPEED_MODES}")
+
     return {
         "title":            (data.get("title") or "").strip(),
         "years":            list(years),
+        "speed":            speed,
         "duration_minutes": _as_range(data.get("duration_minutes"), "duration_minutes"),
         "trajectory":       _normalize_trajectory(data.get("trajectory")),
         "segments":         [normalize_segment(s, i) for i, s in enumerate(segments_raw)],
@@ -179,6 +186,7 @@ def config_from_cli(args) -> dict:
     return load_config({
         "title": args.genre,
         "years": years,
+        "speed": "fast" if getattr(args, "fast", False) else DEFAULT_SPEED,
         "trajectory": {"bpm": "constant", "key": "per_segment", "energy": "flat"},
         "segments": [segment],
     })
@@ -194,6 +202,7 @@ def describe(config: dict) -> str:
         lines.append(f"Длительность: {lo}–{hi} мин")
     t = config["trajectory"]
     lines.append(f"Траектория: BPM={t['bpm']}, ключ={t['key']}, энергия={t['energy']}")
+    lines.append(f"Режим: {config.get('speed', DEFAULT_SPEED)}")
     lines.append(f"Сегментов: {len(config['segments'])}")
     for s in config["segments"]:
         rng = f"{s['bpm_range'][0]}–{s['bpm_range'][1]}" if s["bpm_range"] else "любой"

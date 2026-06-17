@@ -110,3 +110,24 @@ class TestDescribe:
         cfg = cc.load_config_file(os.path.join(REPO, "examples", "curation_brief.example.json"))
         out = cc.describe(cfg)
         assert "intro-eurasia" in out and "ramp" in out
+
+
+class TestSpeed:
+    def test_default_thorough(self):
+        cfg = cc.load_config({"segments": [{"styles": ["x"], "count": 1}]})
+        assert cfg["speed"] == "thorough"
+
+    def test_explicit_fast(self):
+        cfg = cc.load_config({"segments": [{"styles": ["x"], "count": 1}], "speed": "fast"})
+        assert cfg["speed"] == "fast"
+
+    def test_bad_speed(self):
+        with pytest.raises(cc.CurationConfigError):
+            cc.load_config({"segments": [{"styles": ["x"], "count": 1}], "speed": "turbo"})
+
+    def test_cli_fast_flag(self):
+        class A:
+            genre = "techno"; bpm = 130; bpm_min = 0; bpm_max = 0; bpm_tolerance = 4
+            camelot = "8A"; count = 5; country = ""; region = ""; years = ""
+            discovery = "popular"; fast = True
+        assert cc.config_from_cli(A())["speed"] == "fast"

@@ -51,8 +51,18 @@ PROXIES     = {
 DISCOGS_TOKEN = os.environ.get("DISCOGS_TOKEN", "")
 GOOGLE_DELAY  = 3.0
 TUNEBAT_MAX_POOL = 100  # макс размер пула для Playwright Tunebat обогащения
-ENRICH_FACTOR = 4       # обогащаем через Tunebat count×ENRICH_FACTOR кандидатов на сегмент
-ENRICH_MIN = 12         # но не меньше этого (буфер на отсев при фильтре)
+ENRICH_FACTOR = 4       # thorough: обогащаем через Tunebat count×ENRICH_FACTOR кандидатов
+ENRICH_MIN = 12         # thorough: но не меньше этого (буфер на отсев при фильтре)
+ENRICH_FACTOR_FAST = 2  # fast: вдвое меньше кандидатов на обогащение
+ENRICH_MIN_FAST = 6     # fast: меньший пол
+
+
+def enrich_budget(count: int, speed: str = "thorough") -> int:
+    """Сколько кандидатов гнать через Tunebat на сегмент в зависимости от режима.
+    thorough (по умолчанию) — щедро для хорошего отбора; fast — быстрее. Чистая функция."""
+    if speed == "fast":
+        return max(count * ENRICH_FACTOR_FAST, ENRICH_MIN_FAST)
+    return max(count * ENRICH_FACTOR, ENRICH_MIN)
 
 KEY_TO_CAMELOT = {
     "C maj": "8B",  "C min": "5A",
@@ -1306,7 +1316,8 @@ def filter_rank_tag(pool: list[dict], seg: dict) -> list[dict]:
     return discovery_rank(out, seg.get("discovery", "popular"))
 
 
-def collect_segment(seg: dict, years: list[int], pool_factor: int) -> list[dict]:
+def collect_segment(seg: dict, years: list[int], pool_factor: int,
+                    speed: str = "thorough") -> list[dict]:
     """
     Шаги 1-3 для одного сегмента: сбор пула по styles × countries → дедуп →
     обогащение → фильтр/ранжирование/тег. Возвращает отфильтрованные треки.
@@ -1334,8 +1345,8 @@ def collect_segment(seg: dict, years: list[int], pool_factor: int) -> list[dict]
 
     print(f"  [{seg['name']}] пул: {len(raw)} до фильтра")
     deduped = _dedup_pool(raw)
-    enrich_budget = max(seg["count"] * ENRICH_FACTOR, ENRICH_MIN)
-    enriched = enrich_pool(deduped, seg, enrich_budget)
+    enrich_budget_n = enrich_budget(seg["count"], speed)
+    enriched = enrich_pool(deduped, seg, enrich_budget_n)
     filtered = filter_rank_tag(enriched, seg)
     print(f"  [{seg['name']}] после фильтра: {len(filtered)}")
     return filtered
@@ -1369,6 +1380,8 @@ def main():
     parser.add_argument("--config", default="",
                         help="JSON-конфиг курации (сегменты+траектория). "
                              "Если задан — переопределяет --genre/--bpm/--camelot/--country")
+    parser.add_argument("--fast", action="store_true",
+                        help="Быстрый режим: меньше кандидатов на обогащение Tunebat")
     parser.add_argument("--no-verify", action="store_true")
     parser.add_argument("--no-approve", action="store_true",
                         help="Не останавливаться на апруве плейлиста")
@@ -1419,7 +1432,7 @@ def main():
     filtered: list[dict] = []
     for seg in config["segments"]:
         print(f"\n═══ Сегмент '{seg['name']}' ═══")
-        seg_tracks = collect_segment(seg, years, args.pool_factor)
+        seg_tracks = collect_segment(seg, years, args.pool_factor, config["speed"])
         filtered.extend(seg_tracks[: seg["count"] + 2])   # +2 буфер на сегмент
 
     print(f"\n Всего после фильтра по сегментам: {len(filtered)}/{total_count}")

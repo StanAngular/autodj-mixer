@@ -474,3 +474,21 @@ class TestSelectEnrichCandidates:
     def test_limit_above_need_returns_all(self):
         out = ct.select_enrich_candidates(self._pool(), "popular", limit=100)
         assert len(out) == 5
+
+
+# ── Speed-aware enrichment budget ──────────────────────────────────────────
+
+class TestEnrichBudget:
+    def test_thorough_factor4(self):
+        assert ct.enrich_budget(5, "thorough") == 20      # 5×4
+        assert ct.enrich_budget(1, "thorough") == 12      # пол ENRICH_MIN
+
+    def test_fast_factor2(self):
+        assert ct.enrich_budget(5, "fast") == 10          # 5×2
+        assert ct.enrich_budget(1, "fast") == 6           # пол ENRICH_MIN_FAST
+
+    def test_default_is_thorough(self):
+        assert ct.enrich_budget(5) == 20
+
+    def test_fast_smaller_than_thorough(self):
+        assert ct.enrich_budget(8, "fast") < ct.enrich_budget(8, "thorough")
