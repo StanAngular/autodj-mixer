@@ -357,3 +357,79 @@ class TestFilterRankTag:
         # underground → среди meta-known первым идёт низкий support_score (A=50 < C=70)
         meta = [t for t in out if t.get("bpm") and t.get("camelot")]
         assert meta[0]["artist"] == "A"
+
+
+# ── xvfb preflight (headed scraping environment check) ─────────────────────
+
+class TestXvfbPreflight:
+    def test_display_present_ok(self):
+        ok, msg = ct.xvfb_preflight(":99", "/usr/bin/xvfb-run")
+        assert ok and msg == ""
+
+    def test_no_display_but_xvfb_run(self):
+        ok, msg = ct.xvfb_preflight("", "/usr/bin/xvfb-run")
+        assert not ok
+        assert "xvfb-run --auto-servernum" in msg
+        assert "setup_xvfb.sh" not in msg          # xvfb есть → не предлагаем установку
+
+    def test_no_display_no_xvfb_run(self):
+        ok, msg = ct.xvfb_preflight("", "")
+        assert not ok
+        assert "setup_xvfb.sh" in msg              # предлагаем установку
+
+
+# ── P6c: assemble_mix / harmonic order / trajectory summary ────────────────
+
+class TestAssembleMix:
+    def _multiseg(self):
+        return [
+            {"artist": "P1", "track": "x", "segment": "peak",  "bpm": 160, "camelot": "8A"},
+            {"artist": "I1", "track": "x", "segment": "intro", "bpm": 80,  "camelot": "8A"},
+            {"artist": "I2", "track": "x", "segment": "intro", "bpm": 72,  "camelot": "9A"},
+            {"artist": "P2", "track": "x", "segment": "peak",  "bpm": 158, "camelot": "7A"},
+        ]
+
+    def test_preserves_segment_order(self):
+        # intro появляется в пуле позже peak, но порядок групп = порядок появления
+        out = ct.assemble_mix(self._multiseg(), {"bpm": "constant", "key": "per_segment"})
+        segs = [t["segment"] for t in out]
+        assert segs == ["peak", "peak", "intro", "intro"]   # peak встретился первым
+
+    def test_bpm_ramp_sorts_within_segment(self):
+        out = ct.assemble_mix(self._multiseg(), {"bpm": "ramp", "key": "per_segment"})
+        intro = [t for t in out if t["segment"] == "intro"]
+        assert [t["bpm"] for t in intro] == [72, 80]        # по возрастанию
+
+    def test_harmonic_walk_orders_by_compatibility(self):
+        tracks = [
+            {"artist": "a", "track": "1", "segment": "s", "camelot": "8A"},
+            {"artist": "b", "track": "2", "segment": "s", "camelot": "2A"},  # несовместим с 8A
+            {"artist": "c", "track": "3", "segment": "s", "camelot": "9A"},  # сосед 8A
+        ]
+        out = ct.assemble_mix(tracks, {"bpm": "constant", "key": "harmonic_walk"})
+        # после 8A первым должен идти совместимый 9A, а не 2A
+        assert out[0]["camelot"] == "8A"
+        assert out[1]["camelot"] == "9A"
+
+    def test_no_key_tracks_go_last(self):
+        tracks = [
+            {"artist": "a", "track": "1", "segment": "s", "camelot": ""},
+            {"artist": "b", "track": "2", "segment": "s", "camelot": "8A"},
+        ]
+        out = ct._harmonic_order(tracks)
+        assert out[-1]["camelot"] == ""
+
+
+class TestTrajectorySummary:
+    def test_bpm_curve_and_keys(self):
+        tracks = [
+            {"segment": "intro", "bpm": 72, "camelot": "8A"},
+            {"segment": "intro", "bpm": 80, "camelot": "9A"},
+            {"segment": "peak",  "bpm": 158, "camelot": "7A"},
+        ]
+        out = ct.trajectory_summary(tracks)
+        assert "72▸80" in out and "158" in out
+        assert "8A▸9A▸7A" in out
+
+    def test_empty(self):
+        assert ct.trajectory_summary([]) == ""

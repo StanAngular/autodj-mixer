@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -415,6 +416,97 @@ def discovery_rank(tracks: list[dict], mode: str = "popular") -> list[dict]:
                          t.get("youtube_views", 0))
 
     return sorted(tracks, key=key, reverse=True)
+
+
+# ─── Сборка/траектория (P6c) ─────────────────────────────────────────────────
+
+def _harmonic_order(tracks: list[dict]) -> list[dict]:
+    """
+    Жадный гармонический проход: каждый следующий трек максимально совместим по
+    Camelot с предыдущим (exact > сосед/relative > diagonal). Треки без Camelot
+    идут в конец в исходном порядке. Чистая, детерминированная функция.
+    """
+    with_key = [t for t in tracks if t.get("camelot")]
+    no_key   = [t for t in tracks if not t.get("camelot")]
+    if not with_key:
+        return list(tracks)
+
+    rel_score = {"exact match": 3, "wheel neighbour": 2,
+                 "major/minor swap": 2, "diagonal energy boost": 1}
+    remaining = with_key[:]
+    ordered = [remaining.pop(0)]
+    while remaining:
+        last = ordered[-1]["camelot"]
+
+        def score(t):
+            try:
+                return rel_score.get(camelot_relation(last, t["camelot"]), 0)
+            except Exception:
+                return 0
+
+        # стабильная сортировка: при равенстве сохраняется исходный порядок
+        remaining.sort(key=score, reverse=True)
+        ordered.append(remaining.pop(0))
+    return ordered + no_key
+
+
+def assemble_mix(tracks: list[dict], trajectory: dict) -> list[dict]:
+    """
+    Упорядочить треки по траектории, СОХРАНЯЯ порядок сегментов (intro→…→peak).
+    Внутри сегмента:
+      key='harmonic_walk' → гармонический проход по Camelot;
+      иначе bpm='ramp'    → сортировка по возрастанию BPM;
+      иначе               → как есть (discovery-ранжирование).
+    Чистая функция.
+    """
+    order: list[str] = []
+    groups: dict[str, list[dict]] = {}
+    for t in tracks:
+        seg = t.get("segment", "")
+        if seg not in groups:
+            groups[seg] = []
+            order.append(seg)
+        groups[seg].append(t)
+
+    bpm_mode = trajectory.get("bpm", "constant")
+    key_mode = trajectory.get("key", "per_segment")
+
+    out: list[dict] = []
+    for seg in order:
+        g = groups[seg]
+        if key_mode == "harmonic_walk":
+            g = _harmonic_order(g)
+        elif bpm_mode == "ramp":
+            g = sorted(g, key=lambda t: (t.get("bpm") or 99999))
+        out.extend(g)
+    return out
+
+
+def trajectory_summary(tracks: list[dict]) -> str:
+    """Человекочитаемая кривая: BPM по сегментам + проход по ключам."""
+    segs: list[tuple[str, list[dict]]] = []
+    cur = object()
+    for t in tracks:
+        s = t.get("segment", "")
+        if not segs or s != cur:
+            segs.append((s, []))
+            cur = s
+        segs[-1][1].append(t)
+
+    bpm_parts = []
+    for _, ts in segs:
+        bpms = [t["bpm"] for t in ts if t.get("bpm")]
+        if bpms:
+            bpm_parts.append(f"{bpms[0]}▸{bpms[-1]}" if len(bpms) > 1 else str(bpms[0]))
+
+    keys = [t["camelot"] for t in tracks if t.get("camelot")]
+    line = ""
+    if bpm_parts:
+        line = "Кривая BPM: " + " ┊ ".join(bpm_parts)
+    if keys:
+        shown = "▸".join(keys[:12]) + ("…" if len(keys) > 12 else "")
+        line += ("  |  " if line else "") + f"ключи: {shown}"
+    return line
 
 
 def get_discogs_styles(genre: str) -> list[str]:
@@ -1088,6 +1180,34 @@ def enrich_from_youtube_description(yt_url: str) -> tuple[int, str]:
 
 # ─── Главный цикл ─────────────────────────────────────────────────────────────
 
+def xvfb_preflight(display: str, xvfb_run_path: str) -> tuple[bool, str]:
+    """
+    Проверка окружения для headed-скрейпинга (Tunebat/Beatport идут через
+    видимый Chromium для обхода анти-бота, а ему нужен X-дисплей).
+    Чистая функция — тестируема.
+
+      display       — значение $DISPLAY ('' если нет)
+      xvfb_run_path — путь к xvfb-run ('' если не найден)
+
+    Возвращает (ok, сообщение). ok=False → headed-браузер не стартует, обогащение
+    Tunebat/Beatport будет пропущено (BPM/Camelot доберутся из других источников).
+    """
+    if display:
+        return True, ""
+    if xvfb_run_path:
+        return False, (
+            "⚠ DISPLAY не задан, но xvfb-run найден. Запусти curate ПОД xvfb:\n"
+            "    xvfb-run --auto-servernum python3 curate_tracks.py ...\n"
+            "  Иначе Tunebat/Beatport (headed-скрейпинг) будут пропущены."
+        )
+    return False, (
+        "⚠ Нет ни DISPLAY, ни xvfb-run — headed-скрейпинг (Tunebat/Beatport) будет\n"
+        "  пропущен. Установи Xvfb (один раз) и запускай под ним:\n"
+        "    bash scripts/setup_xvfb.sh\n"
+        "    xvfb-run --auto-servernum python3 curate_tracks.py ..."
+    )
+
+
 def _dedup_pool(raw_pool: list[dict]) -> list[dict]:
     """Дедуп пула со слиянием провенанса (found_in/поля)."""
     seen: dict[str, dict] = {}
@@ -1256,6 +1376,12 @@ def main():
     print(curation_config.describe(config))
     print(f"{'═'*55}\n")
 
+    # Префлайт: headed-скрейпинг (Tunebat/Beatport) требует X-дисплея (xvfb)
+    ok_xvfb, xvfb_msg = xvfb_preflight(
+        os.environ.get("DISPLAY", ""), shutil.which("xvfb-run") or "")
+    if not ok_xvfb:
+        print(xvfb_msg + "\n")
+
     # ════════════════════════════════════════════════════════════
     # ШАГИ 1-3: СБОР + ОБОГАЩЕНИЕ + ФИЛЬТР по каждому сегменту
     # ════════════════════════════════════════════════════════════
@@ -1332,6 +1458,14 @@ def main():
         )
 
     # ════════════════════════════════════════════════════════════
+    # ШАГ 4.5: СБОРКА по траектории (порядок сегментов + BPM-ramp/harmonic)
+    # ════════════════════════════════════════════════════════════
+    verified = assemble_mix(verified, config["trajectory"])
+    _curve = trajectory_summary(verified)
+    if _curve:
+        print(f"\n{_curve}")
+
+    # ════════════════════════════════════════════════════════════
     # ШАГ 5: АПРУВ плейлиста (если не --no-approve)
     # ════════════════════════════════════════════════════════════
     final: list[dict] = []
@@ -1341,6 +1475,8 @@ def main():
     else:
         print("\n═══ ШАГ 5: Апрув плейлиста ═══")
         print(format_approval_table(verified, approval_key))
+        if _curve:
+            print(_curve)
         print(f"{'─'*55}")
         print("Введи номера треков для УДАЛЕНИЯ через пробел (или Enter для принятия всего):")
 
