@@ -312,3 +312,48 @@ class TestDiscoveryRank:
         for mode in ("popular", "newest", "underground"):
             out = ct.discovery_rank(self._pool(), mode)
             assert out[-1]["artist"] == "C"   # C has no bpm/camelot → always last
+
+
+# ── P6b: per-segment filter / rank / tag ───────────────────────────────────
+
+class TestFilterRankTag:
+    def _pool(self):
+        return [
+            {"artist": "A", "track": "1", "bpm": 122, "camelot": "8A", "support_score": 50},
+            {"artist": "B", "track": "2", "bpm": 100, "camelot": "8A", "support_score": 90},  # bpm out of range
+            {"artist": "C", "track": "3", "bpm": 123, "camelot": "2A", "support_score": 70},  # key incompatible
+            {"artist": "D", "track": "4", "bpm": 0,   "camelot": "",   "support_score": 80},  # unknown meta
+        ]
+
+    def test_bpm_range_filters(self):
+        seg = {"name": "s", "bpm_range": [120, 124], "target_key": "", "discovery": "popular"}
+        out = ct.filter_rank_tag(self._pool(), seg)
+        names = {t["artist"] for t in out}
+        assert "B" not in names              # bpm 100 excluded
+        assert "A" in names and "C" in names # in-range kept
+        assert "D" in names                  # unknown bpm passes (not excluded)
+
+    def test_target_key_filters(self):
+        seg = {"name": "s", "bpm_range": [], "target_key": "8A", "discovery": "popular"}
+        out = ct.filter_rank_tag(self._pool(), seg)
+        names = {t["artist"] for t in out}
+        assert "C" not in names              # 2A incompatible with 8A
+        assert "A" in names                  # 8A compatible
+        assert "D" in names                  # empty camelot passes
+
+    def test_no_constraints_keeps_all(self):
+        seg = {"name": "s", "bpm_range": [], "target_key": "", "discovery": "popular"}
+        out = ct.filter_rank_tag(self._pool(), seg)
+        assert len(out) == 4
+
+    def test_tags_segment_name(self):
+        seg = {"name": "intro", "bpm_range": [], "target_key": "", "discovery": "popular"}
+        out = ct.filter_rank_tag(self._pool(), seg)
+        assert all(t["segment"] == "intro" for t in out)
+
+    def test_discovery_ranking_applied(self):
+        seg = {"name": "s", "bpm_range": [], "target_key": "", "discovery": "underground"}
+        out = ct.filter_rank_tag(self._pool(), seg)
+        # underground → среди meta-known первым идёт низкий support_score (A=50 < C=70)
+        meta = [t for t in out if t.get("bpm") and t.get("camelot")]
+        assert meta[0]["artist"] == "A"
