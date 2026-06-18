@@ -618,6 +618,40 @@ def select_segment_tracks(candidates: list[dict], count: int,
     return selected
 
 
+def passes_sanity(track: dict, year_lo: int | None = None, year_hi: int | None = None,
+                  bpm_lo: float | None = None, bpm_hi: float | None = None,
+                  bpm_tol: float = 2.0) -> bool:
+    """
+    Грубый гейт пула. Режем трек, ТОЛЬКО если его год/BPM известны и явно вне рамок.
+    Неизвестные (None/0) пропускаем — их добьёт enrich/local_enrich (Path B). Чистая.
+    Применяется ко ВСЕМ источникам (раньше год проверялся только у Discogs → Beatport
+    пропускал Gorillaz 2001; BPM-фильтр обходился при bpm=0 → пролезал 150 BPM).
+    """
+    try:
+        y = int(track.get("year") or 0)
+    except (ValueError, TypeError):
+        y = 0
+    if y and year_lo and year_hi and not (year_lo <= y <= year_hi):
+        return False
+    try:
+        b = float(track.get("bpm") or 0)
+    except (ValueError, TypeError):
+        b = 0.0
+    if b and bpm_lo and bpm_hi and not (bpm_lo - bpm_tol <= b <= bpm_hi + bpm_tol):
+        return False
+    return True
+
+
+def global_bpm_bounds(config: dict) -> tuple[float | None, float | None]:
+    """Общие границы BPM по всем сегментам (объединение bpm_range). Чистая."""
+    los, his = [], []
+    for s in config.get("segments", []):
+        rng = s.get("bpm_range") or []
+        if len(rng) == 2:
+            los.append(rng[0]); his.append(rng[1])
+    return (min(los), max(his)) if los else (None, None)
+
+
 def select_mix(verified: list[dict], config: dict,
                speed: str = "thorough") -> list[dict]:
     """Отобрать по seg['count'] на каждый сегмент, сохраняя порядок сегментов.
@@ -1685,6 +1719,19 @@ def main():
             f"{track['artist']} — {track['track']} "
             f"({track['bpm'] or '?'} BPM, {track['camelot'] or '?'})\n"
         )
+
+    # ════════════════════════════════════════════════════════════
+    # ШАГ 4.35: грубый гейт года/BPM — режем явно лишнее (Gorillaz 2001, 150 BPM)
+    # по ВСЕМ источникам; неизвестные метаданные не трогаем (добьёт enrich/local).
+    # ════════════════════════════════════════════════════════════
+    _ylo, _yhi = (min(years), max(years)) if years else (None, None)
+    _blo, _bhi = global_bpm_bounds(config)
+    _before = len(verified)
+    verified = [t for t in verified if passes_sanity(t, _ylo, _yhi, _blo, _bhi)]
+    _dropped = _before - len(verified)
+    if _dropped:
+        print(f"Гейт года/BPM: отброшено {_dropped} вне рамок "
+              f"(год {_ylo}–{_yhi}, BPM {_blo}–{_bhi}); неизвестные оставлены.")
 
     # ════════════════════════════════════════════════════════════
     # ШАГ 4.5: СБОРКА по траектории (порядок сегментов + BPM-ramp/harmonic)

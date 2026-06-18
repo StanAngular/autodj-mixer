@@ -635,3 +635,30 @@ class TestHarmonicOrderMinimizesDistance:
         ]
         out = ct._harmonic_order(tracks)
         assert [t["track"] for t in out] == ["start", "near", "clash"]
+
+
+# ── Гейт года/BPM (P25): грубая отбраковка пула ────────────────────────────
+
+class TestPassesSanity:
+    def test_drops_wrong_year(self):
+        # Gorillaz 2001 при брифе 2025-2026 — режем
+        assert ct.passes_sanity({"year": 2001, "bpm": 124}, 2025, 2026, 118, 128) is False
+    def test_drops_wrong_bpm(self):
+        # Addison Rae 150 BPM при tech house ~124 — режем
+        assert ct.passes_sanity({"year": 2025, "bpm": 150}, 2025, 2026, 118, 128) is False
+    def test_keeps_in_range(self):
+        assert ct.passes_sanity({"year": 2025, "bpm": 124}, 2025, 2026, 118, 128) is True
+    def test_keeps_unknown_metadata(self):
+        # Path B: ни года, ни BPM — НЕ режем (добьёт local_enrich)
+        assert ct.passes_sanity({"camelot": ""}, 2025, 2026, 118, 128) is True
+        assert ct.passes_sanity({"year": 0, "bpm": 0}, 2025, 2026, 118, 128) is True
+    def test_bpm_tolerance(self):
+        assert ct.passes_sanity({"bpm": 129}, None, None, 118, 128, bpm_tol=2) is True   # 128+2
+        assert ct.passes_sanity({"bpm": 131}, None, None, 118, 128, bpm_tol=2) is False
+
+class TestGlobalBpmBounds:
+    def test_union_of_segments(self):
+        cfg = {"segments": [{"bpm_range": [118, 124]}, {"bpm_range": [122, 128]}]}
+        assert ct.global_bpm_bounds(cfg) == (118, 128)
+    def test_no_ranges(self):
+        assert ct.global_bpm_bounds({"segments": [{}]}) == (None, None)
