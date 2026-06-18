@@ -76,9 +76,28 @@ def mix_config_entries(candidates: list[dict]) -> list[tuple]:
     return entries
 
 
+def filter_entries_by_available(entries: list[tuple], available_ids: set) -> list[tuple]:
+    """
+    Оставить только записи, чей WAV реально скачан (video_id ∈ available_ids).
+    Чистая функция. Снимает проблему сбоев загрузки (403 и т.п.): нескачанные
+    треки выпадают из mix_config автоматически, без ручной правки.
+    """
+    out = []
+    for label, wav, txt in entries:
+        vid = wav[:-4] if wav.endswith(".wav") else wav
+        if vid in available_ids:
+            out.append((label, wav, txt))
+    return out
+
+
 def render_mix_config(candidates: list[dict], wav_dir: str, ann_dir: str,
-                      target_lufs: float = -14.0) -> str:
-    """Сгенерировать содержимое mix_config_*.py из результата курации. Чистая функция."""
+                      target_lufs: float = -14.0,
+                      available_ids: set | None = None) -> str:
+    """Сгенерировать содержимое mix_config_*.py из результата курации. Чистая функция.
+    available_ids задан → оставить только реально скачанные треки (после загрузки)."""
+    entries = mix_config_entries(candidates)
+    if available_ids is not None:
+        entries = filter_entries_by_available(entries, available_ids)
     lines = [
         "#!/usr/bin/env python3",
         '"""Авто-сгенерирован curation_bridge из результата курации (порядок траектории)."""',
@@ -88,7 +107,7 @@ def render_mix_config(candidates: list[dict], wav_dir: str, ann_dir: str,
         "",
         "TRACKS = [",
     ]
-    for label, wav, txt in mix_config_entries(candidates):
+    for label, wav, txt in entries:
         lines.append(f'    ({label!r}, {wav!r}, {txt!r}),')
     lines.append("]")
     return "\n".join(lines) + "\n"
@@ -137,12 +156,16 @@ def recommend_analysis(candidates: list[dict]) -> dict:
 
 def _main():
     import argparse
+    import glob
     import os
     ap = argparse.ArgumentParser(description="Мостик курация → микшер")
     ap.add_argument("candidates", help="curator_candidates.json")
     ap.add_argument("--name", default="mymix", help="имя микса (для файлов конфига)")
     ap.add_argument("--wav-dir", default="/opt/autodj-mixer/shared/tracks")
     ap.add_argument("--ann-dir", default="/opt/autodj-mixer/shared/ann")
+    ap.add_argument("--prune-wav-dir", metavar="DIR",
+                    help="ПОСЛЕ загрузки: пересобрать конфиг только из реально скачанных "
+                         "WAV в DIR (отсекает сбои загрузки без ручной правки)")
     args = ap.parse_args()
 
     with open(args.candidates, encoding="utf-8") as f:
@@ -151,10 +174,23 @@ def _main():
         print("ОШИБКА: пустой или неверный curator_candidates.json")
         return
 
-    urls = extract_urls(candidates)
     cfg_path = f"mix_config_{args.name}.py"
     urls_path = f"urls_{args.name}.txt"
 
+    # Режим пересборки (после загрузки): только реально скачанные треки
+    if args.prune_wav_dir:
+        available = {os.path.basename(p)[:-4]
+                     for p in glob.glob(os.path.join(args.prune_wav_dir, "*.wav"))}
+        total = len(mix_config_entries(candidates))
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            f.write(render_mix_config(candidates, args.wav_dir, args.ann_dir,
+                                      available_ids=available))
+        kept = len(filter_entries_by_available(mix_config_entries(candidates), available))
+        print(f"Пересобран {cfg_path}: {kept}/{total} треков (отсеяно нескачанных: {total - kept})")
+        print(f"  python3 run_pipeline.py --wav-dir {args.wav_dir} --ann-dir {args.ann_dir} --config {cfg_path}")
+        return
+
+    urls = extract_urls(candidates)
     with open(urls_path, "w", encoding="utf-8") as f:
         f.write("\n".join(urls) + "\n")
     with open(cfg_path, "w", encoding="utf-8") as f:
@@ -166,7 +202,7 @@ def _main():
     print(f"mix_config → {cfg_path} (в порядке траектории, реальные названия)")
     print(f"\nАнализ: madmom — обязательно. {rec['reason']}")
     print("\nСледующие шаги (на сервере, под xvfb для headed-частей):")
-    print(f"  python3 yt_download.py {urls_path}")
+    print(f"  python3 yt_download.py --url-file {urls_path}")
     print(f"  python3 batch_annotate.py            # madmom даунбиты → {args.ann_dir}")
     if rec["a1f"]:
         import a1f
@@ -174,6 +210,8 @@ def _main():
         print(f"  # A1F рекомендован (режим {rec['a1f_mode']}). Пример вызова на трек:")
         print(f"  {a1f_cmd}")
         print(f"  # {rec['note']}")
+    print(f"  # если часть треков не скачалась — пересобрать конфиг под реальные файлы:")
+    print(f"  python3 curation_bridge.py {args.candidates} --name {args.name} --prune-wav-dir {args.wav_dir}")
     print(f"  python3 run_pipeline.py --wav-dir {args.wav_dir} --ann-dir {args.ann_dir} --config {cfg_path}")
 
 

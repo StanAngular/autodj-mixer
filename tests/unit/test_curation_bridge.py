@@ -85,3 +85,34 @@ class TestA1fMode:
     def test_note_present(self):
         r = cb.recommend_analysis([{"segment": "s", "bpm": 124}])
         assert "Demucs" in r["note"]
+
+
+class TestPruneByAvailable:
+    def _entries(self):
+        return [
+            ("Intro", "aaaaaaaaaaa.wav", "aaaaaaaaaaa.txt"),
+            ("Peak",  "bbbbbbbbbbb.wav", "bbbbbbbbbbb.txt"),
+            ("Lost",  "ccccccccccc.wav", "ccccccccccc.txt"),  # не скачался
+        ]
+
+    def test_filter_keeps_only_available(self):
+        avail = {"aaaaaaaaaaa", "bbbbbbbbbbb"}
+        out = cb.filter_entries_by_available(self._entries(), avail)
+        assert [e[0] for e in out] == ["Intro", "Peak"]      # порядок сохранён, Lost отсеян
+
+    def test_render_with_available_prunes(self):
+        cands = [
+            {"artist": "A", "track": "Intro", "youtube_url": _yt("aaaaaaaaaaa")},
+            {"artist": "B", "track": "Lost",  "youtube_url": _yt("ccccccccccc")},
+        ]
+        src = cb.render_mix_config(cands, "/w", "/a", available_ids={"aaaaaaaaaaa"})
+        ns = {}
+        exec(compile(src, "<gen>", "exec"), ns)
+        assert len(ns["TRACKS"]) == 1 and ns["TRACKS"][0][0] == "Intro"
+
+    def test_render_without_available_keeps_all(self):
+        cands = [{"artist": "A", "track": "X", "youtube_url": _yt("aaaaaaaaaaa")}]
+        src = cb.render_mix_config(cands, "/w", "/a")        # available_ids=None → без прунинга
+        ns = {}
+        exec(compile(src, "<gen>", "exec"), ns)
+        assert len(ns["TRACKS"]) == 1
