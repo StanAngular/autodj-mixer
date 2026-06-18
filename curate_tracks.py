@@ -377,6 +377,7 @@ def format_approval_table(tracks: list[dict], target_camelot: str = "") -> str:
     rel_short = {
         "exact match": "=", "wheel neighbour": "▸±1",
         "major/minor swap": "▸maj/min", "diagonal energy boost": "▸energy",
+        "clash": "▸⚠скачок",
     }
 
     for seg, items in segments.items():
@@ -457,30 +458,22 @@ def discovery_rank(tracks: list[dict], mode: str = "popular") -> list[dict]:
 
 def _harmonic_order(tracks: list[dict]) -> list[dict]:
     """
-    Жадный гармонический проход: каждый следующий трек максимально совместим по
-    Camelot с предыдущим (exact > сосед/relative > diagonal). Треки без Camelot
-    идут в конец в исходном порядке. Чистая, детерминированная функция.
+    Жадный гармонический проход: каждый следующий трек МИНИМАЛЬНО далёк по Camelot
+    от предыдущего (camelot_distance: 0 exact → 1 сосед/relative → 2 диагональ →
+    ≥3 клэш). Так далёкие скачки (8A→3B) выбираются только когда ближе нет ничего.
+    Треки без Camelot — в конец в исходном порядке. Чистая, детерминированная.
     """
     with_key = [t for t in tracks if t.get("camelot")]
     no_key   = [t for t in tracks if not t.get("camelot")]
     if not with_key:
         return list(tracks)
 
-    rel_score = {"exact match": 3, "wheel neighbour": 2,
-                 "major/minor swap": 2, "diagonal energy boost": 1}
     remaining = with_key[:]
     ordered = [remaining.pop(0)]
     while remaining:
         last = ordered[-1]["camelot"]
-
-        def score(t):
-            try:
-                return rel_score.get(camelot_relation(last, t["camelot"]), 0)
-            except Exception:
-                return 0
-
-        # стабильная сортировка: при равенстве сохраняется исходный порядок
-        remaining.sort(key=score, reverse=True)
+        # стабильная сортировка по возрастанию расстояния: при равенстве — исходный порядок
+        remaining.sort(key=lambda t: camelot_distance(last, t["camelot"]))
         ordered.append(remaining.pop(0))
     return ordered + no_key
 
@@ -922,13 +915,34 @@ def camelot_relation(target: str, found: str) -> str:
 
     if found == target:
         return "exact match"
-    if f_let == t_let and abs(f_num - t_num) == 1:
-        return "wheel neighbour"
-    if f_let == t_let and abs(f_num - t_num) == 11:
+    if f_let == t_let and abs(f_num - t_num) in (1, 11):
         return "wheel neighbour"
     if f_num == t_num and f_let == opposite:
         return "major/minor swap"
-    return "diagonal energy boost"
+    # Настоящий diagonal energy boost: смена лада + СОСЕДНИЙ номер (±1). Далёкие
+    # пары (напр. 8A→3B) — это клэш, НЕ «буст» (раньше попадали сюда catch-all'ом).
+    if f_let == opposite and abs(f_num - t_num) in (1, 11):
+        return "diagonal energy boost"
+    return "clash"
+
+
+def camelot_distance(a: str, b: str) -> int:
+    """
+    Расстояние на колесе Camelot (0 = тот же ключ). Чистая функция.
+    0 exact · 1 сосед/relative · 2 диагональ · ≥3 клэш. Нет ключа → большое (99).
+    Используется для гармонического порядка (минимизировать скачки).
+    """
+    try:
+        na = int(re.match(r'(\d+)', a).group(1)); la = a[-1]
+        nb = int(re.match(r'(\d+)', b).group(1)); lb = b[-1]
+    except (AttributeError, ValueError, TypeError):
+        return 99
+    ring = min((na - nb) % 12, (nb - na) % 12)      # 0..6 шагов по колесу
+    if la == lb:
+        return ring                                  # тот же лад
+    if na == nb:
+        return 1                                     # relative major/minor
+    return ring + 1                                  # смена лада + ход по колесу
 
 
 # ─── Верификация через yt-dlp ─────────────────────────────────────────────────

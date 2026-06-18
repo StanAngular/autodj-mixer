@@ -588,12 +588,12 @@ class TestHarmonicChainTrace:
         tracks = [
             {"track": "a", "camelot": "8A", "bpm": 124},
             {"track": "b", "camelot": "8A", "bpm": 124},   # = (exact, smooth)
-            {"track": "c", "camelot": "9A", "bpm": 125},   # ±1 (neighbour, smooth)
-            {"track": "d", "camelot": "3B", "bpm": 126},   # diagonal energy (агрессивно)
+            {"track": "c", "camelot": "9B", "bpm": 125},   # 8A→9B diagonal (энергетич.)
+            {"track": "d", "camelot": "3A", "bpm": 126},   # 9B→3A далёкий клэш (скачок)
         ]
         out = ct.harmonic_chain_trace(tracks)
-        assert "плавных 2/3" in out and "энергетич. 1/3" in out
-        assert "↑energy" in out
+        assert "плавных 1/3" in out and "энергетич. 1/3" in out and "скачков 1/3" in out
+        assert "↑energy" in out and "⚠скачок" in out
 
     def test_empty(self):
         assert ct.harmonic_chain_trace([]) == ""
@@ -601,3 +601,37 @@ class TestHarmonicChainTrace:
     def test_handles_missing_camelot(self):
         out = ct.harmonic_chain_trace([{"track": "x"}, {"track": "y"}])
         assert "?" in out          # не падает на отсутствующем Camelot
+
+
+# ── Гармонический порядок (P20): distance + clash + ordering ───────────────
+
+class TestCamelotDistance:
+    def test_exact_neighbour_relative_diagonal_clash(self):
+        assert ct.camelot_distance("8A", "8A") == 0      # exact
+        assert ct.camelot_distance("8A", "9A") == 1      # сосед
+        assert ct.camelot_distance("8A", "8B") == 1      # relative
+        assert ct.camelot_distance("8A", "9B") == 2      # диагональ
+        assert ct.camelot_distance("8A", "3B") == 6      # клэш
+        assert ct.camelot_distance("10A", "4A") == 6     # клэш (тот же лад, далеко)
+        assert ct.camelot_distance("12A", "1A") == 1     # wrap-around
+
+    def test_no_key(self):
+        assert ct.camelot_distance("", "8A") == 99
+
+class TestCamelotRelationClash:
+    def test_far_pair_is_clash_not_boost(self):
+        assert ct.camelot_relation("8A", "3B") == "clash"
+        assert ct.camelot_relation("10A", "4A") == "clash"
+    def test_true_diagonal_still_boost(self):
+        assert ct.camelot_relation("8A", "9B") == "diagonal energy boost"
+
+class TestHarmonicOrderMinimizesDistance:
+    def test_avoids_clash_when_neighbour_available(self):
+        # из 8A: сосед 9A (dist 1) должен идти раньше клэша 3B (dist 6)
+        tracks = [
+            {"track": "start", "camelot": "8A"},
+            {"track": "clash", "camelot": "3B"},
+            {"track": "near",  "camelot": "9A"},
+        ]
+        out = ct._harmonic_order(tracks)
+        assert [t["track"] for t in out] == ["start", "near", "clash"]
