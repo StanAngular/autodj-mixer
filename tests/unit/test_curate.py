@@ -579,3 +579,25 @@ class TestEnrichPoolDemandGate:
         still_incomplete = [t for t in out if not t.get("bpm")]
         assert len(still_incomplete) == 5
         assert len(out) == 15
+
+
+# ── Видимость курации (P19): гармоническая цепочка ─────────────────────────
+
+class TestHarmonicChainTrace:
+    def test_smooth_energy_jump_counted(self):
+        tracks = [
+            {"track": "a", "camelot": "8A", "bpm": 124},
+            {"track": "b", "camelot": "8A", "bpm": 124},   # = (exact, smooth)
+            {"track": "c", "camelot": "9A", "bpm": 125},   # ±1 (neighbour, smooth)
+            {"track": "d", "camelot": "3B", "bpm": 126},   # diagonal energy (агрессивно)
+        ]
+        out = ct.harmonic_chain_trace(tracks)
+        assert "плавных 2/3" in out and "энергетич. 1/3" in out
+        assert "↑energy" in out
+
+    def test_empty(self):
+        assert ct.harmonic_chain_trace([]) == ""
+
+    def test_handles_missing_camelot(self):
+        out = ct.harmonic_chain_trace([{"track": "x"}, {"track": "y"}])
+        assert "?" in out          # не падает на отсутствующем Camelot

@@ -544,6 +544,45 @@ def trajectory_summary(tracks: list[dict]) -> str:
     return line
 
 
+def harmonic_chain_trace(tracks: list[dict]) -> str:
+    """
+    Компактный трейс гармонической цепочки: Camelot-отношение между соседними
+    треками + счёт плавных/скачков + BPM. Чистая функция — видно, как собран
+    микс по ключам и где большие скачки Camelot (POOR-переходы).
+    """
+    if not tracks:
+        return ""
+    smooth_rel = {"exact match": "=", "wheel neighbour": "±1", "major/minor swap": "maj↔min"}
+    lines = ["Гармоническая цепочка (как собрано по Camelot/BPM):"]
+    smooth = energy = jumps = 0
+    prev = ""
+    for i, t in enumerate(tracks, 1):
+        cam = t.get("camelot") or "?"
+        bpm = t.get("bpm") or "?"
+        mark = ""
+        if prev and cam != "?" and prev != "?":
+            try:
+                rel = camelot_relation(prev, cam)
+            except Exception:
+                rel = ""
+            if rel in smooth_rel:
+                mark = f"   {prev}→{cam} {smooth_rel[rel]}"
+                smooth += 1
+            elif rel == "diagonal energy boost":
+                mark = f"   {prev}→{cam} ↑energy"     # агрессивно — микшер часто рейтит POOR
+                energy += 1
+            else:
+                mark = f"   {prev}→{cam} ⚠скачок"
+                jumps += 1
+        name = (t.get("track") or t.get("artist") or "?")[:26]
+        lines.append(f"  {i:2}. {str(cam):>3} {str(bpm):>3}bpm  {name}{mark}")
+        prev = cam
+    total = smooth + energy + jumps
+    if total:
+        lines.append(f"  → плавных {smooth}/{total} · энергетич. {energy}/{total} · скачков {jumps}/{total}")
+    return "\n".join(lines)
+
+
 # ─── Умный селектор: count лучших на сегмент (якоря + гармония) ───────────────
 
 def select_segment_tracks(candidates: list[dict], count: int,
@@ -1637,7 +1676,15 @@ def main():
     # ШАГ 4.5: СБОРКА по траектории (порядок сегментов + BPM-ramp/harmonic)
     # ════════════════════════════════════════════════════════════
     # ШАГ 4.4: умный отбор — count лучших на сегмент (якоря + гармония)
+    _pre: dict[str, int] = {}
+    for t in verified:
+        _pre[t.get("segment", "")] = _pre.get(t.get("segment", ""), 0) + 1
     verified = select_mix(verified, config, config["speed"])
+    _post: dict[str, int] = {}
+    for t in verified:
+        _post[t.get("segment", "")] = _post.get(t.get("segment", ""), 0) + 1
+    _sel = " · ".join(f"{s or 'mix'}: {_pre.get(s, 0)}→{n}" for s, n in _post.items())
+    print(f"\nОтбор (из пула с запасом → выбрано на сегмент): {_sel}")
 
     verified = assemble_mix(verified, config["trajectory"])
     _curve = trajectory_summary(verified)
@@ -1649,14 +1696,19 @@ def main():
     # ════════════════════════════════════════════════════════════
     final: list[dict] = []
 
+    # Таблица плейлиста печатается ВСЕГДА — видимость и в агентском режиме
+    print("\n═══ ШАГ 5: Плейлист ═══")
+    print(format_approval_table(verified, approval_key))
+    _playlist = build_youtube_playlist_url(verified)
+    if _playlist:
+        print(f"\n▶ YouTube-плейлист (превью всего сета): {_playlist}")
+    print("\n" + harmonic_chain_trace(verified))
+
     if args.no_approve or not sys.stdin.isatty():
         final = verified[:total_count]
+        print(f"\n(неинтерактивный режим — принято {len(final)} треков без правок)")
     else:
-        print("\n═══ ШАГ 5: Апрув плейлиста ═══")
-        print(format_approval_table(verified, approval_key))
-        if _curve:
-            print(_curve)
-        print(f"{'─'*55}")
+        print(f"\n{'─'*55}")
         print("Введи номера треков для УДАЛЕНИЯ через пробел (или Enter для принятия всего):")
 
         try:
