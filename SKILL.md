@@ -2,531 +2,223 @@
 name: autodj-mixer
 category: software-development
 description: >-
-  AutoDJ Smart Mixer project: shared directory structure, A1F structural
-  analysis, Camelot key mixing, bar-by-bar warp, LR4 crossover, and quality
-  preservation chain.
+  AutoDJ Smart Mixer — operational guide for ALL agents (Hermes, MimoClaw, any
+  future operator). Covers agent rules & restrictions, data-retention policy,
+  the full brief→mix pipeline (curation → bridge → download → annotate → A1F →
+  mix → analyze → report), and hard-won DSP/annotation lessons.
 triggers:
-  - dj mix, audio mixing, crossfade
+  - dj mix, audio mixing, crossfade, "сделай микс", "склей треки", "смиксуй"
+  - curation, brief, tracklist, curate_tracks, curation_bridge
   - a1f analysis, structural segmentation, vocal intervals
-  - Camelot wheel, key detection, tonality
-  - enrich metadata, yt-dlp metadata, catalog build
-  - shared directory structure, dual-agent paths
+  - Camelot wheel, key detection, BPM, harmonic mixing
   - madmom, beat detection, annotation
   - pyrubberband, bar-by-bar warp, LR4 crossover
-  - genre detection, genre profiles
-  - AI transition, ACE-Step repaint
-  - mix analysis, artefact detection, quality validation
-  - catbox upload
-  - vps changelog
-  - user says "сделай микс", "склей треки", "смиксуй"
-tags: [audio, dj, mixing, production, automation, a1f, camelot]
+  - mix analysis, artefact detection, quality validation, catbox upload
+tags: [audio, dj, mixing, production, automation, a1f, camelot, agent-rules]
 ---
 
-# autodj-mixer — Hermes operational guide
+# autodj-mixer — operational guide for ALL agents
 
-**Canonical docs:** `/opt/autodj-mixer/SKILL.md` (GitHub — always up to date)
+**Canonical copy:** `/opt/autodj-mixer/SKILL.md` on GitHub (always current).
 **GitHub:** https://github.com/StanAngular/autodj-mixer
-
-**Loaded by both Hermes + ClaudeClaw (agent cclaw).**
+**Audience:** every agent that operates this pipeline — Hermes, MimoClaw (cclaw), and any future agent.
 
 ---
 
-## Shared directory structure (`/opt/autodj-mixer/shared/`)
+## §0 — ROLE & HARD RULES (read first, non-negotiable)
 
-Group `users` (775) — both agents have rwx access.
+You are an **OPERATOR of the pipeline, not its developer.** Your job is to *run* mixes and *report*, not to change how the machine works.
+
+1. **Never edit code or generated configs by hand.** Not `smart_mixer.py`, not `curate_tracks.py`, not `mix_config_*.py`, nothing. If something fails or doesn't add up → **report the exact log and STOP.** Code changes come ONLY as reviewed patches from the maintainer.
+2. **No background processing.** Run every step in the foreground with visible output. Background jobs get interrupted and hide failures (and hide sloppy work). If a step is slow, say so and wait in the foreground.
+3. **No improvisation, no skipping steps, no "creative" workarounds.** Follow the documented commands exactly. If a command doesn't work, that's a report, not a cue to invent another.
+4. **Never delete or alter data to "pass" a step.** (Retention cleanup in §1 is the only allowed deletion, and only AFTER delivery.)
+5. **Always SHOW the work** (see §6): the approval tracklist (with BPM/Camelot/YouTube links + playlist), the Camelot/BPM build process, the audio preview reel **with beeps**, and the final templated report.
+6. **Discipline:** `git pull` before work · `pytest tests/unit -q` before any push · one concern per commit · `git apply --check` before applying a patch · verify the pushed tree with `git log origin/main`, don't trust summaries · never invent commit hashes or specs.
+
+> If you ever find yourself about to edit a `.py` file, run something in the background, or skip the preview — **stop and report instead.**
+
+### Token efficiency & automation (compatible with the rules above)
+Goal: the agent issues **few commands** and carries **little in context**, while the user still sees everything that matters.
+- **Prefer one orchestrating command** over many manual ones (see §2 — the orchestrator runs the chain foreground).
+- **Scripts do the work and emit concise STRUCTURED output** — summary tables, JSON status, and the §6 artifacts — **not raw logs.** Report the structured summary, never paste verbose intermediate output (yt-dlp lines, Tunebat misses, DSP per-bar logs).
+- **Foreground and visible ≠ verbose.** Bounded, structured output keeps both control (§0) and low token use. "No background" is about not *hiding* work, not about dumping every log line.
+- This is a standing goal until the pipeline is fully hardened; new scripts/patches should default to a quiet structured mode with an opt-in verbose flag for debugging.
+
+---
+
+## §1 — DATA RETENTION POLICY
+
+WAV audio is huge and disposable; metadata is small and precious.
+
+- **WAV tracks (`shared/tracks/*.wav`) and the WAV mix are TEMPORARY.** After the mix is rendered AND delivered to the user, delete the WAVs (≈1 h grace). Keep only the **MP3** mix.
+- **Track metadata is PERMANENT** — it lives in the catalog (`shared/catalog/`): BPM, Camelot, A1F structure, `youtube_url`, genre. **Register tracks in the catalog BEFORE deleting their WAVs.** Tracks can always be re-downloaded from their `youtube_url`; their analysis is never repeated.
+- Net effect: persist **catalog + final MP3**; ephemeralize **WAVs**. This deletion is intended retention, distinct from the §0.4 prohibition on improvised deletion.
+
+---
+
+## §2 — PIPELINE (current, brief → MP3)
+
+The maintainer gives a **brief in plain text** (e.g. "получасовой melodic techno после полуночи, плавный рост, гармонично"). Turn it into a config, then run the chain. Do **not** ask for JSON — you build it.
+
+```
+brief (text)
+  → config            (brief_parser.py  OR  emit JSON yourself from --print-config-schema)
+  → curate_tracks.py  → cand.json   (+ APPROVAL table shown — §6)
+  → curation_bridge.py → urls + mix_config + analysis recommendation
+  → yt_download.py --url-file …       (WAV by video_id + downbeats)
+  → batch_annotate.py                 (madmom downbeats → shared/ann)
+  → [A1F fast] if recommended         (§5)
+  → curation_bridge.py --prune-wav-dir shared/tracks   (drop failed downloads)
+  → run_pipeline.py --config …        (preflight → smart_mixer → report)
+  → analyzer (transitions-only) + preview reel + catbox + report (§6)
+  → deliver MP3 → retention cleanup (§1)
+```
+
+### Config contract for agents
+You don't need to read source to build a config:
+```bash
+python3 curate_tracks.py --print-config-schema   # JSON schema + valid example, no network
+```
+Fields, enums (`speed`, `discovery`, `trajectory`), and a self-validating example come straight from this. Emit a config that matches it.
+
+### Canonical commands
+```bash
+cd /opt/autodj-mixer
+git pull
+
+# 1. Curation (APPROVAL MUST BE SHOWN — see §6; do not suppress it)
+xvfb-run --auto-servernum python3 curate_tracks.py --config brief.json --out cand.json
+
+# 2. Bridge → urls + mix_config (trajectory order, real names) + A1F recommendation
+python3 curation_bridge.py cand.json --name <mixname>
+
+# 3. Download (note: --url-file, NOT a bare filename)
+xvfb-run --auto-servernum python3 yt_download.py --url-file urls_<mixname>.txt
+
+# 4. Madmom downbeats
+python3 batch_annotate.py
+
+# 5. A1F fast — only if the bridge recommended it (it prints the exact command)
+
+# 6. Reconcile config to what actually downloaded (auto-drops 403/failed)
+python3 curation_bridge.py cand.json --name <mixname> --prune-wav-dir shared/tracks
+
+# 7. Mix (foreground; it's slow — A1F+DSP on N tracks can take 15-25 min)
+xvfb-run --auto-servernum python3 run_pipeline.py --config mix_config_<mixname>.py
+```
+
+> **Approval note:** the curated tracklist (with BPM/Camelot/YouTube links + playlist URL) must be shown to the user. `--no-approve` suppresses it — do **not** use it for real mixes. (A patch is making the table print even in agent/non-interactive mode; until then, surface `cand.json` contents to the user.)
+
+---
+
+## §3 — Shared directory structure (`/opt/autodj-mixer/shared/`)
+
+Group `users` (775) — all agents have rwx.
 
 | Path | Contents |
 |------|----------|
-| `shared/tracks/` | WAV files (gitignored via `*.wav`) |
-| `shared/ann/` | Madmom beat annotations (`.txt`) |
-| `shared/a1f_results/` | A1F analysis JSON + `[ID].meta.json` (yt-dlp metadata) |
-| `shared/catalog/` | `catalog_index.json`, `catalog_utils.py`, `update_catalog.py` |
+| `shared/tracks/` | WAV files (gitignored `*.wav`) — **temporary**, see §1 |
+| `shared/ann/` | madmom downbeat annotations (`.txt`, **time-based** — §7) |
+| `shared/a1f_results/` | A1F JSON + `[ID].meta.json` (yt-dlp metadata) |
+| `shared/catalog/` | `catalog_index.json`, `catalog_utils.py`, `update_catalog.py`, `delete_tracks.py` — **permanent** track data |
 
-**All code paths** point to `shared/` — no more `tracks/`, `ann/`, or `track_catalog/` in the codebase.
-
----
-
-## Pipeline (strict order)
-
-1. **Pre-analysis** — BPM + Camelot + optimal track order
-2. **A1F enrichment** — `enrich_metadata.py --all` (artist/title/genre/year, key + Camelot, vocal_intervals, youtube_url, is_russian). Mix numbering: `run_pipeline.py` assigns sequential `MIX-#` to each mix.
-3. **Preview** — send transition table to user, **wait for confirmation**
-4. **Mix** — `smart_mixer.py --wav-dir ./shared/tracks --ann-dir ./shared/ann`
-   - **Default:** `--analysis-mode a1f_fast` (fast, ~2-3 min/track, skip-Demucs — sufficient for most mixes; auto-upgrades to full A1F if vocal_density > 0.5)
-   - **A1F mode:** full Demucs + structural analysis (triggered automatically for vocal-heavy tracks or via explicit `--analysis-mode a1f`)
-5. **Analysis** — `mix_analyzer.py --feedback`
-6. **Validate** — `mix_validator.py`
-7. **Upload** — catbox; if file > 50MB → re-encode at 96kbps for Telegram: `ffmpeg -i mix.mp3 -b:a 96k mix_tg.mp3`
-8. **Article** — DJ AI001 format
-9. **Ask to delete** — offer to delete source tracks (WAV + ANN + A1F) via `shared/catalog/delete_tracks.py`
-
-**Token efficiency:** `a1f_fast` saves ~300k input tokens vs `a1f` (no A1F JSON loading, no Demucs wait). Default to `a1f_fast`. Auto-upgrades to full `a1f` when vocal_density > 0.5.
-
-**Automation:** `run_pipeline.py` does steps 3-8 in one call. Step 9 (ask to delete) is manual.
-**Never run full mix without preview + confirmation.**
+All code paths point to `shared/`. Keep perms 775 / group `users`.
 
 ---
 
-## Quick start
+## §4 — Curation
 
-```bash
-cd /opt/autodj-mixer
-.venv/bin/python smart_mixer.py \
-  --wav-dir ./shared/tracks \
-  --ann-dir ./shared/ann \
-  --output mix.mp3 \
-  --analysis-mode a1f_fast
-```
-
-## Enrich metadata for all tracks
-
-```bash
-cd /opt/autodj-mixer
-uv run python3 enrich_metadata.py --all
-```
-Fetches yt-dlp metadata → `shared/a1f_results/[ID].meta.json`
-Detects key (librosa) → adds `key` + `camelot` to A1F JSON
-Extracts vocal_intervals from A1F segments
-
-## New track workflow
-
-1. Download: `yt_download.py "https://youtube.com/watch?v=ID"` → WAV → `shared/tracks/`, ann → `shared/ann/`
-2. A1F analysis: `smart_mixer.py --wav-dir ... --analysis-mode a1f` auto-launches allin1fix in background
-3. Enrich: `enrich_metadata.py --ids ID`
-4. Register in catalog: `register_new_tracks.py`
-
-## Pitfalls
-
-- **Warp reconnect** between YouTube downloads (`warp-cli disconnect; sleep 1; connect; sleep 3`)
-- **Sequential only** for downloads — parallel = YouTube block
-- **git pull before mixing** — both agents work on the same repo
-- **Commit all related files together** (mixer + analyzer + CHANGELOG + SKILL.md + tools)
-- **Never rewrite analyzer** — add on top of v3+v2 hybrid
-- **fix_ht is v4** (med-based, commit b851b12) — not v1
-- **Shared dir permissions** — must be 775, group `users` for cclaw access
-- **WAV files** are gitignored — `.gitkeep` placeholder in `shared/tracks/`
-
-### norm_lufs headroom reverts (−3dB fix)
-
-The `norm_lufs()` function's `if pk > X` check **keeps reverting** from `0.707` (−3dB) back to `0.99` (−0.09dB) after patch sessions.  
-**Always verify before mixing:** `grep -n 'if pk >' smart_mixer.py` — must show `0.707`, not `0.99`.  
-Reason: a previous session's Fix 4 applied the change, but a later patch or merge overwrote it. This is the single most common regression in DSP fixes.
-
-**Last verified:** v16.3.3 (commit a11fc9c) — currently `0.707`. Check before each mix.
-
-### search_track_genre misclassifies vocal electronics as instrumental (✅ RESOLVED v16.5 — removed keyword guessing)
-
-`search_track_genre()` has an `electronic_keywords` block that sets `vocal_hint='instrumental'` for any title containing 'extended mix', 'remix', 'progressive', 'house', 'techno', etc. (lines 108–118).  
-
-**FIXED in v16.5:** Keyword-based genre detection is REMOVED from fallback. Style is passed via `--style`, fallback uses 24 bars always. `search_track_genre()` is preserved but no longer used for transition length decisions.
-
-### A1F CLI: --skip-separation requires existing Demucs stems
-
-`--skip-separation` skips Demucs **but still expects stems** in `./demix/htdemucs/<id>/bass.wav` etc. If stems don't exist, it crashes with `FileNotFoundError`.
-
-**Two options:**
-1. **Full pipeline** (slow): omit `--skip-separation` — runs Demucs + analysis in one step (~20 min/track on CPU)
-2. **Two-step** (for speed): manually run Demucs first in background, then A1F with `--skip-separation`
-
-**CRITICAL: Demucs MUST run with full 4-stem output (no --two-stems).**
-`--two-stems=vocals` produces only `vocals.wav` + `no_vocals.wav`, but ALL-IN-1-FIX expects all 4 stems: `bass.wav`, `drums.wav`, `other.wav`, `vocals.wav`. Using 2-stem output causes `FileNotFoundError: bass.wav`.
-
-**Correct (full 4-stem):**
-```bash
-cd /opt/autodj-mixer
-demucs "shared/tracks/ID.wav" -o demix
-/home/hermes/ai-tools/all-in-one-fix/venv/bin/python -m allin1fix.cli \
-  "shared/tracks/ID.wav" -o "shared/a1f_results" --skip-separation
-```
-
-**Wrong (2-stem only — DON'T use for A1F):**
-```bash
-demucs --two-stems=vocals "shared/tracks/ID.wav" -o demix  # ❌ no bass/drums/other
-```
-
-**Correct flag:** `-o OUT_DIR` or `--out-dir`, NOT `--output` (that's argparse-internal and won't work).
-
-### Demucs on CPU — performance
-
-On Contabo VPS (no GPU), Demucs htdemucs takes **~20 min per track** (full length). For batch processing of N tracks:
-- Start Demucs in background with `notify_on_complete=true`
-- Meanwhile, generate the mix with `--analysis-mode no_a1f` (madmom + keyword fallback)
-- After Demucs completes all tracks, run A1F (`--skip-separation`) for future mixes with A1F segments
-
-**Note:** The demo/download `demucs` package name collides with `dmucs` (Debian distributed compilation tool) on some VPS installs. Use the full path or `python3 -m demucs` to avoid the wrong binary.
-
-**Practical advice:** `a1f_fast` (skip-Demucs) mode is sufficient for ~80% of mixes (especially instrumental/single-genre). Full A1F is auto-triggered for vocal-heavy tracks (vocal_density > 0.5). Always default to `a1f_fast` for token efficiency and speed; the auto-upgrade mechanism ensures vocal precision without manual intervention.
-
-### Demucs on CPU — performance
-
-On Contabo VPS (no GPU), Demucs htdemucs takes **~20 min per track** (full length). For batch processing of N tracks:
-- Start Demucs in background with `notify_on_complete=true`
-- Meanwhile, generate the mix with `--analysis-mode no_a1f` (madmom + keyword fallback)
-- After Demucs completes all tracks, run A1F (`--skip-separation`) for future mixes with A1F segments
-
-**Note:** The demo/download `demucs` package name collides with `dmucs` (Debian distributed compilation tool) on some VPS installs. Use the full path or `python3 -m demucs` to avoid the wrong binary.
-
-### sections() filtfilt crashes on very short audio
-
-`sections()` applies `scipy.signal.filtfilt` to `mono` audio. If the trimmed segment (`at = audio[s0:e0]`) is near-zero length (e.g., a track classified entirely as QUIET with early downbeats), `filtfilt` raises:
-```
-ValueError: The length of the input vector x must be greater than padlen, which is 9.
-```
-**Fix:** Guard the call:
-```python
-if len(mono) > 20:
-    mono_low = signal.filtfilt(b_low, a_low, mono)
-else:
-    mono_low = np.zeros_like(mono)
-```
-This is already patched in the codebase. If it reappears, check that the guard is still present.
-
-### Dead code removal must check all callers
-
-When removing unused functions (e.g., during "Чистка мёртвого кода"), `grep -rn` for the function name across `smart_mixer.py` **before deleting**. Deleted functions that are still called at runtime cause a `NameError` crash.
-
-**Known casualties:**
-- `first_active()` — used in `mix_tracks()` at line ~1637 to find the first ACTIVE bar
-- `first_soft_entry()` — used at line ~1639 to find the first BUILD bar for slave entry
-- `best_exit_bar()`, `first_soft_entry()`, `first_active()`, `EXIT_SCORE`, `quiet_exit()` — removed in v16.3.5 cleanup
-
-**Fix when this happens:** replace the call with an inline expression:
-```python
-# Instead of first_active(st):
-fa = next((s for s, e, l in st if l in ('ACTIVE', 'DROP')), 0)
-
-# Instead of first_soft_entry(st):
-se = next((s for s, e, l in st if l == 'BUILD'), fa)
-```
-
-### Annotation format: sample positions vs time in seconds
-
-`load_dbeats()` (line ~354) does `int(r[0] * sr)` — it expects the first column of `.txt` annotation files to be **time in seconds**, NOT sample positions.
-
-**Correct format (time-based):**
-```
-0.050000 1
-0.510000 2
-```
-Generated with: `np.savetxt(path, rows, fmt="%.6f %d")`
-
-**Wrong format (sample-based) — causes crash:**
-```
-88200 1
-17090955 4
-```
-Generated with: `np.savetxt(path, beats_samps, fmt="%d %d")`
-
-**Symptom:** `load_dbeats()` returns enormous values (sample × 44100), then `audio[s0:e0]` produces nearly-empty arrays, causing cascading failures in `filtfilt` and `norm_lufs`.
-
-**Detection:** Check the first value of any annotation file:
-```bash
-head -1 shared/ann/ID.txt | awk '{print $1}'
-```
-- Time-based: value contains a decimal point (e.g., `0.05`)
-- Sample-based: value is an integer (e.g., `441`, `88200`)
-
-**Fix:** Re-annotate using madmom directly with time output:
-```python
-act = RNNDownBeatProcessor()(wav)
-beats = proc(act)
-rows = [[b[0], int(round(b[1]))] for b in beats if int(round(b[1])) in (1,2,3,4)]
-np.savetxt(out, rows, fmt="%.6f %d")
-```
-
-**Reference:** `references/madmom-annotation-fix-2026-06.md`
-
-### A1F CLI: --skip-separation requires existing Demucs stems
-
-**Reference:** `references/madmom-annotation-fix-2026-06.md`
-
-### A1F energy blindspot — segments don't capture energy (✅ RESOLVED v16.3.5)
-
-A1F segments (intro/verse/chorus/bridge/inst/outro) are **functional labels**, not energy levels. The same `inst` label can mean QUIET (calm breakdown) or DROP (peak energy).
-
-**Resolution:** `HYBRID_SCORE` matrix (v16.3.5) combines A1F label + RMS energy label per bar:
-- `inst+QUIET=2` (good exit) vs `inst+DROP=5` (blocked)
-- `outro+DROP=3` (ok) vs `verse+QUIET=4` (still better)
-- Plus energy-based cf_bars cap: both sides ACTIVE/DROP → max 4b
-
-**Reference:** `references/v1635-hybrid-a1f-rms-scoring.md`
-
-**Verify:**
-```bash
-grep -n 'HYBRID_SCORE\|bar_energy' smart_mixer.py
-```
-
-## Mix from scratch — genre workflow
-
-When creating a mix for a new genre from zero tracks, follow the workflow in `references/mix-from-scratch-genre-workflow.md`:
-
-1. **Track research** — yt-dlp search by genre + year filter + duration filter
-2. **Tracklist compilation** — Camelot chain, BPM smoothing, vocal distribution, energy curve
-3. **Download** — sequential with Warp reconnect between each
-4. **A1F analysis** — `allin1fix --skip-separation` for speed
-5. **Preview** — send tracklist + transition table → **wait for confirmation**
-6. **Mix** — full a1f mode with auto cf_bars
-7. **Analyze + Validate**
-8. **Upload** — catbox
-9. **Report** — transition table with BPM/Camelot/Drift/RMS + analysis verdict
-
-**Report template:**
-```
-=== [Genre] Mix [Year] — Отчёт ===
-📁 Файл: mix.mp3
-⏱ Длительность: MM:SS
-🔗 Catbox: https://litterbox.catbox.moe/XXXXX.mp3
-
-Треки: # | Исполнитель — Трек | BPM | Key | Вокал | Год
-Переходы: # | Time | Transition | BPM | Camelot | Drift | Entry RMS
-Анализ: P-score, артефакты, вердикт PASS/WARN/FAIL
-```
-
-### Docstring version drift
-
-`smart_mixer.py` docstring (line 3) — **Check on every commit:** `head -3 smart_mixer.py` — update to match `CHANGELOG.md`. Current: v16.5
-
----
-
-## v16.5 changes (2026-06-12)
-
-### Style-based fallback (removed keyword guessing)
-- **Removed `search_track_genre()` keyword matching from fallback** — больше не ищем 'house'/'techno'/'progressive' в названии трека. Стиль известен из `--style`, fallback использует 24 bars (~45s) всегда
-- **Minimum cf_bars raised in A1F mode:** 4→8, 8→12/16 bars — все переходы 20-60s, avg 30-40s, несколько 50-60s
-- `resolve_transition_params()` теперь использует style-параметр, не keyword-угадайку
-
-### 24dB/oct HPF→LPF (fix band_cancellation)
-- **EQ Sweep filter order: 2→4** (12dB/oct → 24dB/oct)
-- Круче срез = меньше фазового перекрытия = меньше band_cancellation артефактов ("эХА" звук на битах)
-- `smooth_eq=True` для всех режимов
-
-### Post-mix artifact analysis
-- `mix_analyzer.py --feedback` обязателен после каждого микса
-- band_cancellation > 300 = WARN, требует диагностики
-- **Always create transitions preview** — extract each transition ±1s from mix, concat with 0.5s gaps, upload to catbox
-
-### Extended transitions (20-60s)
-- **CF_BARS=24** default, **RAMP_SEC=25**
-- `outro→intro/inst` → **32 bars** (~60s @ 128 BPM)
-- `outro/break→verse/bridge` → **24 bars** (~45s)
-- Default A1F → **24 bars** (~45s)
-
-### A1F Fast default
-- `--analysis-mode a1f_fast` is now the **default** (skip-Demucs, ~2-3 min/track)
-- Saves ~300k tokens vs full A1F
-- Vocal-heavy auto-detection: if `track_vocal_density > 0.5` AND mode is `a1f_fast`, automatically launches full A1F (with Demucs) in background
-
-### Mix numbering
-- Each mix gets a sequential number: `MIX-#_Style_Date.mp3`
-- Counter stored in `.mix_counter`
-- Applied by `run_pipeline.py`
-
-### YouTube URL in catalog
-- `enrich_metadata.py` now saves `youtube_url` per track in meta.json
-- `catalog_utils.add_to_catalog()` accepts `youtube_url` parameter
-
-### delete_tracks.py
-- NEW interactive script to delete tracks by ID
-- Auto-recovery: removes from catalog + WAV + ANN + A1F
-
-### Russian track filter
-- `enrich_metadata.py` detects Russian tracks (keywords: русский, москва, россия, etc.)
-- Flags via `is_russian` field in meta.json
-
-### Report template
-- `mix_validator.py` updated with YouTube links section placeholder
-
-### After-mix cleanup
-- After each mix, **always ask** if user wants to delete source tracks
-- Interactive deletion via `shared/catalog/delete_tracks.py`
-
----
-
-## 🚀 AUTOMATION: delegation-first pipeline (token-efficient)
-
-**Цель:** Hermes — только оркестрация. Рутинные шаги — через `delegate_task()`. Результат — JSON/статус, без логов в контексте.
-
-### Pipeline с delegation
-
-```
-User: "сделай микс genre BPM Camelot"
-  │
-  ▼
-┌─ Hermes ──────────────────────────────────────────────────┐
-│  1. delegate_task(curator-node) → JSON 8-12 треков        │
-│     ↓ только JSON в контексте (~2KB), без 30 страниц web  │
-│                                                            │
-│  2. Валидация JSON + проверка catalog на дубликаты         │
-│                                                            │
-│  3. Preview пользователю + confirmation                    │
-│                                                            │
-│  4. delegate_task(download) → WAV + ANN готовы             │
-│     ↓ только статус в контексте (~1KB), без логов yt-dlp  │
-│                                                            │
-│  5. enrich_metadata + A1F + preflight                      │
-│                                                            │
-│  6. smart_mixer.py (post-mix hook сам запустит analyzer)   │
-│                                                            │
-│  7. DJ AGENT report + transitions preview                  │
-└────────────────────────────────────────────────────────────┘
-  │
-  ▼
-User: результат
-```
-
-### Token saving
-
-| Этап | Без delegation | С delegation | Экономия |
-|------|---------------|-------------|----------|
-| Research | ~50-80 web_search = 200K токенов | JSON = 2K | **~198K** |
-| Download | ~30 yt-dlp логов = 50K токенов | Статус = 1K | **~49K** |
-| **Итого** | **~250K** | **~3K** | **~247K (99%)** |
-
-### Когда delegation НЕ использовать
-
-- **Preview** — делаю сам (нужен контекст для треклиста)
-- **Mix** — `smart_mixer.py` сам по себе
-- **Debug/чинить ошибки** — если delegate вернул fail, я подключаюсь
-
-## 🚨 PIPELINE ENFORCEMENT (v16.7f — mandatory)
-
-**Нарушение любого правила = STOP. Не продолжать.**
-
-### Pre-flight (ОБЯЗАТЕЛЬНО перед каждым миксом)
-
-```bash
-# Шаг 0 — Pre-flight скрипт
-cd /opt/autodj-mixer && python3 run_preflight.py
-# Если ERROR → STOP, не запускать микс!
-```
-
-1. `python3 run_preflight.py` — проверка headroom, аннотаций, enrich, git, Demucs
-2. `enrich_metadata.py --all` — ВСЕ треки должны иметь meta.json с youtube_url
-3. Preview + подтверждение пользователя — **НЕ ПРОПУСКАТЬ**
-4. `git pull` — синхронизация с cclaw
-5. `git status` — проверить что нет незакоммиченных правок в smart_mixer.py
-
-### Post-mix (автоматически + вручную)
-
-6. **Analyzer запускается АВТОМАТИЧЕСКИ** (post-mix hook в `smart_mixer.py`)
-   - Проверить вывод: `band_cancellation > 300` = WARN
-7. CHANGELOG.md пишется **ДО** git commit
-8. Git: `git add` всех файлов одним коммитом (CHANGELOG + mixer + analyzer + SKILL.md + preflight + tools)
-9. Transitions preview: `stamps.npy` → ffmpeg нарезка ±1s → concat с 0.5s паузами (NO beeps)
-10. DJ AGENT отчёт: 2 сообщения с YouTube ссылками
-11. Спросить: удалить source tracks? Архив вокала?
-
-### Root causes of pipeline failures
-
-| Причина | Симптом | Фикс |
-|---------|---------|------|
-| Нетерпение агента | Пропуск preview | Pre-flight STOP при ERROR |
-| enrich не сделан | Нет youtube_url в отчёте | Шаг 2 обязателен |
-| annotation format | Crash в filtfilt | Pre-flight проверяет |
-| Demucs stems нет | A1F crash | Pre-flight warns |
-| headroom revert | Клиппинг -0.09dB | Pre-flight проверяет
-
----
-
-## 🎯 Curation pipeline (June 2026)
+Deterministic, no LLM in the loop (`curate_tracks.py`). Sources via `playwright_scraper.py` (Playwright + stealth, `headless=False` under `xvfb-run`).
 
 ### Sources status
+| Source | Status | Gives BPM/Camelot? |
+|--------|--------|--------------------|
+| **Beatport (beatport-tracks)** | ✅ primary | **Yes** — from `__NEXT_DATA__` (`item.bpm` + `item.key`→Camelot) |
+| Discogs API | ✅ | No (release DB; messy "Various"/feat names) |
+| Bandcamp | ✅ (via Warp SOCKS5) | No |
+| 1001Tracklists | ❌ Cloudflare blocks Warp IP | — (needs resident proxy) |
+| Resident Advisor | ❌ DataDome | — |
 
-| Source | Status | Proxy | Output |
-|--------|--------|-------|--------|
-| **Beatport Charts** | ✅ Работает | Не нужен | 42 DJ charts (плейлисты) |
-| **Beatport Chart Tracks** | ✅ Работает | Не нужен | **125 треков** с BPM + Camelot |
-| **Discogs API** | ✅ Работает | Не нужен | 37 треков |
-| **Bandcamp** | ✅ Работает | SOCKS5 Warp | 40 альбомов |
-| 1001tracklists | ❌ Cloudflare блок | Resident proxy | — |
-| Resident Advisor | ❌ DataDome блок | Resident proxy | — |
+### How enrichment works now (P15–P16)
+- **Beatport tracks already carry BPM + Camelot** — curation uses the `beatport-tracks` source and the conversion preserves them. They do **not** go to Tunebat.
+- **Tunebat is demand-driven (P16):** it runs *only* if complete tracks don't cover the segment (Beatport usually over-covers → 0 Tunebat calls). Tunebat is slow (~45 s/track) and matches Discogs's messy names poorly, so we feed it as little as possible. Never raise the curation timeout to "let Tunebat finish" — fix the supply instead (report it).
+- Enrichment results cache to `data/enrich_cache.json` (BPM/Camelot are stable, cache never goes stale).
 
-### Engine
-
-Весь скрейпинг — через `playwright_scraper.py`:
-- **Playwright + stealth** — обход Cloudflare
-- **headless=False + xvfb-run** — видимый браузер на VPS
-- **Случайные задержки** 800-2500ms между действиями
-- **SOCKS5_PROXY** — Cloudflare Warp для Bandcamp
-
-### Usage
-
-```bash
-# Один источник
-export SOCKS5_PROXY='socks5://127.0.0.1:40000'
-xvfb-run --auto-servernum uv run python3 playwright_scraper.py beatport-tracks --genre "tech house" -o tracks.json
-
-# Полный curator
-xvfb-run --auto-servernum uv run python3 curate_tracks.py \
-  --genre "techno" --bpm 140 --camelot 8A --count 3
-
-# Результат: 204+ треков в пуле, фильтр по BPM/Camelot, yt-dlp верификация
-```
-
-### What replaced RA?
-
-RA (Resident Advisor) и 1001TL заблокированы — оба требуют резидентский прокси (DataDome/Cloudflare).
-
-**Замена:** `beatport-tracks` — заходит в 10 DJ chart'ов на Beatport, парсит треки с BPM и Camelot напрямую из `__NEXT_DATA__`. Даёт **125 треков** с полными метаданными — больше, чем давали RA + 1001TL вместе.
-
-### Pipeline flow
-
-```
-curate_tracks.py:
-  1. 1001TL → ⛔ Cloudflare блок
-  2. Discogs API → 37 треков (без прокси)
-  3. Beatport Charts → 42 chart'а (без прокси)
-  4. Beatport Chart Tracks → 125 треков с BPM/Camelot (без прокси)
-  5. Bandcamp → 40 альбомов (через Warp)
-  ────────────────────────────────
-  Пул: ~204 трека
-  Фильтр BPM/Camelot: ~83 трека
-  yt-dlp верификация: 5/5
-  Итого: 3/3 треков отобрано ✅
-```
-
-### Key files
-
-- `playwright_scraper.py` — Playwright engine (stealth + delays + proxy)
-- `curate_tracks.py` — deterministic track curator (no LLM)
-- `yt_download.py` — YouTube download via yt-dlp + Warp
-
-### Fast test
-
-```bash
-cd /opt/autodj-mixer
-export SOCKS5_PROXY='socks5://127.0.0.1:40000'
-xvfb-run --auto-servernum uv run python3 curate_tracks.py \
-  --genre "techno" --bpm 140 --camelot 8A --count 3 --no-verify --no-approve
-```
+### Bridge (`curation_bridge.py`)
+- Builds `mix_config` in **trajectory order with real names**, mapped to `<video_id>.wav/.txt`.
+- `recommend_analysis` decides madmom-only vs **A1F fast** by indirect signals (multi-segment / BPM spread >16 / ≥12 tracks).
+- `--prune-wav-dir` rebuilds the config from **actually downloaded** WAVs (handles 403/failed downloads without manual edits).
 
 ---
 
-## 🧠 Critical lessons (Opus 4.7 audit, 2026-06-16)
+## §5 — A1F (All-In-One Music Structure Analyzer)
+
+External heavy ML tool (`all-in-one-fix`, namespace `allin1fix`) in its own venv — **not vendored**. Full setup in `docs/a1f-setup.md`.
+
+- **Path is portable:** resolved via `a1f.a1f_python()` (env **`A1F_PYTHON`**, fallback `~/ai-tools/all-in-one-fix/venv/bin/python`). On a new server just `export A1F_PYTHON=…` — no code edits.
+- **Two modes** (= Demucs on/off):
+  - **fast** (`--skip-separation`): CPU, 5–10× faster, gives beats/downbeats/segments. **Default.**
+  - **full** (Demucs): only for **vocal_intervals**; heavy. Manual choice for vocal-sensitive mixes.
+- A1F **downbeats replace madmom** when present; segments → bar labels. `activations`/`embeddings`/`beat_positions` are NOT used (`-a`/`-e` not passed) — don't enable them.
+- `--skip-separation` needs existing Demucs stems for full mode; in fast mode it's fine. If you hit `FileNotFoundError: bass.wav`, that's the stems gotcha — report, don't improvise.
+
+---
+
+## §6 — What you MUST show (reporting & delivery)
+
+1. **Approval tracklist** — # · Artist — Track · BPM · Camelot · year/date · **YouTube link**, plus the **YouTube playlist URL** for the whole set. Show it and let the user see it.
+2. **Camelot/BPM build** — surface how the set is built: oporni hits (anchors) + harmonic fill, the resulting Camelot chain and BPM curve. The user wants to *see* this, not just the final list.
+3. **Transitions preview reel** — `transitions_reel.py` renders the crossfade zones into one short MP3 **with audible beep markers** (440 Hz before each transition, 880 Hz between clips) and silence gaps. **Send the MP3 audio to the user**, not a text table.
+4. **Full mix** — final **MP3 @ 320k** uploaded to catbox/litterbox; give the link.
+5. **Final report (templated, with legend):**
+```
+=== [Concept] Mix [Date] — Отчёт ===
+📁 MP3: …   ⏱ MM:SS   🔗 catbox: …
+Треки:    # | Исполнитель — Трек | BPM | Camelot | Год | YouTube
+Переходы: # | Time | A→B | BPM | Camelot | Drift | Качество
+Анализ:   бит / LUFS / фаза, средний Cemgil, вердикт PASS/WARN/FAIL
+Легенда:  SAME=тот же ключ · ADJ=соседний по Camelot · POOR=большой скачок
+```
+
+### Analyzer (`mix_analyzer.py`) — use with care
+- **Run it ONLY on transition windows (±5 s around each crossfade), not the whole mix.** librosa on a 40-min WAV hangs/crashes. (Transitions-only mode is a pending patch — until then, analyze the preview reel, not the full WAV.)
+- **Don't trust it blindly.** It currently does **not** detect post-mix loudness jumps/spikes — verify by ear / by a loudness-jump check before declaring PASS. Treat its verdict as advisory.
+
+---
+
+## §7 — Critical technical lessons (DO NOT lose)
 
 ### Data model — Variant A (CANONICAL, do not drift)
-- `db` = **one downbeat per bar** (что даёт `load_dbeats` — только beat-position 1)
-- `calc_bpm()` = `240 / bar_seconds` — считает по **тактам**, не по битам
-- `fix_ht()` = **half/double correction only** (окно 85–165 BPM, конфигурируется)
-- **Инвариант:** `db` и `bpm` всегда согласованы. Внешний BPM (A1F) → пересобрать сетку, а не присвоить поверх старой (warp использует оба)
+- `db` = **one downbeat per bar** (what `load_dbeats` returns — beat-position 1 only).
+- `calc_bpm()` = `240 / bar_seconds` — counts **bars**, not beats.
+- `fix_ht()` = half/double correction only (window 85–165 BPM).
+- **Invariant:** `db` and `bpm` always consistent. External BPM (A1F) → **rebuild the grid**, don't paint over the old one (warp uses both).
+
+### Annotation format: TIME in seconds, not sample positions
+`load_dbeats()` does `int(r[0]*sr)` — first column must be **seconds**.
+- Correct: `0.050000 1` … generated `np.savetxt(path, rows, fmt="%.6f %d")`.
+- Wrong (crashes filtfilt/norm_lufs): `88200 1` (sample-based).
+- Detect: `head -1 shared/ann/ID.txt` — decimal = good, big integer = broken.
+- Fix: re-annotate with madmom (`RNNDownBeatProcessor` → `proc` → keep beat-pos 1–4, save time-based).
+
+### norm_lufs headroom revert (the #1 recurring regression)
+`norm_lufs()` `if pk > X` keeps reverting from `0.707` (−3 dB) to `0.99` (−0.09 dB) across sessions.
+**Verify before every mix:** `grep -n 'if pk >' smart_mixer.py` → must be `0.707`.
+
+### The 5 DSP bugs fixed (Phase 1, do not reintroduce)
+1. `fix_ht` ratio was dead (4 bars / 1 beat ≈16) → window 85–165 + `_grid_densify()`.
+2. A1F BPM was overwritten by `calc_bpm(db)` → A1F is the reference for grid rescale.
+3. "LR4" was `butter(2)` once (−12 dB/oct) → cascade `butter(2)×2` = true LR4 (−24 dB/oct).
+4. Bass hole in `build_cf_lr4` (eq_sweep LPF + fades double-attenuated lows) → constant-sum cos²/sin² on raw LR4, no eq_sweep on lows.
+5. `eq_sweep`/`_sweep_channel`/`_shelf_coeffs` were dead after #4 → removed.
+
+### Other guards already in place
+- `sections()` filtfilt crashes on near-zero-length audio → guard `if len(mono) > 20`.
+- Dead-code removal: `grep -rn` callers first. Known live helpers: `first_active()`, `first_soft_entry()`.
+- Warp reconnect between YouTube downloads; **sequential only** (parallel = block).
+- `demucs` package name can collide with `dmucs` — use full path / `python3 -m demucs`.
 
 ### Tests are the spec
-- Если код и тесты расходятся — **STOP, спросить человека**. Не переписывать код под тесты и не переписывать тесты под код молча
-- `pytest tests/unit` **перед каждым пушем** — CI был красным долгое время
-- Верифицировать DSP **численно** (RMS, АЧХ), а не по докстрингам — docstring может врать
-
-### Real bugs found in smart_mixer.py (all fixed)
-
-| # | Баг | Чем был | Фикс |
-|---|-----|---------|------|
-| 1 | **fix_ht ratio dead** | ratio делил 4 бара на 1 бит → ≈16 всегда, триггеры не срабатывали | Сравнение с окном 85–165 BPM + `_grid_densify()` |
-| 2 | **A1F BPM затирался** | `bpm = float(a1f_bpm)` → fix_ht() → `calc_bpm(db)` игнорировал присвоение | A1F = референс для rescale сетки |
-| 3 | **LR4 — не LR4** | `butter(2)` одним проходом = −3 dB/−12 dB/oct | Каскад `butter(2)×2` = честный −6 dB/−24 dB/oct |
-| 4 | **Bass-дыра в build_cf_lr4** | eq_sweep LPF 150→20 Гц на слейве + fast_fo/fast_fi → двойное ослабление + провал низа ~96% к концу перехода | Убран eq_sweep на низах, только constant-sum cos²/sin² на сырых LR4 |
-| 5 | **eq_sweep dead module** | eq_sweep, _sweep_channel, _shelf_coeffs нигде не вызывались после фикса #4 | Все три удалены (−108 строк) |
-
-### Workflow rules
-- `git apply --check <patch>` **перед** применением любого патча
-- `git log origin/main` — проверить что пуш лёг
-- Не выдумывать commit hashes/specs — ссылаться только на то, что показывает `git log` / `git grep`
-- Один concern на коммит
+- If code and tests disagree → **STOP, ask the maintainer.** Don't silently rewrite either.
+- `pytest tests/unit -q` before every push. Verify DSP numerically (RMS, frequency response), not by docstrings.
