@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""
+build_seedlist.py — собрать пул сидов для Path B из знания + last.fm.
+
+Превращает «стиль + несколько артистов» в список конкретных СИД-СТРОК
+('Артист - Трек'), готовых для seed_discover. Источники (по убыванию надёжности):
+  1. style_resolver.resolve(стиль) → seed_artists из дерева PulseRoots (без сети);
+  2. last.fm getSimilar(artist) — расширение вокруг сидов (по реальным прослушиваниям);
+  3. last.fm tag.getTopArtists(жанр) — жанрово-точные артисты;
+  4. last.fm getTopTracks(artist) — КОНКРЕТНЫЕ треки артиста (рабочая лошадка);
+  5. (опц., СЛАБО) geo.getTopArtists(страна) — «популярно В стране», НЕ «из страны»
+     (забито глобальной попсой: France→Ariana Grande). Включается флагом, помечается.
+
+Страновую ось «из страны» надёжнее задавать сид-артистами от агента — он знает
+национальности; last.fm их разворачивает. geo сам по себе для этого не годится.
+
+dedup_keep_order и tracks_to_seeds — чистые (тестируются офлайн). build_seedlist —
+тонкий I/O (last.fm + style_resolver).
+"""
+import json
+
+
+def dedup_keep_order(items: list[str]) -> list[str]:
+    """Дедуп без учёта регистра, сохраняя порядок первого появления. Чистая."""
+    seen, out = set(), []
+    for it in items:
+        k = (it or "").strip().lower()
+        if k and k not in seen:
+            seen.add(k)
+            out.append(it.strip())
+    return out
+
+
+def tracks_to_seeds(track_dicts: list[dict]) -> list[str]:
+    """[{artist, track}] → ['Артист - Трек'], пропуская пустые, с дедупом. Чистая."""
+    out = []
+    for t in track_dicts:
+        artist = (t.get("artist") or "").strip()
+        track = (t.get("track") or "").strip()
+        if artist and track:
+            out.append(f"{artist} - {track}")
+        elif track:
+            out.append(track)
+    return dedup_keep_order(out)
+
+
+def build_seedlist(style: str = "", seed_artists: list[str] | None = None,
+                   tag: str = "", similar_per: int = 4, tracks_per: int = 2,
+                   geo_country: str = "", api_key: str = "") -> dict:
+    """
+    Собрать сид-строки. Тонкий I/O. Возвращает {artists, seeds, sources}.
+    seeds — список 'Артист - Трек' для seed_discover.
+    """
+    import lastfm
+    artists = list(seed_artists or [])
+    sources = {"input_artists": len(artists)}
+
+    if style:
+        try:
+            import style_resolver
+            r = style_resolver.resolve(style)
+            artists += r.get("seed_artists", [])
+            sources["pulseroots"] = len(r.get("seed_artists", []))
+        except Exception:
+            sources["pulseroots"] = 0
+
+    if tag:
+        tag_arts = [a["name"] for a in lastfm.get_tag_top_artists(tag, 10, api_key)]
+        artists += tag_arts
+        sources["tag_top_artists"] = len(tag_arts)
+
+    artists = dedup_keep_order(artists)
+
+    # расширение похожими (по реальным прослушиваниям)
+    expanded = list(artists)
+    for a in artists:
+        expanded += [s["name"] for s in lastfm.get_similar_artists(a, similar_per, api_key)]
+    expanded = dedup_keep_order(expanded)
+    sources["after_similar"] = len(expanded)
+
+    # geo — опционально и СЛАБО (популярно в стране, не из страны)
+    if geo_country:
+        geo_arts = [a["name"] for a in lastfm.get_geo_top_artists(geo_country, 10, api_key)]
+        expanded = dedup_keep_order(expanded + geo_arts)
+        sources["geo_weak"] = len(geo_arts)
+
+    # артисты → конкретные треки
+    seeds = []
+    for a in expanded:
+        seeds += tracks_to_seeds(lastfm.get_artist_top_tracks(a, tracks_per, api_key))
+    seeds = dedup_keep_order(seeds)
+
+    return {"artists": expanded, "seeds": seeds, "sources": sources}
+
+
+def _main():
+    import argparse
+    ap = argparse.ArgumentParser(description="Сборка пула сидов (Path B) из PulseRoots + last.fm")
+    ap.add_argument("--style", default="")
+    ap.add_argument("--artists", default="", help="через запятую — стартовые сиды (знание агента)")
+    ap.add_argument("--tag", default="", help="жанр для tag.getTopArtists")
+    ap.add_argument("--geo", default="", help="страна (СЛАБЫЙ сигнал — популярно В стране)")
+    ap.add_argument("--similar-per", type=int, default=4)
+    ap.add_argument("--tracks-per", type=int, default=2)
+    ap.add_argument("--out", default="seeds.txt", help="сид-строки 'Артист - Трек' по одной в строке")
+    args = ap.parse_args()
+
+    seed_artists = [a.strip() for a in args.artists.split(",") if a.strip()]
+    res = build_seedlist(args.style, seed_artists, args.tag,
+                         args.similar_per, args.tracks_per, args.geo)
+    with open(args.out, "w", encoding="utf-8") as f:
+        f.write("\n".join(res["seeds"]) + ("\n" if res["seeds"] else ""))
+    print(f"Сборка сидов: артистов {len(res['artists'])}, сид-строк {len(res['seeds'])} → {args.out}")
+    print(f"  источники: {res['sources']}")
+    print(f"  дальше: python3 seed_discover.py --artists-file {args.out} --per 1")
+
+
+if __name__ == "__main__":
+    _main()

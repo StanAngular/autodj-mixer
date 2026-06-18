@@ -94,13 +94,18 @@ def seed_discover(seeds: list[str], styles: list[str] | None = None,
 def _main():
     import argparse
     ap = argparse.ArgumentParser(description="Посев треков по сид-артистам (Path B)")
-    ap.add_argument("--artists", required=True, help="через запятую; можно 'Артист - Трек'")
+    ap.add_argument("--artists", default="", help="через запятую; можно 'Артист - Трек'")
+    ap.add_argument("--artists-file", default="", help="сид-строки по одной в строке (от build_seedlist)")
     ap.add_argument("--style", default="")
     ap.add_argument("--per", type=int, default=3, help="кандидатов на сид")
     ap.add_argument("--out", default="seed_candidates.json")
     args = ap.parse_args()
 
     seeds = [a.strip() for a in args.artists.split(",") if a.strip()]
+    if args.artists_file:
+        with open(args.artists_file, encoding="utf-8") as f:
+            seeds += [ln.strip() for ln in f if ln.strip()]
+    seeds = [s for s in seeds if s]
     cands = seed_discover(seeds, [args.style] if args.style else None, args.per)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(cands, f, ensure_ascii=False, indent=2)
