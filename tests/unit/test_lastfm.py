@@ -76,3 +76,33 @@ class TestGetSimilarDefensive:
 
     def test_empty_artist_returns_empty(self):
         assert lastfm.get_similar_artists("", api_key="KEY") == []
+
+
+# ── P27: новые парсеры top-tracks / geo / tag (на фикстурах) ───────────────
+
+class TestParseArtists:
+    def test_topartists(self):
+        data = {"topartists": {"artist": [{"name": "FKJ", "mbid": "a"}, {"name": "Zimmer"}]}}
+        out = lastfm._parse_artists(data, "topartists")
+        assert [a["name"] for a in out] == ["FKJ", "Zimmer"]
+    def test_single_as_dict(self):
+        data = {"topartists": {"artist": {"name": "Solo", "mbid": "s"}}}
+        assert lastfm._parse_artists(data, "topartists") == [{"name": "Solo", "mbid": "s"}]
+    def test_error(self):
+        assert lastfm._parse_artists({"error": 6}, "topartists") == []
+
+
+class TestParseTracks:
+    def test_toptracks(self):
+        data = {"toptracks": {"track": [
+            {"name": "Ylang Ylang", "artist": {"name": "FKJ"}, "playcount": "1000"},
+            {"name": "Tadow", "artist": {"name": "FKJ"}}]}}
+        out = lastfm._parse_tracks(data, "toptracks")
+        assert out[0] == {"artist": "FKJ", "track": "Ylang Ylang", "playcount": 1000}
+        assert out[1]["playcount"] == 0
+    def test_geo_tracks_root(self):
+        data = {"tracks": {"track": [{"name": "Nana", "artist": {"name": "Polo & Pan"}}]}}
+        out = lastfm._parse_tracks(data, "tracks")
+        assert out[0]["artist"] == "Polo & Pan" and out[0]["track"] == "Nana"
+    def test_error(self):
+        assert lastfm._parse_tracks({"error": 6}, "toptracks") == []
