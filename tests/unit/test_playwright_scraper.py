@@ -47,3 +47,23 @@ class TestRotateIp:
         import subprocess
         monkeypatch.setattr(subprocess, "run", lambda *_, **__: (_ for _ in ()).throw(FileNotFoundError()))
         assert ps.rotate_ip() is False
+
+
+# ── Beatport key → Camelot (P15: фикс источника) ──────────────────────────
+
+import playwright_scraper as ps
+
+
+class TestBeatportCamelot:
+    def test_minor_key(self):
+        assert ps.beatport_camelot({"letter": "A", "chord": "minor"}) == "8A"
+
+    def test_major_key(self):
+        assert ps.beatport_camelot({"letter": "C", "chord": "major"}) == "8B"
+
+    def test_empty(self):
+        assert ps.beatport_camelot({}) == ""
+        assert ps.beatport_camelot(None) == ""
+
+    def test_unknown_key(self):
+        assert ps.beatport_camelot({"letter": "H", "chord": "major"}) == ""

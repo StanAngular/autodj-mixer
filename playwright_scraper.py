@@ -67,6 +67,15 @@ KEY_TO_CAMELOT = {
     "B maj": "1B", "B min": "10A",
 }
 
+
+def beatport_camelot(raw_key) -> str:
+    """Camelot из Beatport-объекта тональности {letter, chord}. Чистая функция."""
+    if not raw_key or not isinstance(raw_key, dict):
+        return ""
+    key_str = (f"{raw_key.get('letter', '')} "
+               f"{'maj' if raw_key.get('chord') == 'major' else 'min'}").strip()
+    return KEY_TO_CAMELOT.get(key_str, "")
+
 # Beatport genre slugs для /charts (не /genre/*/top-100 — они 404)
 BEATPORT_GENRE_SLUGS = {
     "melodic techno": "melodic-house-techno",
@@ -787,13 +796,7 @@ def _parse_beatport_chart_tracks(page, genre: str) -> list[dict]:
                             bpm = item.get("bpm") or 0
                             
                             raw_key = item.get("key", {})
-                            key_str = ""
-                            if raw_key:
-                                key_str = (
-                                    f"{raw_key.get('letter', '')} "
-                                    f"{'maj' if raw_key.get('chord') == 'major' else 'min'}"
-                                ).strip()
-                            camelot = KEY_TO_CAMELOT.get(key_str, "")
+                            camelot = beatport_camelot(raw_key)
                             
                             if artists and track_name:
                                 tracks.append({

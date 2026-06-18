@@ -1036,29 +1036,32 @@ def _run_playwright_scraper(source: str, genre: str, timeout: int = 180) -> list
 
 def fetch_beatport_charts(genre: str, years: list[int]) -> list[dict]:
     """
-    Скрейпить Beatport charts через Playwright + stealth.
-    Старые /genre/*/top-100 — 404. Новый эндпоинт: /charts.
-    Возвращает DJ charts (плейлисты), не отдельные треки.
+    Скрейпить Beatport через Playwright + stealth.
+    Источник beatport-tracks: заходит в чарты и достаёт ОТДЕЛЬНЫЕ ТРЕКИ с их
+    BPM и Camelot (item.bpm + item.key → Camelot). Раньше использовался источник
+    'beatport' (возвращал чарты-плейлисты с bpm:0/camelot:"" → все треки выглядели
+    неполными и зря летели в Tunebat → таймаут). 180s таймаут (нужно зайти в чарты).
     """
-    tracks = _run_playwright_scraper("beatport", genre)
+    tracks = _run_playwright_scraper("beatport-tracks", genre, timeout=180)
     
-    # Конвертируем в единый формат
+    # Конвертируем в единый формат (СОХРАНЯЯ bpm/camelot от beatport-tracks)
     result = []
     for t in tracks:
         result.append({
             "artist":        t.get("artist", "Various"),
             "track":         t.get("track", ""),
-            "bpm":           0,
-            "camelot":       "",
+            "bpm":           t.get("bpm", 0),
+            "camelot":       t.get("camelot", ""),
             "category":      "Mainstream",
             "source_url":    t.get("source_url", ""),
             "youtube_url":   "",
             "energy_markers": [],
             "support_score": t.get("support_score", 5),
-            "reason":        t.get("reason", f"Beatport chart: {genre}"),
+            "reason":        t.get("reason", f"Beatport: {genre}"),
         })
-    
-    print(f"  Beatport: {len(result)} charts (через Playwright)")
+
+    with_meta = sum(1 for r in result if r["bpm"] and r["camelot"])
+    print(f"  Beatport: {len(result)} треков ({with_meta} с BPM/Camelot, через Playwright)")
     return result
 
 
