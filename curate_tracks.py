@@ -56,6 +56,7 @@ ENRICH_FACTOR = 4       # thorough: обогащаем через Tunebat count�
 ENRICH_MIN = 12         # thorough: но не меньше этого (буфер на отсев при фильтре)
 ENRICH_FACTOR_FAST = 2  # fast: вдвое меньше кандидатов на обогащение
 ENRICH_MIN_FAST = 6     # fast: меньший пол
+ENRICH_DEMAND_BUFFER = 3  # запас полных треков сверх count сегмента (на отсев/верификацию/дедуп)
 
 
 def resolve_speed(config_speed: str, fast_flag: bool) -> str:
@@ -65,6 +66,18 @@ def resolve_speed(config_speed: str, fast_flag: bool) -> str:
     флаг только ускоряет, никогда не возвращает в thorough. Чистая функция.
     """
     return "fast" if fast_flag else config_speed
+
+
+def enrich_gap(n_complete: int, seg_count: int,
+               buffer: int = ENRICH_DEMAND_BUFFER) -> int:
+    """
+    Сколько неполных треков реально нужно обогатить = нехватка ПОЛНЫХ под сегмент
+    (+буфер на отсев). 0, если полных уже достаточно. Чистая функция.
+    Суть: если Beatport дал достаточно треков с BPM/Camelot, Tunebat не нужен.
+    """
+    if seg_count <= 0:
+        return 0
+    return max(0, seg_count + buffer - n_complete)
 
 
 def enrich_budget(count: int, speed: str = "thorough") -> int:
@@ -1345,7 +1358,19 @@ def enrich_pool(deduped: list[dict], seg: dict | None = None,
     if hits:
         print(f"  Кэш: {len(hits)} попаданий (без Tunebat)")
 
-    # 2. Остаток без метаданных → ранжируем под discovery и берём топ-limit
+    # 2.5 Обогащение ПО НЕОБХОДИМОСТИ: если полных треков (Beatport + кэш) уже
+    # хватает на сегмент — Tunebat не нужен. Иначе тянем только нехватку.
+    seg_count = (seg or {}).get("count", 0)
+    if seg_count > 0:
+        n_complete = sum(1 for t in deduped if t.get("bpm") and t.get("camelot"))
+        gap = enrich_gap(n_complete, seg_count)
+        if gap <= 0:
+            print(f"  Полных треков {n_complete} ≥ нужно сегменту ({seg_count}+буфер) — Tunebat не требуется")
+            return deduped
+        limit = gap if limit is None else min(limit, gap)
+        print(f"  Нехватка полных: {gap} (полных {n_complete}, нужно {seg_count}) → Tunebat только на нехватку")
+
+    # 3. Остаток без метаданных → ранжируем под discovery и берём топ-limit
     need = select_enrich_candidates(misses, discovery, limit)
 
     if not need:

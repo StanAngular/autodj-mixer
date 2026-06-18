@@ -553,3 +553,29 @@ class TestSelectMix:
         segs = [t["segment"] for t in out]
         assert segs == ["intro", "intro", "peak"]    # 2 intro + 1 peak, порядок сегментов
         assert len([t for t in out if t["segment"] == "intro"]) == 2
+
+
+# ── Demand-driven enrichment (P16): не звать Tunebat, если полных хватает ──
+
+class TestEnrichGap:
+    def test_enough_complete_no_gap(self):
+        assert ct.enrich_gap(124, 4) == 0          # Beatport дал 124 — нехватки нет
+
+    def test_shortage(self):
+        assert ct.enrich_gap(2, 5) == 6            # 5+3буфер-2 = 6
+
+    def test_no_seg_count(self):
+        assert ct.enrich_gap(0, 0) == 0
+
+
+class TestEnrichPoolDemandGate:
+    def test_skips_tunebat_when_enough_complete(self):
+        # 10 полных (Beatport) + 5 неполных (Discogs); сегменту нужно 4 → Tunebat не нужен
+        complete = [{"artist": f"c{i}", "track": "x", "bpm": 124, "camelot": "8A"} for i in range(10)]
+        incomplete = [{"artist": f"i{i}", "track": "x"} for i in range(5)]
+        pool = complete + incomplete
+        out = ct.enrich_pool(pool, seg={"count": 4, "discovery": "popular"}, limit=16)
+        # неполные так и остались неполными (Tunebat не вызывался), функция не упала
+        still_incomplete = [t for t in out if not t.get("bpm")]
+        assert len(still_incomplete) == 5
+        assert len(out) == 15
