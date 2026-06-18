@@ -235,6 +235,43 @@ def compare_grid_to_onsets(expected_beats_s, actual_onsets_s, tolerance_frac=0.2
 # Per-transition analysis
 # ============================================================
 
+def transition_windows(stamps, pad=5.0):
+    """
+    Окна (start,end) сек вокруг каждого перехода ±pad, слитые при пересечении.
+    Чистая функция — задаёт, какие участки анализировать (не весь 40-мин микс).
+    Так анализатор не виснет librosa на полном WAV.
+    """
+    wins = []
+    for s in stamps:
+        t = float(s.get("t", 0) if isinstance(s, dict) else 0)
+        dur = float(s.get("dur", 0) if isinstance(s, dict) else 0)
+        wins.append((max(0.0, t - pad), t + dur + pad))
+    wins.sort()
+    merged = []
+    for w in wins:
+        if merged and w[0] <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], w[1]))
+        else:
+            merged.append(list(w))
+    return [(round(a, 2), round(b, 2)) for a, b in merged]
+
+
+def detect_volume_jumps(rms_env, hop_s, jump_db=6.0):
+    """
+    Резкие скачки громкости между соседними окнами RMS-огибающей.
+    Возвращает [{t, jump_db}] для |Δ dB| > jump_db. Чистая функция.
+    Ловит внезапные скачки уровня ПОСЛЕ сведения (новый трек «влетает» громче),
+    которые усреднённый pre/post lufs_jump_db пропускает.
+    """
+    env = np.asarray(rms_env, dtype=float) + 1e-12
+    out = []
+    for i in range(1, len(env)):
+        d = 20.0 * np.log10(env[i] / env[i - 1])
+        if abs(d) > jump_db:
+            out.append({"t": round(i * hop_s, 2), "jump_db": round(float(d), 1)})
+    return out
+
+
 def analyze_transition(mix_mono, sr, t_cf, cf_dur, master_db, slave_db,
                         master_mix_offset=0.0, label=""):
     """
@@ -319,6 +356,25 @@ def analyze_transition(mix_mono, sr, t_cf, cf_dur, master_db, slave_db,
     # Note: QUIET exit -> ACTIVE slave = expected jump. Flag only >6dB as likely problem
     findings['lufs_ok'] = abs(lufs_db) < 6.0
 
+    # --- Volume jumps (резкие скачки громкости в зоне перехода) ---
+    vj_s = max(0, int((t_cf - 5) * sr))
+    vj_e = min(len(mix_mono), int((t_cf + cf_dur + 5) * sr))
+    vj_zone = mix_mono[vj_s:vj_e]
+    vj_hop = int(0.2 * sr)
+    if len(vj_zone) > vj_hop * 2:
+        nvj = len(vj_zone) // vj_hop
+        vj_env = np.array([
+            np.sqrt(np.mean(vj_zone[i*vj_hop:(i+1)*vj_hop]**2)) for i in range(nvj)
+        ])
+        vjumps = detect_volume_jumps(vj_env, 0.2, jump_db=6.0)
+        findings['volume_jumps'] = len(vjumps)
+        findings['volume_jump_max_db'] = max((abs(j['jump_db']) for j in vjumps), default=0.0)
+        findings['volume_jump_ok'] = len(vjumps) == 0
+    else:
+        findings['volume_jumps'] = 0
+        findings['volume_jump_max_db'] = 0.0
+        findings['volume_jump_ok'] = True
+
     # --- Phase cancellation in CF zone ---
     cf_s = int(t_cf * sr)
     cf_e = int((t_cf + cf_dur) * sr)
@@ -355,7 +411,7 @@ def analyze_transition(mix_mono, sr, t_cf, cf_dur, master_db, slave_db,
 # Artefact detection (v2 detectors, restored)
 # ============================================================
 
-def detect_mix_artefacts(mono, sr, stamps=None, zone_pad=15.0):
+def detect_mix_artefacts(mono, sr, stamps=None, zone_pad=5.0):
     """
     v2 artefact detection with fixed thresholds.
 
@@ -784,7 +840,7 @@ def generate_feedback(transitions, mix_artefacts):
 # Full mix analysis
 # ============================================================
 
-def analyze_mix(mix_path, stamps, ann_dir=None, track_map=None, verbose=True, feedback=False):
+def analyze_mix(mix_path, stamps, ann_dir=None, track_map=None, verbose=True, feedback=False, pad=5.0):
     """
     Analyze each transition independently.
 
@@ -946,7 +1002,7 @@ def analyze_mix(mix_path, stamps, ann_dir=None, track_map=None, verbose=True, fe
         print(f"  ARTEFACT DETECTION (v2 detectors)")
         print(f"{'='*60}\n")
 
-        artefacts = detect_mix_artefacts(mono, sr, stamps)
+        artefacts = detect_mix_artefacts(mono, sr, stamps, zone_pad=pad)
         if artefacts:
             by_type = {}
             for a in artefacts:
@@ -992,6 +1048,8 @@ def main():
                    help="Beat drift warning ms (default 20)")
     p.add_argument("--feedback", action="store_true",
                    help="Run artefact detection + recommendations")
+    p.add_argument("--pad", type=float, default=5.0,
+                   help="Анализ только в зоне перехода ±pad сек (default 5; не виснет на длинных миксах)")
     args = p.parse_args()
 
     global BEAT_DRIFT_WARN_MS
@@ -1029,6 +1087,7 @@ def main():
         track_map=track_map,
         verbose=True,
         feedback=args.feedback,
+        pad=args.pad,
     )
     sys.exit(0 if not result['issues'] else 1)
 
