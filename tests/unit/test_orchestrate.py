@@ -64,3 +64,16 @@ class TestRunPlanDryRun:
         assert res["executed"] is False
         out = capsys.readouterr().out
         assert "DRY-RUN" in out and "seed_discover.py" in out
+
+
+# ── P32: лимиты в плане ─────────────────────────────────────────────────────
+
+class TestPlanCaps:
+    def test_seedlist_has_limit(self):
+        plan = orch.build_plan("x", path="b", artists="A", seed_limit=20)
+        sl = dict(plan)["seedlist"]
+        assert "--limit" in sl and "20" in sl
+    def test_prescreen_has_caps(self):
+        plan = orch.build_plan("x", path="b", artists="A", max_probe=25, target=12)
+        psr = dict(plan)["prescreen"]
+        assert "--max-probe" in psr and "25" in psr and "--target" in psr and "12" in psr

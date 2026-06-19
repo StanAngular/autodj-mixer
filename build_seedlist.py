@@ -45,11 +45,13 @@ def tracks_to_seeds(track_dicts: list[dict]) -> list[str]:
 
 
 def build_seedlist(style: str = "", seed_artists: list[str] | None = None,
-                   tag: str = "", similar_per: int = 4, tracks_per: int = 2,
-                   geo_country: str = "", api_key: str = "") -> dict:
+                   tag: str = "", similar_per: int = 2, tracks_per: int = 2,
+                   geo_country: str = "", api_key: str = "", limit: int = 24) -> dict:
     """
     Собрать сид-строки. Тонкий I/O. Возвращает {artists, seeds, sources}.
-    seeds — список 'Артист - Трек' для seed_discover.
+    seeds — список 'Артист - Трек' для seed_discover, ОБРЕЗАННЫЙ до limit.
+    Дефолты намеренно скромные (similar_per=2, tag top-5, limit=24): нельзя
+    раздувать пул до сотен — иначе prescreen/download качают вслепую (см. SKILL §7).
     """
     import lastfm
     artists = list(seed_artists or [])
@@ -65,7 +67,7 @@ def build_seedlist(style: str = "", seed_artists: list[str] | None = None,
             sources["pulseroots"] = 0
 
     if tag:
-        tag_arts = [a["name"] for a in lastfm.get_tag_top_artists(tag, 10, api_key)]
+        tag_arts = [a["name"] for a in lastfm.get_tag_top_artists(tag, 5, api_key)]
         artists += tag_arts
         sources["tag_top_artists"] = len(tag_arts)
 
@@ -89,6 +91,9 @@ def build_seedlist(style: str = "", seed_artists: list[str] | None = None,
     for a in expanded:
         seeds += tracks_to_seeds(lastfm.get_artist_top_tracks(a, tracks_per, api_key))
     seeds = dedup_keep_order(seeds)
+    sources["before_limit"] = len(seeds)
+    if limit and limit > 0:
+        seeds = seeds[:limit]            # ЖЁСТКИЙ кап — не раздувать пул
 
     return {"artists": expanded, "seeds": seeds, "sources": sources}
 
@@ -100,14 +105,15 @@ def _main():
     ap.add_argument("--artists", default="", help="через запятую — стартовые сиды (знание агента)")
     ap.add_argument("--tag", default="", help="жанр для tag.getTopArtists")
     ap.add_argument("--geo", default="", help="страна (СЛАБЫЙ сигнал — популярно В стране)")
-    ap.add_argument("--similar-per", type=int, default=4)
+    ap.add_argument("--similar-per", type=int, default=2)
     ap.add_argument("--tracks-per", type=int, default=2)
+    ap.add_argument("--limit", type=int, default=24, help="ЖЁСТКИЙ потолок сид-строк (не раздувать)")
     ap.add_argument("--out", default="seeds.txt", help="сид-строки 'Артист - Трек' по одной в строке")
     args = ap.parse_args()
 
     seed_artists = [a.strip() for a in args.artists.split(",") if a.strip()]
     res = build_seedlist(args.style, seed_artists, args.tag,
-                         args.similar_per, args.tracks_per, args.geo)
+                         args.similar_per, args.tracks_per, args.geo, limit=args.limit)
     with open(args.out, "w", encoding="utf-8") as f:
         f.write("\n".join(res["seeds"]) + ("\n" if res["seeds"] else ""))
     print(f"Сборка сидов: артистов {len(res['artists'])}, сид-строк {len(res['seeds'])} → {args.out}")

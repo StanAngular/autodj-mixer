@@ -24,8 +24,10 @@ import subprocess
 
 def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
                artists: str = "", tag: str = "", bpm_min=None, bpm_max=None,
-               prescreen: bool = True, a1f: bool = False, cleanup: bool = False) -> list[tuple]:
-    """Построить упорядоченный план [(stage, argv)]. Чистая функция."""
+               prescreen: bool = True, a1f: bool = False, cleanup: bool = False,
+               seed_limit: int = 24, max_probe: int = 30, target: int = 16) -> list[tuple]:
+    """Построить упорядоченный план [(stage, argv)]. Чистая функция.
+    Лимиты (seed_limit/max_probe/target) — чтобы НЕ качать сотни вслепую (SKILL §7)."""
     cand = f"{name}_cand.json"
     plan: list[tuple] = []
 
@@ -39,7 +41,7 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
         if not (style or artists or tag):
             raise ValueError("path B требует хотя бы --style/--artists/--tag")
         seeds = f"{name}_seeds.txt"
-        sl = ["python3", "build_seedlist.py", "--out", seeds]
+        sl = ["python3", "build_seedlist.py", "--out", seeds, "--limit", str(seed_limit)]
         if style:   sl += ["--style", style]
         if artists: sl += ["--artists", artists]
         if tag:     sl += ["--tag", tag]
@@ -49,7 +51,8 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
         urls = f"{name}_urls.txt"
 
     if prescreen:
-        ps = ["python3", "prescreen.py", cand, "--out", cand, "--url-file", f"{name}_urls.txt"]
+        ps = ["python3", "prescreen.py", cand, "--out", cand, "--url-file", f"{name}_urls.txt",
+              "--max-probe", str(max_probe), "--target", str(target)]
         if bpm_min is not None: ps += ["--bpm-min", str(bpm_min)]
         if bpm_max is not None: ps += ["--bpm-max", str(bpm_max)]
         plan.append(("prescreen", ps))
@@ -126,13 +129,17 @@ def _main():
     ap.add_argument("--no-prescreen", action="store_true")
     ap.add_argument("--a1f", action="store_true", help="run_pipeline в режиме a1f_fast")
     ap.add_argument("--cleanup", action="store_true", help="удалить WAV после микса (гард каталога)")
+    ap.add_argument("--seed-limit", type=int, default=24, help="потолок сид-строк")
+    ap.add_argument("--max-probe", type=int, default=30, help="потолок MP3-проб")
+    ap.add_argument("--target", type=int, default=16, help="сколько треков набрать (стоп)")
     ap.add_argument("--run", action="store_true", help="выполнить (иначе dry-run)")
     ap.add_argument("--log-dir", default="logs")
     args = ap.parse_args()
 
     plan = build_plan(args.name, args.path, args.config, args.style, args.artists,
                       args.tag, args.bpm_min, args.bpm_max,
-                      prescreen=not args.no_prescreen, a1f=args.a1f, cleanup=args.cleanup)
+                      prescreen=not args.no_prescreen, a1f=args.a1f, cleanup=args.cleanup,
+                      seed_limit=args.seed_limit, max_probe=args.max_probe, target=args.target)
     run_plan(plan, args.log_dir, execute=args.run)
 
 

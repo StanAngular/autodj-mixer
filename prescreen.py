@@ -91,21 +91,40 @@ def ensure_mp3(url: str, out_dir: str) -> str | None:
         return None
 
 
+def cap_probe(candidates: list[dict], max_probe: int | None) -> list[dict]:
+    """Из кандидатов без Camelot взять не больше max_probe для пробы. Чистая.
+    Защита от скачивания сотен MP3 вслепую (см. SKILL §7)."""
+    need = [t for t in candidates if not (t.get("camelot") or "").strip()]
+    if max_probe and max_probe > 0:
+        return need[:max_probe]
+    return need
+
+
 def prescreen(candidates: list[dict], mp3_dir: str, bpm_lo: float | None = None,
-              bpm_hi: float | None = None, download: bool = True) -> dict:
+              bpm_hi: float | None = None, download: bool = True,
+              max_probe: int | None = None, target: int | None = None) -> dict:
     """
-    Для кандидатов без Camelot: скачать MP3 (если download) → проба → заполнить
-    camelot/bpm. Затем разбить на keepers/rejects. Тонкий I/O. Возвращает результат.
+    Дешёвая MP3-проба с ЖЁСТКИМИ лимитами. Тонкий I/O.
+      • max_probe — максимум кандидатов на пробу (не качать сотни MP3 вслепую);
+      • target — остановиться, как только набралось столько keeper'ов (не качать лишнее).
+    Возвращает {keepers, rejects, n_keep, n_reject, probed}.
     """
+    to_probe = cap_probe(candidates, max_probe)
+    probe_ids = {id(t) for t in to_probe}
+    probed = 0
+    keep_so_far = 0
     for t in candidates:
-        if (t.get("camelot") or "").strip():
-            continue                                    # уже есть — пробу не тратим
+        if id(t) not in probe_ids:
+            continue
+        if target and keep_so_far >= target:
+            break                                   # хватит — цель набрана
         url = t.get("youtube_url", "")
         vid = video_id(url)
         mp3 = os.path.join(mp3_dir, f"{vid}.mp3") if vid else ""
         if download and (not mp3 or not os.path.exists(mp3)):
             mp3 = ensure_mp3(url, mp3_dir) or ""
         if mp3 and os.path.exists(mp3):
+            probed += 1
             key, cam, bpm = probe_audio(mp3)
             if cam and cam != "?":
                 t["key"] = key
@@ -113,9 +132,16 @@ def prescreen(candidates: list[dict], mp3_dir: str, bpm_lo: float | None = None,
                 t["camelot_source"] = "probe-mp3"
             if not t.get("bpm") and bpm:
                 t["bpm"] = bpm
+            ok, _ = fit_check(t, bpm_lo, bpm_hi)
+            if ok:
+                keep_so_far += 1
+
     keepers, rejects = partition_keepers(candidates, bpm_lo, bpm_hi)
+    if target and len(keepers) > target:
+        rejects += [{**t, "_reject": "сверх target"} for t in keepers[target:]]
+        keepers = keepers[:target]
     return {"keepers": keepers, "rejects": rejects,
-            "n_keep": len(keepers), "n_reject": len(rejects)}
+            "n_keep": len(keepers), "n_reject": len(rejects), "probed": probed}
 
 
 def _main():
@@ -125,6 +151,8 @@ def _main():
     ap.add_argument("--mp3-dir", default="shared/probe_mp3")
     ap.add_argument("--bpm-min", type=float, default=None)
     ap.add_argument("--bpm-max", type=float, default=None)
+    ap.add_argument("--max-probe", type=int, default=30, help="максимум MP3 на пробу (антираздувание)")
+    ap.add_argument("--target", type=int, default=16, help="хватит keeper'ов — стоп (не качать лишнее)")
     ap.add_argument("--no-download", action="store_true", help="MP3 уже скачаны")
     ap.add_argument("--out", default="keepers.json")
     ap.add_argument("--url-file", default="keepers_urls.txt",
@@ -133,14 +161,14 @@ def _main():
 
     cands = json.load(open(args.candidates, encoding="utf-8"))
     res = prescreen(cands, args.mp3_dir, args.bpm_min, args.bpm_max,
-                    download=not args.no_download)
+                    download=not args.no_download, max_probe=args.max_probe, target=args.target)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(res["keepers"], f, ensure_ascii=False, indent=2)
     with open(args.url_file, "w", encoding="utf-8") as f:
         for t in res["keepers"]:
             if t.get("youtube_url"):
                 f.write(t["youtube_url"] + "\n")
-    print(f"MP3-проба: keeper'ов {res['n_keep']}, отсеяно {res['n_reject']}. "
+    print(f"MP3-проба: пробовано {res['probed']}, keeper'ов {res['n_keep']}, отсеяно {res['n_reject']}. "
           f"→ {args.out} + {args.url_file}. Дальше: yt_download --url-file {args.url_file} (WAV).")
     for r in res["rejects"]:
         print(f"  ✗ {r.get('artist','?')} — {r.get('track','?')}: {r['_reject']}")

@@ -34,3 +34,16 @@ class TestPartitionKeepers:
         assert len(keepers) == 1 and keepers[0]["artist"] == "A"
         assert len(rejects) == 2
         assert all("_reject" in r for r in rejects)
+
+
+# ── P32: лимиты против слепого скачивания сотен ────────────────────────────
+
+class TestCapProbe:
+    def test_caps_to_max_probe(self):
+        cands = [{"camelot": ""} for _ in range(50)]
+        assert len(ps.cap_probe(cands, 10)) == 10        # не больше 10 на пробу
+    def test_skips_those_with_camelot(self):
+        cands = [{"camelot": "8A"}, {"camelot": ""}, {"camelot": "9A"}]
+        assert ps.cap_probe(cands, None) == [{"camelot": ""}]   # только без Camelot
+    def test_no_cap(self):
+        assert len(ps.cap_probe([{"camelot": ""}]*5, 0)) == 5
