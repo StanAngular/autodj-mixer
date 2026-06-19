@@ -14,7 +14,78 @@ build_seed_queries и parse_ytdlp_search — чистые (тестируютс�
 seed_discover — тонкий I/O (вызывает yt-dlp).
 """
 import json
+import re
+import math
 import subprocess
+
+
+def _norm(s: str) -> str:
+    """Нормализовать для сравнения: нижний регистр, только буквы/цифры/пробелы. Чистая."""
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+# маркеры «это не тот трек» — НЕ штрафуем remix/edit (в техно/хаусе они легитимны)
+_JUNK = ["reaction", "react ", "lyric", "karaoke", "8d audio", "sped up", "slowed",
+         "mashup", "megamix", "continuous mix", "full album", "tutorial",
+         "how to make", "cover by", "live at", "live @", "(live", "[live"]
+
+
+def title_penalty(title: str) -> int:
+    """Сколько «мусорных» маркеров в заголовке (live/cover/reaction/...). Чистая."""
+    t = (title or "").lower()
+    return sum(1 for b in _JUNK if b in t)
+
+
+def identity_ok(title: str, artist: str, track: str = "") -> bool:
+    """Уверены, что это нужный артист/трек? Чистая. (Защита от «какой попало».)"""
+    nt = _norm(title)
+    na = _norm(artist)
+    if na and na in nt:
+        return True
+    if track:
+        ntr = _norm(track)
+        if ntr and len(ntr) > 3 and ntr in nt:
+            return True
+    if na:                                    # частичное: ≥половины токенов артиста
+        toks = [w for w in na.split() if len(w) > 2]
+        if toks and sum(1 for w in toks if w in nt) / len(toks) >= 0.5:
+            return True
+    return False
+
+
+def candidate_score(cand: dict, seed_artist: str = "", seed_track: str = "") -> float:
+    """Оценка кандидата: популярность (log views) + бонус за личность − штраф за мусор. Чистая."""
+    views = cand.get("views") or 0
+    base = math.log10(views + 10)
+    idb = 1.5 if identity_ok(cand.get("track", ""), seed_artist, seed_track) else 0.0
+    return base + idb - 1.0 * title_penalty(cand.get("track", ""))
+
+
+def pick_best(cands: list[dict], seed_artist: str = "", seed_track: str = "",
+              require_identity: bool = True) -> dict | None:
+    """Лучший уверенный кандидат (по score). None, если уверенного совпадения нет. Чистая."""
+    pool = []
+    for c in cands:
+        if require_identity and not identity_ok(c.get("track", ""), seed_artist, seed_track):
+            continue
+        pool.append((candidate_score(c, seed_artist, seed_track), c))
+    if not pool:
+        return None
+    pool.sort(key=lambda x: x[0], reverse=True)
+    return pool[0][1]
+
+
+def style_in_tags(tags: list[str], target_style: str) -> bool:
+    """Стиль артиста совпадает с целевым? (по тегам last.fm). Чистая.
+    Пустой target → True (проверку не требуем)."""
+    ts = _norm(target_style)
+    if not ts:
+        return True
+    toks = [w for w in ts.split() if len(w) > 2]
+    blob = " ".join(_norm(t) for t in tags)
+    if not toks:
+        return True
+    return any(w in blob for w in toks)
 
 
 def build_seed_queries(seeds: list[str], styles: list[str] | None = None) -> list[str]:
@@ -64,15 +135,31 @@ def parse_ytdlp_search(data: dict, seed_artist: str = "", country: str = "") -> 
 
 
 def seed_discover(seeds: list[str], styles: list[str] | None = None,
-                  per_artist: int = 3, countries: dict | None = None) -> list[dict]:
+                  per_artist: int = 5, countries: dict | None = None,
+                  verify: bool = True, verify_style: str = "") -> list[dict]:
     """
-    Найти кандидатов по сидам через yt-dlp ytsearch. Тонкий I/O.
-    countries: {seed: 'FR'} — проставить страну треку (для констрейнта уникальности).
+    Найти кандидатов по сидам через yt-dlp ytsearch, на каждый сид выбрать ЛУЧШИЙ
+    уверенный (личность + просмотры − мусор). Тонкий I/O.
+      verify        — требовать совпадение личности (иначе сид пропускается);
+      verify_style  — опц.: перепроверить стиль артиста по тегам last.fm перед выбором.
+    countries: {seed: 'FR'} — страна трека (для констрейнта уникальности).
     """
     queries = build_seed_queries(seeds, styles)
     countries = countries or {}
     found: list[dict] = []
     for seed, query in zip(seeds, queries):
+        sa = seed.split(" - ")[0]
+        st_ = seed.split(" - ", 1)[1] if " - " in seed else ""
+
+        if verify_style:
+            try:
+                import lastfm
+                if not style_in_tags(lastfm.get_artist_top_tags(sa), verify_style):
+                    print(f"  ⚠ {seed}: стиль не подтверждён ({verify_style}) — пропуск")
+                    continue
+            except Exception:
+                pass                              # last.fm недоступен — не блокируем
+
         try:
             res = subprocess.run(
                 ["yt-dlp", f"ytsearch{per_artist}:{query}", "-J",
@@ -82,10 +169,13 @@ def seed_discover(seeds: list[str], styles: list[str] | None = None,
                 print(f"  ⚠ ничего по сиду: {seed}")
                 continue
             data = json.loads(res.stdout)
-            cands = parse_ytdlp_search(data, seed_artist=seed.split(" - ")[0],
-                                       country=countries.get(seed, ""))
-            found.extend(cands)
-            print(f"  ✓ {seed}: {len(cands)} кандидатов")
+            cands = parse_ytdlp_search(data, seed_artist=sa, country=countries.get(seed, ""))
+            best = pick_best(cands, sa, st_, require_identity=verify)
+            if best:
+                found.append(best)
+                print(f"  ✓ {seed}: лучший из {len(cands)} (views {best.get('views') or '?'})")
+            else:
+                print(f"  ⚠ {seed}: уверенного совпадения нет из {len(cands)} — пропуск")
         except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
             print(f"  ⚠ сид {seed}: {type(e).__name__}")
     return found
@@ -97,7 +187,9 @@ def _main():
     ap.add_argument("--artists", default="", help="через запятую; можно 'Артист - Трек'")
     ap.add_argument("--artists-file", default="", help="сид-строки по одной в строке (от build_seedlist)")
     ap.add_argument("--style", default="")
-    ap.add_argument("--per", type=int, default=3, help="кандидатов на сид")
+    ap.add_argument("--per", type=int, default=5, help="искать N на сид, выбрать лучший")
+    ap.add_argument("--no-verify", action="store_true", help="не требовать совпадение личности")
+    ap.add_argument("--verify-style", default="", help="перепроверить стиль артиста по last.fm")
     ap.add_argument("--out", default="seed_candidates.json")
     args = ap.parse_args()
 
@@ -106,11 +198,12 @@ def _main():
         with open(args.artists_file, encoding="utf-8") as f:
             seeds += [ln.strip() for ln in f if ln.strip()]
     seeds = [s for s in seeds if s]
-    cands = seed_discover(seeds, [args.style] if args.style else None, args.per)
+    cands = seed_discover(seeds, [args.style] if args.style else None, args.per,
+                          verify=not args.no_verify, verify_style=args.verify_style)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(cands, f, ensure_ascii=False, indent=2)
-    print(f"Посев: {len(cands)} кандидатов → {args.out}. "
-          f"Дальше: скачать (yt_download) и посчитать Camelot (local_enrich).")
+    print(f"Посев: {len(cands)} лучших кандидатов (по 1 на сид) → {args.out}. "
+          f"Дальше: resolve_metadata → prescreen → скачать.")
 
 
 if __name__ == "__main__":

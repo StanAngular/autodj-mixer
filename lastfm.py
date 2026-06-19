@@ -175,6 +175,23 @@ def get_geo_top_tracks(country: str, limit: int = DEFAULT_LIMIT, api_key: str = 
                          "tracks")[:limit]
 
 
+def _parse_tags(data: dict) -> list[str]:
+    """toptags.tag → ['tech house', 'techno', ...] (нижний регистр). Чистая."""
+    if not isinstance(data, dict) or "error" in data:
+        return []
+    tags = _as_list((data.get("toptags") or {}).get("tag"))
+    return [(t.get("name") or "").strip().lower() for t in tags
+            if isinstance(t, dict) and (t.get("name") or "").strip()]
+
+
+def get_artist_top_tags(artist: str, limit: int = DEFAULT_LIMIT, api_key: str = "") -> list[str]:
+    """Топ-теги артиста (жанр/стиль) — для перепроверки стиля перед выбором. Defensive."""
+    if not artist.strip():
+        return []
+    return _parse_tags(_request("artist.gettoptags",
+                                {"artist": artist, "autocorrect": 1}, api_key))[:limit]
+
+
 def _main():
     ap = argparse.ArgumentParser(description="Last.fm: similar / top-tracks / geo / tag")
     ap.add_argument("artist", nargs="?", default="")
