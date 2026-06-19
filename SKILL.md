@@ -47,6 +47,7 @@ You are an **OPERATOR of the pipeline, not its developer.** Run mixes and report
 - **Scripts emit concise STRUCTURED output** (summary lines, JSON) — **not raw logs.** Report the summary; never paste yt-dlp/Tunebat/DSP log floods.
 - **Foreground ≠ verbose.** Bounded structured output keeps both control and low token use.
 - **The orchestrator is NOT autopilot.** Run it in segments with checkpoints — above all, review candidate count + the harmonic chain **before** the expensive download/mix. Approving between phases is required while quality is still being hardened.
+- **HARD LIMITS are in code, not just docs** (P32): `seed_limit=24`, `max_probe=30`, `target=16`. Agent *cannot* exceed them even if it "prioritises downloading more."
 
 ---
 
