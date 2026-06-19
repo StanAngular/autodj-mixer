@@ -14,7 +14,7 @@ class TestBuildPlanPathB:
                                bpm_min=122, bpm_max=128)
         st = _stages(plan)
         # порядок ключевых стадий
-        assert st == ["seedlist", "discover", "prescreen", "download",
+        assert st == ["seedlist", "discover", "resolve", "prescreen", "download",
                       "annotate", "local_enrich", "bridge", "mix", "catalog"]
     def test_requires_seed_source(self):
         try:

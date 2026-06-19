@@ -50,6 +50,9 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
                                   "--per", "1", "--out", cand]))
         urls = f"{name}_urls.txt"
 
+    # каскад без скачивания: каталог→кэш→(опц.Tunebat) ДО prescreen — закачка последней
+    plan.append(("resolve", ["python3", "resolve_metadata.py", cand, "--out", cand]))
+
     if prescreen:
         ps = ["python3", "prescreen.py", cand, "--out", cand, "--url-file", f"{name}_urls.txt",
               "--max-probe", str(max_probe), "--target", str(target)]
