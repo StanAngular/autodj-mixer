@@ -47,3 +47,18 @@ class TestCapProbe:
         assert ps.cap_probe(cands, None) == [{"camelot": ""}]   # только без Camelot
     def test_no_cap(self):
         assert len(ps.cap_probe([{"camelot": ""}]*5, 0)) == 5
+
+
+# ── P35: фикс BPM-пробы (numpy-массив tempo) ───────────────────────────────
+
+class TestCoerceBpm:
+    def test_scalar(self):
+        assert ps._coerce_bpm(124.4) == 124
+    def test_numpy_array(self):
+        import numpy as np
+        assert ps._coerce_bpm(np.array([123.6])) == 124      # раньше тут был баг → 0
+    def test_empty(self):
+        import numpy as np
+        assert ps._coerce_bpm(np.array([])) == 0
+    def test_garbage(self):
+        assert ps._coerce_bpm("x") == 0

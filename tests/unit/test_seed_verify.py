@@ -62,3 +62,28 @@ class TestArtistTopTagsParser:
         assert lastfm._parse_tags(data) == ["tech house", "techno"]
     def test_error(self):
         assert lastfm._parse_tags({"error": 6}) == []
+
+
+# ── P35: отсев DJ-сетов по длительности + маркерам ─────────────────────────
+
+class TestIsPlausibleTrack:
+    def test_normal_track(self):
+        assert sd.is_plausible_track({"duration": 300}) is True      # 5 мин
+    def test_dj_set_rejected(self):
+        assert sd.is_plausible_track({"duration": 3600}) is False     # 60 мин = сет
+    def test_teaser_rejected(self):
+        assert sd.is_plausible_track({"duration": 30}) is False       # 30с = тизер
+    def test_unknown_allowed(self):
+        assert sd.is_plausible_track({"duration": None}) is True
+
+class TestSetMarkersAndPick:
+    def test_set_markers_penalised(self):
+        assert sd.title_penalty("Adriatique @ Cercle, Mexico") >= 1
+        assert sd.title_penalty("ANOTR | Boiler Room") >= 1
+    def test_pick_best_skips_long_set(self):
+        cands = [
+            {"track": "Adriatique @ Cercle", "duration": 5400, "views": 9000000},  # сет
+            {"track": "Adriatique - Miracle", "duration": 380, "views": 200000},   # трек
+        ]
+        best = sd.pick_best(cands, "Adriatique")
+        assert best["track"] == "Adriatique - Miracle"   # сет отброшен, взят трек

@@ -56,6 +56,19 @@ def partition_keepers(candidates: list[dict], bpm_lo: float | None = None,
     return keepers, rejects
 
 
+def _coerce_bpm(tempo) -> int:
+    """tempo от librosa (скаляр ИЛИ numpy-массив в новых версиях) → int BPM. Чистая.
+    Раньше float(array) кидал TypeError → bpm=0 → не сохранялся (баг BPM=None)."""
+    try:
+        import numpy as np
+        arr = np.ravel(tempo)
+        if arr.size == 0:
+            return 0
+        return int(round(float(arr[0])))
+    except (TypeError, ValueError):
+        return 0
+
+
 def probe_audio(path: str) -> tuple[str, str, int]:
     """Camelot + приблизительный BPM из любого аудио (mp3/wav) через librosa. Тонкий I/O."""
     import librosa
@@ -63,11 +76,7 @@ def probe_audio(path: str) -> tuple[str, str, int]:
     y, sr = librosa.load(path, sr=22050, mono=True, duration=90)
     key = detect_key(y, sr)
     cam = camelot_code(key)
-    tempo = librosa.beat.beat_track(y=y, sr=sr)[0]
-    try:
-        bpm = int(round(float(tempo)))
-    except (TypeError, ValueError):
-        bpm = 0
+    bpm = _coerce_bpm(librosa.beat.beat_track(y=y, sr=sr)[0])
     return key, cam, bpm
 
 

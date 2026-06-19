@@ -30,6 +30,33 @@ _JUNK = ["reaction", "react ", "lyric", "karaoke", "8d audio", "sped up", "slowe
          "how to make", "cover by", "live at", "live @", "(live", "[live"]
 
 
+# маркеры «это не тот трек» — НЕ штрафуем remix/edit (в техно/хаусе они легитимны)
+_JUNK = ["reaction", "react ", "lyric", "karaoke", "8d audio", "sped up", "slowed",
+         "mashup", "megamix", "continuous mix", "full album", "tutorial",
+         "how to make", "cover by", "live at", "live @", "(live", "[live",
+         # DJ-сеты/выступления — не отдельные треки:
+         "boiler room", "cercle", "b2b", "dj set", "live set", "full set",
+         "essential mix", "radio show", "@ "]
+
+# трек обычно 90с–12мин; короче — тизер/клип, длиннее — сет/микс
+TRACK_MIN_SEC = 90
+TRACK_MAX_SEC = 720
+
+
+def is_plausible_track(cand: dict, min_sec: int = TRACK_MIN_SEC,
+                       max_sec: int = TRACK_MAX_SEC) -> bool:
+    """Длительность похожа на отдельный трек, а не на сет/тизер? Чистая.
+    Неизвестная длительность → True (не пере-отсеиваем)."""
+    dur = cand.get("duration")
+    if dur is None:
+        return True
+    try:
+        d = float(dur)
+    except (TypeError, ValueError):
+        return True
+    return min_sec <= d <= max_sec
+
+
 def title_penalty(title: str) -> int:
     """Сколько «мусорных» маркеров в заголовке (live/cover/reaction/...). Чистая."""
     t = (title or "").lower()
@@ -63,9 +90,12 @@ def candidate_score(cand: dict, seed_artist: str = "", seed_track: str = "") -> 
 
 def pick_best(cands: list[dict], seed_artist: str = "", seed_track: str = "",
               require_identity: bool = True) -> dict | None:
-    """Лучший уверенный кандидат (по score). None, если уверенного совпадения нет. Чистая."""
+    """Лучший уверенный кандидат (по score). None, если уверенного совпадения нет. Чистая.
+    Сеты/тизеры (по длительности) отсеиваются до оценки."""
     pool = []
     for c in cands:
+        if not is_plausible_track(c):
+            continue                                  # сет/тизер — не трек
         if require_identity and not identity_ok(c.get("track", ""), seed_artist, seed_track):
             continue
         pool.append((candidate_score(c, seed_artist, seed_track), c))
