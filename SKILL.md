@@ -71,10 +71,11 @@ A brief is given in **plain text**. You turn it into seeds/config. There are TWO
 
 ### Path B — from knowledge (country / underground / rare / new — NOT in DBs)
 ```
-build_seedlist.py  --style S --artists "A,B" --tag T  → NAME_seeds.txt   (PulseRoots + last.fm)
+build_seedlist.py  --style S --artists "A,B" --tag T  → NAME_seeds.txt   (PulseRoots + last.fm, --limit 24)
 seed_discover.py   --artists-file NAME_seeds.txt --per 1 --out NAME_cand.json   (yt-dlp search)
-prescreen.py       NAME_cand.json --bpm-min .. --bpm-max ..  → keepers + url-file   (cheap MP3 probe)
-yt_download.py     --url-file NAME_urls.txt          (WAV — ONLY keepers)
+resolve_metadata.py  NAME_cand.json                   (каскад: каталог→кэш→tunebat, без скачивания)
+prescreen.py       NAME_cand.json --bpm-min .. --bpm-max ..  → keepers + url-file   (MP3 probe, --max-probe 30 --target 16)
+yt_download.py     --url-file NAME_urls.txt          (WAV — ONLY keepers, ≤16)
 local_enrich.py    NAME_cand.json --tracks-dir shared/tracks   (Camelot/BPM from WAV)
 ```
 **Country = your knowledge** (seed artists by nationality), NOT a scrape. last.fm `geo.*` is "popular IN country" (global pop), not "from country" — weak signal only.
@@ -100,7 +101,8 @@ Dry-run by default (prints the exact plan). Add `--run` to execute foreground: f
 | `curate_tracks.py` | A | charts → candidates (BPM/Camelot), year/BPM gate, approval table, harmonic order |
 | `build_seedlist.py` | B | style/artists → concrete seed-strings (PulseRoots + last.fm similar/top-tracks/tag) |
 | `seed_discover.py` | B | seeds → YouTube candidates (yt-dlp search) |
-| `prescreen.py` | B | cheap MP3 probe → Camelot/BPM → keep only fitting (run on a SHORTLIST, not everything) |
+| `resolve_metadata.py` | both | каскад: каталог→кэш→tunebat (без скачивания) |
+| `prescreen.py` | B | cheap MP3 probe → Camelot/BPM → keep only fitting (--max-probe 30 --target 16) |
 | `local_enrich.py` | B | compute Camelot/BPM from downloaded WAV (no DB needed) |
 | `lastfm.py` | B | similar / top-tracks / tag / geo (`--check` = live API test) |
 | `curation_bridge.py` | both | candidates → `mix_config_NAME.py` + urls; `--prune-wav-dir` drops failed downloads |
