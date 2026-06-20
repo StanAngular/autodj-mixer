@@ -80,25 +80,31 @@ def identity_ok(title: str, artist: str, track: str = "") -> bool:
     return False
 
 
-def candidate_score(cand: dict, seed_artist: str = "", seed_track: str = "") -> float:
-    """Оценка кандидата: популярность (log views) + бонус за личность − штраф за мусор. Чистая."""
+def candidate_score(cand: dict, seed_artist: str = "", seed_track: str = "",
+                    prefer_remix: bool = False) -> float:
+    """Оценка кандидата: популярность (log views) + бонус за личность (+ремикс) − штраф за мусор. Чистая."""
     views = cand.get("views") or 0
     base = math.log10(views + 10)
     idb = 1.5 if identity_ok(cand.get("track", ""), seed_artist, seed_track) else 0.0
-    return base + idb - 1.0 * title_penalty(cand.get("track", ""))
+    rb = 1.0 if (prefer_remix and is_remix(cand.get("track", ""))) else 0.0
+    return base + idb + rb - 1.0 * title_penalty(cand.get("track", ""))
 
 
 def pick_best(cands: list[dict], seed_artist: str = "", seed_track: str = "",
-              require_identity: bool = True) -> dict | None:
+              require_identity: bool = True, require_remix: bool = False,
+              prefer_remix: bool = False) -> dict | None:
     """Лучший уверенный кандидат (по score). None, если уверенного совпадения нет. Чистая.
-    Сеты/тизеры (по длительности) отсеиваются до оценки."""
+    Сеты/тизеры (по длительности) отсеиваются до оценки.
+    require_remix → оставляем ТОЛЬКО ремиксы (для «не оригиналы, а ремиксы»)."""
     pool = []
     for c in cands:
         if not is_plausible_track(c):
             continue                                  # сет/тизер — не трек
         if require_identity and not identity_ok(c.get("track", ""), seed_artist, seed_track):
             continue
-        pool.append((candidate_score(c, seed_artist, seed_track), c))
+        if require_remix and not is_remix(c.get("track", "")):
+            continue                                  # оригинал — мимо (нужен ремикс)
+        pool.append((candidate_score(c, seed_artist, seed_track, prefer_remix), c))
     if not pool:
         return None
     pool.sort(key=lambda x: x[0], reverse=True)
@@ -131,10 +137,12 @@ def merge_seed_meta(cand: dict, meta: dict) -> dict:
     return cand
 
 
-def build_seed_queries(seeds: list[str], styles: list[str] | None = None) -> list[str]:
+def build_seed_queries(seeds: list[str], styles: list[str] | None = None,
+                       remix: bool = False) -> list[str]:
     """
     Поисковые запросы из сидов. Чистая.
     'Артист - Трек' берём как есть; одиночный артист → '<артист> <стиль>' для контекста.
+    remix=True → дописываем 'remix', чтобы поиск выдал танцевальные ремиксы, не оригиналы.
     """
     style = (styles or [""])[0] if styles else ""
     out = []
@@ -143,10 +151,22 @@ def build_seed_queries(seeds: list[str], styles: list[str] | None = None) -> lis
         if not s:
             continue
         if " - " in s or " — " in s:
-            out.append(s)                          # уже артист-трек
+            q = s                                  # уже артист-трек
         else:
-            out.append(f"{s} {style}".strip())     # артист + стиль
+            q = f"{s} {style}".strip()             # артист + стиль
+        if remix:
+            q = f"{q} remix"
+        out.append(q)
     return out
+
+
+_REMIX_MARKERS = ("remix", "rework", "bootleg", "flip", " vip", "mashup", "re-edit", "re edit")
+
+
+def is_remix(title: str) -> bool:
+    """Заголовок — ремикс/переработка (не оригинал)? Чистая."""
+    t = (title or "").lower()
+    return any(m in t for m in _REMIX_MARKERS)
 
 
 def parse_ytdlp_search(data: dict, seed_artist: str = "", country: str = "") -> list[dict]:
@@ -180,7 +200,7 @@ def parse_ytdlp_search(data: dict, seed_artist: str = "", country: str = "") -> 
 def seed_discover(seeds: list[str], styles: list[str] | None = None,
                   per_artist: int = 5, countries: dict | None = None,
                   verify: bool = True, verify_style: str = "",
-                  seed_meta: dict | None = None) -> list[dict]:
+                  seed_meta: dict | None = None, remix: bool = False) -> list[dict]:
     """
     Найти кандидатов по сидам через yt-dlp ytsearch, на каждый сид выбрать ЛУЧШИЙ
     уверенный (личность + просмотры − мусор). Тонкий I/O.
@@ -188,7 +208,7 @@ def seed_discover(seeds: list[str], styles: list[str] | None = None,
       verify_style  — опц.: перепроверить стиль артиста по тегам last.fm перед выбором.
     countries: {seed: 'FR'} — страна трека (для констрейнта уникальности).
     """
-    queries = build_seed_queries(seeds, styles)
+    queries = build_seed_queries(seeds, styles, remix=remix)
     countries = countries or {}
     seed_meta = seed_meta or {}
     found: list[dict] = []
@@ -215,7 +235,8 @@ def seed_discover(seeds: list[str], styles: list[str] | None = None,
                 continue
             data = json.loads(res.stdout)
             cands = parse_ytdlp_search(data, seed_artist=sa, country=countries.get(seed, ""))
-            best = pick_best(cands, sa, st_, require_identity=verify)
+            best = pick_best(cands, sa, st_, require_identity=verify,
+                             require_remix=remix, prefer_remix=remix)
             if best:
                 merge_seed_meta(best, seed_meta.get(seed, {}))   # приклеить мету (Beatport)
                 found.append(best)
@@ -236,6 +257,8 @@ def _main():
     ap.add_argument("--per", type=int, default=5, help="искать N на сид, выбрать лучший")
     ap.add_argument("--no-verify", action="store_true", help="не требовать совпадение личности")
     ap.add_argument("--verify-style", default="", help="перепроверить стиль артиста по last.fm")
+    ap.add_argument("--remix", action="store_true",
+                    help="искать танцевальные РЕМИКСЫ, не оригиналы (для 'похожие на X → ремиксы')")
     ap.add_argument("--out", default="seed_candidates.json")
     args = ap.parse_args()
 
@@ -245,7 +268,8 @@ def _main():
             seeds += [ln.strip() for ln in f if ln.strip()]
     seeds = [s for s in seeds if s]
     cands = seed_discover(seeds, [args.style] if args.style else None, args.per,
-                          verify=not args.no_verify, verify_style=args.verify_style)
+                          verify=not args.no_verify, verify_style=args.verify_style,
+                          remix=args.remix)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(cands, f, ensure_ascii=False, indent=2)
     print(f"Посев: {len(cands)} лучших кандидатов (по 1 на сид) → {args.out}. "

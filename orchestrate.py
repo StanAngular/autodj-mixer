@@ -26,7 +26,7 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
                artists: str = "", tag: str = "", bpm_min=None, bpm_max=None,
                prescreen: bool = True, a1f: bool = False, cleanup: bool = False,
                seed_limit: int = 24, max_probe: int = 30, target: int = 16,
-               source: str = "youtube", sort: str = "") -> list[tuple]:
+               source: str = "youtube", sort: str = "", remix: bool = False) -> list[tuple]:
     """Построить упорядоченный план [(stage, argv)]. Чистая функция.
     Лимиты (seed_limit/max_probe/target) — чтобы НЕ качать сотни вслепую (SKILL §7).
     source: youtube (сиды+last.fm) | beatport (чарты жанра с готовыми BPM/Camelot)."""
@@ -67,8 +67,11 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
         if artists: sl += ["--artists", artists]
         if tag:     sl += ["--tag", tag]
         plan.append(("seedlist", sl))
-        plan.append(("discover", ["python3", "seed_discover.py", "--artists-file", seeds,
-                                  "--per", "1", "--out", cand]))
+        disc = ["python3", "seed_discover.py", "--artists-file", seeds,
+                "--per", "1", "--out", cand]
+        if remix:
+            disc.append("--remix")
+        plan.append(("discover", disc))
         urls = f"{name}_urls.txt"
 
     # каскад без скачивания: каталог→кэш→(опц.Tunebat) ДО prescreen — закачка последней
@@ -160,6 +163,8 @@ def _main():
                     help="beatport: чарты жанра; auto: Beatport→фоллбэк YouTube/last.fm (композит)")
     ap.add_argument("--sort", default="", choices=["", "newest", "bestsellers"],
                     help="порядок пула Beatport: newest (свежее) / bestsellers (популярнее)")
+    ap.add_argument("--remix", action="store_true",
+                    help="искать ремиксы, не оригиналы (Path B / discover)")
     ap.add_argument("--run", action="store_true", help="выполнить (иначе dry-run)")
     ap.add_argument("--log-dir", default="logs")
     args = ap.parse_args()
@@ -168,7 +173,7 @@ def _main():
                       args.tag, args.bpm_min, args.bpm_max,
                       prescreen=not args.no_prescreen, a1f=args.a1f, cleanup=args.cleanup,
                       seed_limit=args.seed_limit, max_probe=args.max_probe, target=args.target,
-                      source=args.source, sort=args.sort)
+                      source=args.source, sort=args.sort, remix=args.remix)
     run_plan(plan, args.log_dir, execute=args.run)
 
 

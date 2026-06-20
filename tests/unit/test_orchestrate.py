@@ -100,3 +100,12 @@ class TestSortFlag:
     def test_no_sort_no_flag(self):
         plan = orch.build_plan("x", style="trance", source="beatport")
         assert "--sort" not in dict(plan)["beatport"]
+
+
+class TestRemixFlag:
+    def test_remix_adds_flag_to_discover(self):
+        plan = orch.build_plan("x", artists="Lana Del Rey", remix=True)
+        assert "--remix" in dict(plan)["discover"]
+    def test_no_remix_no_flag(self):
+        plan = orch.build_plan("x", artists="Lana Del Rey")
+        assert "--remix" not in dict(plan)["discover"]
