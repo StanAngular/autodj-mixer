@@ -31,3 +31,35 @@ class TestSourceAutoPlan:
         st = [s for s, _ in orch.build_plan("x", style="trance", source="auto")]
         assert "compose" in st and "seedlist" not in st and "beatport" not in st
         assert "resolve" in st and "prescreen" in st
+
+
+class TestDataRichnessChain:
+    def _mocks(self, monkeypatch, bp_n, bc_n, yt_n):
+        import beatport_source as bps, build_seedlist as bsl, seed_discover as sd
+        import curate_tracks as ct
+        monkeypatch.setattr(bps, "beatport_candidates",
+            lambda *a, **k: [{"youtube_url": f"bp{i}", "artist": "B", "track": f"t{i}"} for i in range(bp_n)])
+        monkeypatch.setattr(ct, "fetch_bandcamp_underground",
+            lambda *a, **k: [{"artist": "C", "track": f"bc{i}"} for i in range(bc_n)])
+        calls = {"bandcamp": 0, "lastfm": 0}
+        def fake_sd(seeds, **k):
+            if seeds and seeds[0].startswith("C - "):
+                calls["bandcamp"] += 1
+                return [{"youtube_url": f"bc{i}", "artist": "C", "track": f"bc{i}"} for i in range(bc_n)]
+            calls["lastfm"] += 1
+            return [{"youtube_url": f"yt{i}", "artist": "Y", "track": f"y{i}"} for i in range(yt_n)]
+        monkeypatch.setattr(sd, "seed_discover", fake_sd)
+        monkeypatch.setattr(bsl, "build_seedlist", lambda **k: {"seeds": ["Y - y0"]})
+        return calls
+
+    def test_beatport_covers_no_fallback(self, monkeypatch):
+        import compose_sources as cs
+        calls = self._mocks(monkeypatch, 16, 5, 5)
+        out = cs.compose(style="deep trance", target=16)
+        assert len(out) == 16 and calls["bandcamp"] == 0 and calls["lastfm"] == 0
+
+    def test_falls_bandcamp_then_lastfm(self, monkeypatch):
+        import compose_sources as cs
+        calls = self._mocks(monkeypatch, 4, 4, 20)
+        out = cs.compose(style="deep trance", target=16)
+        assert calls["bandcamp"] == 1 and calls["lastfm"] == 1 and len(out) == 16

@@ -11,7 +11,7 @@ def _stages(plan):
 class TestBuildPlanPathB:
     def test_full_chain_order(self):
         plan = orch.build_plan("euro", path="b", artists="WADE,ANOTR",
-                               bpm_min=122, bpm_max=128)
+                               bpm_min=122, bpm_max=128, source="youtube")
         st = _stages(plan)
         # порядок ключевых стадий
         assert st == ["seedlist", "discover", "resolve", "prescreen", "download",
@@ -59,7 +59,7 @@ class TestSummarizeStage:
 
 class TestRunPlanDryRun:
     def test_dry_run_does_not_execute(self, capsys):
-        plan = orch.build_plan("x", path="b", artists="A", cleanup=False)
+        plan = orch.build_plan("x", path="b", artists="A", cleanup=False, source="youtube")
         res = orch.run_plan(plan, execute=False)
         assert res["executed"] is False
         out = capsys.readouterr().out
@@ -70,7 +70,7 @@ class TestRunPlanDryRun:
 
 class TestPlanCaps:
     def test_seedlist_has_limit(self):
-        plan = orch.build_plan("x", path="b", artists="A", seed_limit=20)
+        plan = orch.build_plan("x", path="b", artists="A", seed_limit=20, source="youtube")
         sl = dict(plan)["seedlist"]
         assert "--limit" in sl and "20" in sl
     def test_prescreen_has_caps(self):
@@ -103,9 +103,22 @@ class TestSortFlag:
 
 
 class TestRemixFlag:
-    def test_remix_adds_flag_to_discover(self):
+    def test_remix_in_default_compose(self):
+        # дефолт auto → remix уходит в compose
         plan = orch.build_plan("x", artists="Lana Del Rey", remix=True)
+        assert "--remix" in dict(plan)["compose"]
+    def test_remix_in_youtube_discover(self):
+        plan = orch.build_plan("x", artists="Lana Del Rey", remix=True, source="youtube")
         assert "--remix" in dict(plan)["discover"]
     def test_no_remix_no_flag(self):
-        plan = orch.build_plan("x", artists="Lana Del Rey")
+        plan = orch.build_plan("x", artists="Lana Del Rey", source="youtube")
         assert "--remix" not in dict(plan)["discover"]
+
+
+class TestDefaultAutoP46:
+    def test_default_is_compose(self):
+        st = [s for s, _ in orch.build_plan("x", style="deep trance")]
+        assert st[0] == "compose" and "seedlist" not in st
+    def test_youtube_override_style_gate(self):
+        disc = dict(orch.build_plan("x", style="tech house", source="youtube"))["discover"]
+        assert "--verify-style" in disc and "tech house" in disc

@@ -139,7 +139,7 @@ Dry-run by default (prints the exact plan). Add `--run` to execute foreground: f
 - **Beatport** (`beatport_source.py` + `curate_tracks.py`): чистые ТРЕКИ (не сеты) с готовыми BPM/Camelot, обход = Playwright stealth + Warp SOCKS5 + xvfb (как раньше). Две роли:
   (1) **источник** — `orchestrate --source beatport --style <genre>` (чарты жанра → сиды с метаданными → поиск аудио). Поля: Mix Name/Label/Release Date/Genre. Гейты: **отсев Radio Edit** + **год** (`--year-min/--year-max`).
   (2) **резолвер по имени** — `search_beatport_track` в каскаде resolve (requests, БЕЗ Cloudflare → стоит ПЕРЕД Tunebat). Has **no reliable artist country.** Полная спека и чек-лист: `docs/beatport.md`.
-- **Маршрутизация источников:** метаданные — фоллбэк-каскад (есть). Discovery: `--source youtube|beatport` — выбор; **`--source auto` (`compose_sources.py`) — композит с фоллбэком Beatport→YouTube/last.fm** (дедуп по video_id, приоритет Beatport). См. docs/beatport.md.
+- **Маршрутизация источников:** метаданные — фоллбэк-каскад (есть). Discovery — ДЕФОЛТ `--source auto`: по УБЫВАНИЮ данных **Beatport→Bandcamp→last.fm/YouTube** (следующий только если не добрали target; дедуп). last.fm/YouTube беднейший (имена/дрейф) → ГЕЙТ стиля (+remix). `youtube`/`beatport` — оверрайд. Discogs (релизы→треки) — TODO. См. docs/beatport.md.
 - **Tunebat**: slow, demand-driven gap-fill only. With Path B local_enrich it's largely unneeded for Camelot/BPM.
 - **last.fm** (`lastfm.py`): `getSimilar`, `getTopTracks` (concrete tracks!), `tag.getTopArtists` (genre-accurate) — solid. `geo.*` = popular IN country (NOT from) — weak.
 - **PulseRoots** (`style_resolver.py` + `data/pulseroots.SOURCE.txt`): style → Beatport slug + seed_artists + similar styles + wikipedia.

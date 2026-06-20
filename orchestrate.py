@@ -26,7 +26,7 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
                artists: str = "", tag: str = "", bpm_min=None, bpm_max=None,
                prescreen: bool = True, a1f: bool = False, cleanup: bool = False,
                seed_limit: int = 24, max_probe: int = 30, target: int = 16,
-               source: str = "youtube", sort: str = "", remix: bool = False) -> list[tuple]:
+               source: str = "auto", sort: str = "", remix: bool = False) -> list[tuple]:
     """Построить упорядоченный план [(stage, argv)]. Чистая функция.
     Лимиты (seed_limit/max_probe/target) — чтобы НЕ качать сотни вслепую (SKILL §7).
     source: youtube (сиды+last.fm) | beatport (чарты жанра с готовыми BPM/Camelot)."""
@@ -56,6 +56,7 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
         if artists: comp += ["--artists", artists]
         if tag:     comp += ["--tag", tag]
         if sort:    comp += ["--sort", sort]
+        if remix:   comp += ["--remix"]
         plan.append(("compose", comp))
         urls = f"{name}_urls.txt"
     else:
@@ -69,6 +70,8 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
         plan.append(("seedlist", sl))
         disc = ["python3", "seed_discover.py", "--artists-file", seeds,
                 "--per", "1", "--out", cand]
+        if style or tag:
+            disc += ["--verify-style", style or tag]     # гейт стиля Path B
         if remix:
             disc.append("--remix")
         plan.append(("discover", disc))
@@ -159,8 +162,8 @@ def _main():
     ap.add_argument("--seed-limit", type=int, default=24, help="потолок сид-строк")
     ap.add_argument("--max-probe", type=int, default=30, help="потолок MP3-проб")
     ap.add_argument("--target", type=int, default=16, help="сколько треков набрать (стоп)")
-    ap.add_argument("--source", choices=["youtube", "beatport", "auto"], default="youtube",
-                    help="beatport: чарты жанра; auto: Beatport→фоллбэк YouTube/last.fm (композит)")
+    ap.add_argument("--source", choices=["youtube", "beatport", "auto"], default="auto",
+                    help="ДЕФОЛТ auto: по богатству данных Beatport→Bandcamp→last.fm/YT; youtube/beatport — оверрайд")
     ap.add_argument("--sort", default="", choices=["", "newest", "bestsellers"],
                     help="порядок пула Beatport: newest (свежее) / bestsellers (популярнее)")
     ap.add_argument("--remix", action="store_true",
