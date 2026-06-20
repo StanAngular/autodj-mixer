@@ -87,3 +87,16 @@ class TestSourceBeatport:
     def test_beatport_then_resolve_prescreen(self):
         st = [s for s, _ in orch.build_plan("x", style="trance", source="beatport")]
         assert st[0] == "beatport" and "resolve" in st and "prescreen" in st
+
+
+class TestSortFlag:
+    def test_sort_in_beatport_stage(self):
+        plan = orch.build_plan("x", style="trance", source="beatport", sort="newest")
+        bp_argv = dict(plan)["beatport"]
+        assert "--sort" in bp_argv and "newest" in bp_argv
+    def test_sort_in_compose_stage(self):
+        plan = orch.build_plan("x", style="trance", source="auto", sort="bestsellers")
+        assert "bestsellers" in dict(plan)["compose"]
+    def test_no_sort_no_flag(self):
+        plan = orch.build_plan("x", style="trance", source="beatport")
+        assert "--sort" not in dict(plan)["beatport"]

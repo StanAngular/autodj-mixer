@@ -26,7 +26,7 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
                artists: str = "", tag: str = "", bpm_min=None, bpm_max=None,
                prescreen: bool = True, a1f: bool = False, cleanup: bool = False,
                seed_limit: int = 24, max_probe: int = 30, target: int = 16,
-               source: str = "youtube") -> list[tuple]:
+               source: str = "youtube", sort: str = "") -> list[tuple]:
     """Построить упорядоченный план [(stage, argv)]. Чистая функция.
     Лимиты (seed_limit/max_probe/target) — чтобы НЕ качать сотни вслепую (SKILL §7).
     source: youtube (сиды+last.fm) | beatport (чарты жанра с готовыми BPM/Camelot)."""
@@ -43,8 +43,20 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
         genre = style or tag
         if not genre:
             raise ValueError("source beatport требует --style/--tag (жанр)")
-        plan.append(("beatport", ["python3", "beatport_source.py", "--genre", genre,
-                                  "--per", "5", "--out", cand]))
+        bp_cmd = ["python3", "beatport_source.py", "--genre", genre, "--per", "5", "--out", cand]
+        if sort:
+            bp_cmd += ["--sort", sort]
+        plan.append(("beatport", bp_cmd))
+        urls = f"{name}_urls.txt"
+    elif source == "auto":
+        if not (style or artists or tag):
+            raise ValueError("source auto требует --style/--artists/--tag")
+        comp = ["python3", "compose_sources.py", "--target", str(target), "--out", cand]
+        if style:   comp += ["--style", style]
+        if artists: comp += ["--artists", artists]
+        if tag:     comp += ["--tag", tag]
+        if sort:    comp += ["--sort", sort]
+        plan.append(("compose", comp))
         urls = f"{name}_urls.txt"
     else:
         if not (style or artists or tag):
@@ -144,8 +156,10 @@ def _main():
     ap.add_argument("--seed-limit", type=int, default=24, help="потолок сид-строк")
     ap.add_argument("--max-probe", type=int, default=30, help="потолок MP3-проб")
     ap.add_argument("--target", type=int, default=16, help="сколько треков набрать (стоп)")
-    ap.add_argument("--source", choices=["youtube", "beatport"], default="youtube",
-                    help="beatport: чарты жанра с готовыми BPM/Camelot (bypass пробы)")
+    ap.add_argument("--source", choices=["youtube", "beatport", "auto"], default="youtube",
+                    help="beatport: чарты жанра; auto: Beatport→фоллбэк YouTube/last.fm (композит)")
+    ap.add_argument("--sort", default="", choices=["", "newest", "bestsellers"],
+                    help="порядок пула Beatport: newest (свежее) / bestsellers (популярнее)")
     ap.add_argument("--run", action="store_true", help="выполнить (иначе dry-run)")
     ap.add_argument("--log-dir", default="logs")
     args = ap.parse_args()
@@ -154,7 +168,7 @@ def _main():
                       args.tag, args.bpm_min, args.bpm_max,
                       prescreen=not args.no_prescreen, a1f=args.a1f, cleanup=args.cleanup,
                       seed_limit=args.seed_limit, max_probe=args.max_probe, target=args.target,
-                      source=args.source)
+                      source=args.source, sort=args.sort)
     run_plan(plan, args.log_dir, execute=args.run)
 
 

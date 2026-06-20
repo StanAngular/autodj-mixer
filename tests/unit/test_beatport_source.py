@@ -72,3 +72,26 @@ class TestGatesInSeeds:
         tracks = [{"artist": "A", "track": "x", "mix_name": "", "release_date": ""}]
         seeds, _ = bp.tracks_to_seeds_with_meta(tracks, year_lo=2026, year_hi=2026)
         assert seeds == ["A - x"]                                  # год неизвестен → не режем
+
+
+# ── P43: сортировка пула по намерению (newest / bestsellers) ──────────────
+
+class TestSortBeatportTracks:
+    def test_newest_by_release_date(self):
+        tracks = [{"track": "old", "release_date": "2024-01-01"},
+                  {"track": "new", "release_date": "2026-05-01"},
+                  {"track": "mid", "release_date": "2025-03-01"}]
+        out = bp.sort_beatport_tracks(tracks, "newest")
+        assert [t["track"] for t in out] == ["new", "mid", "old"]
+    def test_bestsellers_by_support(self):
+        tracks = [{"track": "a", "support_score": 3},
+                  {"track": "b", "support_score": 10},
+                  {"track": "c", "support_score": 7}]
+        out = bp.sort_beatport_tracks(tracks, "bestsellers")
+        assert [t["track"] for t in out] == ["b", "c", "a"]
+    def test_empty_keeps_order(self):
+        tracks = [{"track": "a"}, {"track": "b"}]
+        assert [t["track"] for t in bp.sort_beatport_tracks(tracks, "")] == ["a", "b"]
+    def test_unknown_dates_last(self):
+        tracks = [{"track": "x", "release_date": ""}, {"track": "y", "release_date": "2026-01-01"}]
+        assert [t["track"] for t in bp.sort_beatport_tracks(tracks, "newest")] == ["y", "x"]

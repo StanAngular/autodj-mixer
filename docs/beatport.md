@@ -43,24 +43,25 @@ BPM/Key, без Cloudflare (в отличие от Tunebat). Используе�
 
 | Фильтр | Назначение | Статус |
 |---|---|---|
-| Release Date (Newest/Oldest) | только свежак за дни/недели | ⛔ TODO (для «2026 / самое новое») |
-| Bestsellers (Top Sellers) | по числу покупок (популярность) | ⛔ TODO (для «только популярное») |
-| Key / BPM в URL | фильтр диапазона BPM / ключа на стороне Beatport | ⛔ TODO (экономит отсев) |
+| Release Date (Newest) | свежее раньше | ✅ `--sort newest` (клиентская сортировка пула по release_date) |
+| Bestsellers (Top Sellers) | популярность | ✅ `--sort bestsellers` (по support_score) |
+| Key / BPM в URL | фильтр диапазона на стороне Beatport | ⚠️ частично: год/BPM-гейты есть; URL-фильтр ленты жанра = V4-эндпоинт, проверить вживую |
 
 ## Роутинг (как используется в пайплайне)
 
 - **Метаданные:** каскад `resolve_metadata` = каталог → кэш → **Beatport-by-name**
   (`search_beatport_track`) → Tunebat → аудио. **Фоллбэк работает**: нет на Beatport → дальше.
-- **Discovery:** `orchestrate --source beatport | youtube` — пока **взаимоисключающий
-  выбор**, НЕ фоллбэк-цепочка. TODO: композитный поиск «Beatport → потом YouTube/last.fm».
+- **Discovery:** `--source youtube | beatport` — взаимоисключающий выбор; `--source auto`
+  (`compose_sources.py`) — **композит с фоллбэком**: Beatport → если < target, добор YouTube/last.fm,
+  слияние с дедупом по video_id (приоритет Beatport). ✅
 
 ## Порядок реализации (предложенный)
 
 1. ~~**Поля + гейты**: Mix Name / Label / Release Date в парсере; гейт «не Radio Edit»; гейт года~~ ✅ **СДЕЛАНО (P39)** — гейты тестируются, парсер проверит Гермес вживую.
-2. **Сортировка в URL**: Newest / Bestsellers / BPM-Key — для «свежее+популярное».
+2. ~~**Сортировка**: Newest / Bestsellers~~ ✅ **СДЕЛАНО (P43)** — `--sort newest|bestsellers` (клиентская сортировка пула). URL-фильтр ленты жанра (V4) — отдельно, вживую.
 3. **Доп. чарты-источники**: Hype Top 100 (андеграунд), Genre Top 100, DJ Charts артиста.
 4. **Каталоги**: /label, /artist, /genre/tracks.
-5. **Композитный discovery с фоллбэком** (Beatport → YouTube/last.fm).
+5. ~~**Композитный discovery с фоллбэком** (Beatport → YouTube/last.fm)~~ ✅ **СДЕЛАНО (P42)** — `orchestrate --source auto` → `compose_sources.py`.
 
 ## Существующий код (точки переиспользования)
 
