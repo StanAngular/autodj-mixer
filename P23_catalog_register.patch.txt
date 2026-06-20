@@ -1,0 +1,254 @@
+diff --git a/catalog_register.py b/catalog_register.py
+new file mode 100644
+index 0000000..7c05c3b
+--- /dev/null
++++ b/catalog_register.py
+@@ -0,0 +1,174 @@
++#!/usr/bin/env python3
++"""
++catalog_register.py — общая регистрация треков в каталог из результата курации.
++
++Зачем: каталог — постоянное хранилище данных о треках (политика хранения: WAV
++временные, метаданные вечные). Старая регистрация (register_new_tracks.py) была
++хардкод-однодневкой, требовала A1F и НЕ хранила camelot/youtube_url. Здесь —
++общая: пишет полную запись (включая camelot и youtube_url) из cand.json, A1F-
++структуру добавляет если есть, иначе регистрирует и без неё.
++
++После регистрации WAV трека можно безопасно удалять (P24) — метаданные сохранены,
++трек всегда перекачивается по youtube_url, повторно не анализируется.
++
++build_entry — чистая функция (тестируется офлайн). register_tracks — тонкий I/O,
++переиспользует shared/catalog/catalog_utils (load_index/save_index).
++"""
++import json
++import os
++import re
++from datetime import datetime
++
++
++def video_id(url: str) -> str:
++    """11-символьный YouTube id из URL (зеркало extract_video_id). '' если нет."""
++    if not url or "soundcloud.com" in url:
++        return ""
++    m = re.search(r'[?&]v=([0-9A-Za-z_-]{11})', url)
++    if m:
++        return m.group(1)
++    m = re.search(r'(?:youtu\.be/|/embed/|/shorts/|/v/)([0-9A-Za-z_-]{11})', url)
++    if m:
++        return m.group(1)
++    if re.fullmatch(r'[0-9A-Za-z_-]{11}', url.strip()):
++        return url.strip()
++    return ""
++
++
++def build_entry(track: dict, a1f_data: dict | None = None,
++                meta: dict | None = None, madmom_downbeats: int | None = None) -> dict:
++    """
++    Полная запись каталога из курированного трека (+ опц. A1F-json, yt-dlp .meta.json,
++    счётчик madmom-даунбитов). Чистая функция.
++
++    Хранит ВСЮ собранную за проход инфу, даже не используемую в миксе сейчас:
++      • camelot и youtube_url (раньше терялись) — чтобы не пересчитывать при перекачке;
++      • полную A1F-структуру (сегменты as-is) + счётчики beats/downbeats; полные A1F-
++        массивы — по ссылке a1f_file (файл сохраняется, см. политику хранения);
++      • yt-dlp метаданные (year, genre, tags, описание) из .meta.json;
++      • метод анализа (a1f / madmom / none) — madmom это быстрый базовый способ,
++        достаточный для части треков; A1F — опциональная надстройка.
++    Приоритет полей: курация > meta (артист/трек у Beatport чище, чем у yt-dlp).
++    """
++    a1f = a1f_data or {}
++    m = meta or {}
++    entry = {
++        "title":        track.get("track") or m.get("track_title", ""),
++        "artist":       track.get("artist") or m.get("artist", ""),
++        "youtube_url":  track.get("youtube_url", ""),
++        "bpm":          track.get("bpm") or a1f.get("bpm"),
++        "camelot":      track.get("camelot", ""),
++        "year":         track.get("year") or m.get("year", ""),
++        "genre":        track.get("genre") or m.get("genre", ""),
++        "source":       "curation",
++        "registered_at": datetime.now().isoformat(timespec="seconds"),
++    }
++    # yt-dlp метаданные (собраны за проход, пока в миксе не используются)
++    if m.get("tags"):
++        entry["tags"] = m["tags"][:20]
++    if m.get("description"):
++        entry["description"] = m["description"][:500]
++    if m.get("duration_sec"):
++        entry["duration"] = m["duration_sec"]
++
++    # A1F: полная структура as-is + счётчики; полные массивы по ссылке a1f_file
++    if a1f:
++        entry["structure"] = [dict(s) for s in a1f.get("segments", [])]   # сегменты целиком
++        segs = a1f.get("segments", [])
++        entry["duration"] = (segs[-1]["end"] if segs else entry.get("duration"))
++        entry["num_beats"] = len(a1f.get("beats", []))
++        entry["num_downbeats"] = len(a1f.get("downbeats", []))
++        if a1f.get("vocal_intervals"):                # если enrich_metadata добавил
++            entry["vocal_intervals"] = a1f["vocal_intervals"]
++        vid = video_id(track.get("youtube_url", ""))
++        if vid:
++            entry["a1f_file"] = f"a1f_results/{vid}.json"
++
++    # madmom (быстрый базовый способ) — фиксируем наличие/количество
++    if madmom_downbeats is not None:
++        entry["madmom_downbeats"] = madmom_downbeats
++
++    entry["analysis"] = "a1f" if a1f else ("madmom" if madmom_downbeats else "none")
++    return entry
++
++
++def _count_madmom_downbeats(ann_path: str) -> int | None:
++    """Кол-во даунбитов в madmom-аннотации (строки с позицией доли == 1). None если нет файла."""
++    if not os.path.exists(ann_path):
++        return None
++    n = 0
++    try:
++        with open(ann_path, encoding="utf-8") as f:
++            for line in f:
++                parts = line.split()
++                if len(parts) >= 2 and parts[1] == "1":
++                    n += 1
++    except OSError:
++        return None
++    return n
++
++
++def register_tracks(candidates: list[dict], a1f_dir: str,
++                    ann_dir: str = "shared/ann", catalog_dir: str | None = None) -> dict:
++    """
++    Зарегистрировать треки курации в каталог. Возвращает счётчики.
++    На каждый трек собирает: A1F-json (полная структура), .meta.json (yt-dlp:
++    year/genre/tags), madmom-аннотацию (быстрый базовый метод). Тонкий I/O,
++    переиспользует catalog_utils.load_index/save_index.
++    """
++    import sys
++    cdir = catalog_dir or os.path.join(
++        os.path.dirname(os.path.abspath(__file__)), "shared", "catalog")
++    sys.path.insert(0, cdir)
++    import catalog_utils as cu
++
++    index = cu.load_index()
++    index.setdefault("tracks", {})
++    stats = {"registered": 0, "skipped": 0, "with_a1f": 0, "madmom_only": 0}
++    for t in candidates:
++        vid = video_id(t.get("youtube_url", ""))
++        if not vid:
++            stats["skipped"] += 1
++            continue
++        a1f_data = _read_json(os.path.join(a1f_dir, f"{vid}.json"))
++        meta = _read_json(os.path.join(a1f_dir, f"{vid}.meta.json"))
++        madmom_db = _count_madmom_downbeats(os.path.join(ann_dir, f"{vid}.txt"))
++        index["tracks"][vid] = build_entry(t, a1f_data, meta, madmom_db)
++        stats["registered"] += 1
++        if a1f_data:
++            stats["with_a1f"] += 1
++        elif madmom_db:
++            stats["madmom_only"] += 1
++    cu.save_index(index)
++    return stats
++
++
++def _read_json(path: str) -> dict | None:
++    if not os.path.exists(path):
++        return None
++    try:
++        with open(path, encoding="utf-8") as f:
++            return json.load(f)
++    except (OSError, ValueError):
++        return None
++
++
++def _main():
++    import argparse
++    ap = argparse.ArgumentParser(description="Регистрация треков курации в каталог")
++    ap.add_argument("candidates", help="curator_candidates.json")
++    ap.add_argument("--a1f-dir", default="shared/a1f_results")
++    ap.add_argument("--ann-dir", default="shared/ann")
++    ap.add_argument("--catalog-dir", default=None)
++    args = ap.parse_args()
++
++    candidates = json.load(open(args.candidates, encoding="utf-8"))
++    res = register_tracks(candidates, args.a1f_dir, args.ann_dir, args.catalog_dir)
++    print(f"Каталог: зарегистрировано {res['registered']} "
++          f"(A1F-структура {res['with_a1f']}, только madmom {res['madmom_only']}, "
++          f"пропущено без id {res['skipped']}). "
++          f"Метаданные сохранены — WAV этих треков можно удалять (P24).")
++
++
++if __name__ == "__main__":
++    _main()
+diff --git a/tests/unit/test_catalog_register.py b/tests/unit/test_catalog_register.py
+new file mode 100644
+index 0000000..f687c91
+--- /dev/null
++++ b/tests/unit/test_catalog_register.py
+@@ -0,0 +1,68 @@
++"""Unit tests for catalog_register.py pure functions (P23, offline)."""
++import sys, os
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
++import catalog_register as cr
++
++
++class TestVideoId:
++    def test_watch(self):
++        assert cr.video_id("https://www.youtube.com/watch?v=abcDEF12345") == "abcDEF12345"
++    def test_none(self):
++        assert cr.video_id("") == "" and cr.video_id("https://soundcloud.com/x") == ""
++
++
++class TestBuildEntry:
++    def test_stores_camelot_and_url(self):
++        # ключевое: camelot и youtube_url теперь В каталоге (раньше терялись)
++        t = {"artist": "Tale Of Us", "track": "Nova", "bpm": 124, "camelot": "8A",
++             "youtube_url": "https://youtu.be/aaaaaaaaaaa", "year": 2025}
++        e = cr.build_entry(t)
++        assert e["camelot"] == "8A"
++        assert e["youtube_url"] == "https://youtu.be/aaaaaaaaaaa"
++        assert e["bpm"] == 124 and e["artist"] == "Tale Of Us" and e["title"] == "Nova"
++        assert e["source"] == "curation" and e["analysis"] == "none"
++
++    def test_full_a1f_structure_kept_as_is(self):
++        # сегменты хранятся ЦЕЛИКОМ (полная структура), не урезаются
++        a1f = {"bpm": 126, "beats": [0, 1, 2, 3], "downbeats": [0, 2],
++               "segments": [{"start": 0.0, "end": 10.0, "label": "intro"},
++                            {"start": 10.0, "end": 60.0, "label": "drop"}]}
++        e = cr.build_entry({"artist": "A", "track": "x", "camelot": "9A",
++                            "youtube_url": "https://youtu.be/bbbbbbbbbbb"}, a1f)
++        assert e["structure"] == a1f["segments"]      # как есть
++        assert e["num_beats"] == 4 and e["num_downbeats"] == 2
++        assert e["duration"] == 60.0
++        assert e["a1f_file"] == "a1f_results/bbbbbbbbbbb.json"
++        assert e["analysis"] == "a1f"
++
++    def test_merges_ytdlp_meta(self):
++        # собранная за проход yt-dlp инфа (year/genre/tags) попадает в каталог
++        meta = {"track_title": "yt title", "artist": "yt artist", "year": 2024,
++                "genre": "Deep House", "tags": ["house"] * 30, "description": "x" * 999,
++                "duration_sec": 300}
++        e = cr.build_entry({"artist": "Real", "track": "Real Track", "camelot": "8A",
++                            "youtube_url": "https://youtu.be/ccccccccccc"}, None, meta)
++        assert e["artist"] == "Real"          # курация в приоритете над yt-dlp
++        assert e["genre"] == "Deep House" and e["year"] == 2024
++        assert len(e["tags"]) == 20 and len(e["description"]) == 500   # обрезка
++        assert e["duration"] == 300
++
++    def test_madmom_only_method(self):
++        e = cr.build_entry({"artist": "A", "track": "x", "camelot": "8A",
++                            "youtube_url": "https://youtu.be/ddddddddddd"},
++                           None, None, madmom_downbeats=96)
++        assert e["madmom_downbeats"] == 96 and e["analysis"] == "madmom"
++
++    def test_bpm_fallback_to_a1f(self):
++        e = cr.build_entry({"artist": "A", "track": "x", "youtube_url": "https://youtu.be/eeeeeeeeeee"},
++                           {"bpm": 128, "segments": []})
++        assert e["bpm"] == 128
++
++
++class TestCountMadmomDownbeats:
++    def test_counts_position_one(self, tmp_path):
++        p = tmp_path / "v.txt"
++        p.write_text("0.050000 1\n0.550000 2\n1.050000 3\n1.550000 4\n2.050000 1\n")
++        assert cr._count_madmom_downbeats(str(p)) == 2     # две доли «1»
++    def test_missing_file(self):
++        assert cr._count_madmom_downbeats("/nope/x.txt") is None

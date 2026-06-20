@@ -1,0 +1,229 @@
+diff --git a/.gitignore b/.gitignore
+index 570f461..58cb9f0 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -15,4 +15,5 @@ ann/old/
+ tracks/
+ shared/ann/*.txt
+ shared/tracks/*.wav
+-shared/tracks/*.webm
+\ No newline at end of file
++shared/tracks/*.webm
++data/enrich_cache.json
+diff --git a/curate_tracks.py b/curate_tracks.py
+index 36be124..5cfadc0 100644
+--- a/curate_tracks.py
++++ b/curate_tracks.py
+@@ -18,6 +18,7 @@ from datetime import datetime
+ from typing import Optional
+ 
+ import curation_config
++import enrich_cache
+ 
+ # Auto-load .env если есть
+ try:
+@@ -1260,26 +1261,38 @@ def select_enrich_candidates(deduped: list[dict], discovery: str = "popular",
+ def enrich_pool(deduped: list[dict], seg: dict | None = None,
+                 limit: int | None = None) -> list[dict]:
+     """
+-    Шаг 2: обогащение BPM/Camelot через Tunebat (Playwright). In-place set_field.
+-    Обогащаются только топ-`limit` кандидатов (ранжированных под discovery
+-    сегмента), а не весь пул — иначе Tunebat упирается в таймаут на больших пулах.
++    Шаг 2: обогащение BPM/Camelot. Сначала дисковый кэш (мгновенно), затем Tunebat
++    только для остатка (топ-`limit` под discovery). Новые результаты кэшируются.
+     """
+     discovery = (seg or {}).get("discovery", "popular")
+-    total_need = sum(1 for t in deduped if not t.get("bpm") or not t.get("camelot"))
+-    need = select_enrich_candidates(deduped, discovery, limit)
++    incomplete = [t for t in deduped if not t.get("bpm") or not t.get("camelot")]
++    if not incomplete:
++        print("  Все треки уже имеют BPM/Camelot — пропуск")
++        return deduped
++
++    # 1. Кэш обогащения — дозаполняем без Tunebat
++    cache = enrich_cache.load_cache()
++    hits, misses = enrich_cache.split_by_cache(incomplete, cache)
++    for t, bpm, cam in hits:
++        set_field(t, "bpm",     bpm, "cache")
++        set_field(t, "camelot", cam, "cache")
++    if hits:
++        print(f"  Кэш: {len(hits)} попаданий (без Tunebat)")
++
++    # 2. Остаток без метаданных → ранжируем под discovery и берём топ-limit
++    need = select_enrich_candidates(misses, discovery, limit)
+ 
+     if not need:
+-        print("  Все треки уже имеют BPM/Camelot — пропуск")
++        print("  Остаток покрыт кэшем — Tunebat пропущен")
+         return deduped
+-    # Старый предохранитель работает только без явного лимита
+     if limit is None and len(deduped) > TUNEBAT_MAX_POOL:
+         print(f"  Пул {len(deduped)} > {TUNEBAT_MAX_POOL} → Tunebat пропущен")
+         return deduped
+ 
+-    if len(need) < total_need:
+-        print(f"  Обогащаю топ-{len(need)} из {total_need} кандидатов (discovery={discovery})")
++    if len(need) < len(misses):
++        print(f"  Обогащаю топ-{len(need)} из {len(misses)} (после кэша, discovery={discovery})")
+     else:
+-        print(f"  Нуждаются в обогащении: {len(need)}/{len(deduped)} треков")
++        print(f"  Обогащаю {len(need)} (после кэша)")
+ 
+     try:
+         from playwright_scraper import enrich_tracks_via_tunebat
+@@ -1290,6 +1303,14 @@ def enrich_pool(deduped: list[dict], seg: dict | None = None,
+             if et:
+                 set_field(t, "bpm",     et.get("bpm"),     "Tunebat")
+                 set_field(t, "camelot", et.get("camelot"), "Tunebat")
++        # 3. Новые полные результаты → в кэш
++        stored = 0
++        for t in deduped:
++            if enrich_cache.cache_put(cache, t["artist"], t["track"],
++                                      t.get("bpm"), t.get("camelot")):
++                stored += 1
++        if enrich_cache.save_cache(cache):
++            print(f"  Кэш обновлён: {stored} записей всего")
+     except ImportError as e:
+         print(f"  playwright_scraper недоступен: {e} → пропуск Tunebat")
+     except Exception as e:
+diff --git a/enrich_cache.py b/enrich_cache.py
+new file mode 100644
+index 0000000..bf976b1
+--- /dev/null
++++ b/enrich_cache.py
+@@ -0,0 +1,76 @@
++#!/usr/bin/env python3
++"""
++enrich_cache.py — дисковый кэш обогащения (artist+track → BPM/Camelot).
++
++Главный выигрыш по скорости: Tunebat (headed-браузер, ~3-5с/трек) больше не
++обрабатывает повторно те же треки между прогонами и сессиями. BPM/Camelot трека
++стабильны (свойство самого трека), поэтому кэш не протухает.
++
++Чистый модуль (json + файловый I/O). Ключ согласован с dedup_key из
++curate_tracks: f"{artist.lower().strip()}|{track.lower().strip()}".
++Кэш — runtime-данные, в репозиторий не коммитится (см. .gitignore).
++"""
++import json
++import os
++
++DEFAULT_CACHE_PATH = os.path.join(
++    os.path.dirname(os.path.abspath(__file__)), "data", "enrich_cache.json")
++
++
++def cache_key(artist: str, track: str) -> str:
++    """Ключ кэша — зеркало dedup_key (consistency)."""
++    return f"{(artist or '').lower().strip()}|{(track or '').lower().strip()}"
++
++
++def load_cache(path: str = DEFAULT_CACHE_PATH) -> dict:
++    """Загрузить кэш с диска. При отсутствии/повреждении — пустой dict."""
++    try:
++        with open(path, encoding="utf-8") as f:
++            data = json.load(f)
++        return data if isinstance(data, dict) else {}
++    except (OSError, ValueError):
++        return {}
++
++
++def save_cache(cache: dict, path: str = DEFAULT_CACHE_PATH) -> bool:
++    """Сохранить кэш на диск. Возвращает True при успехе."""
++    try:
++        os.makedirs(os.path.dirname(path), exist_ok=True)
++        with open(path, "w", encoding="utf-8") as f:
++            json.dump(cache, f, ensure_ascii=False)
++        return True
++    except OSError:
++        return False
++
++
++def cache_get(cache: dict, artist: str, track: str) -> dict | None:
++    """Вернуть {bpm, camelot} из кэша или None."""
++    return cache.get(cache_key(artist, track))
++
++
++def cache_put(cache: dict, artist: str, track: str, bpm, camelot) -> bool:
++    """
++    Положить в кэш ТОЛЬКО полную запись (есть и BPM, и Camelot). Неполные не
++    кэшируем — чтобы позже доискать. Возвращает True если записали.
++    """
++    if bpm and camelot:
++        cache[cache_key(artist, track)] = {"bpm": bpm, "camelot": camelot}
++        return True
++    return False
++
++
++def split_by_cache(tracks: list[dict], cache: dict):
++    """
++    Разделить треки на покрытые кэшем и нет. Чистая функция.
++    Возвращает (hits, misses):
++      hits  — список (track, bpm, camelot) для треков с полной записью в кэше;
++      misses — треки, которых в кэше нет (нужен Tunebat).
++    """
++    hits, misses = [], []
++    for t in tracks:
++        c = cache.get(cache_key(t.get("artist", ""), t.get("track", "")))
++        if c and c.get("bpm") and c.get("camelot"):
++            hits.append((t, c["bpm"], c["camelot"]))
++        else:
++            misses.append(t)
++    return hits, misses
+diff --git a/tests/unit/test_enrich_cache.py b/tests/unit/test_enrich_cache.py
+new file mode 100644
+index 0000000..91203eb
+--- /dev/null
++++ b/tests/unit/test_enrich_cache.py
+@@ -0,0 +1,53 @@
++"""Unit tests for enrich_cache.py (offline, tmp-file backed)."""
++import sys, os
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
++import enrich_cache as ec
++
++
++class TestKey:
++    def test_mirrors_dedup_key(self):
++        assert ec.cache_key("  Daft Punk ", "Da Funk") == "daft punk|da funk"
++
++    def test_handles_none(self):
++        assert ec.cache_key(None, None) == "|"
++
++
++class TestPutGet:
++    def test_put_complete_only(self):
++        c = {}
++        assert ec.cache_put(c, "A", "1", 124, "8A") is True
++        assert ec.cache_put(c, "B", "2", 0, "8A") is False    # нет bpm
++        assert ec.cache_put(c, "C", "3", 124, "") is False    # нет camelot
++        assert len(c) == 1
++
++    def test_get(self):
++        c = {}
++        ec.cache_put(c, "A", "1", 124, "8A")
++        assert ec.cache_get(c, "a", "1") == {"bpm": 124, "camelot": "8A"}
++        assert ec.cache_get(c, "X", "Y") is None
++
++
++class TestSplit:
++    def test_hits_and_misses(self):
++        cache = {}
++        ec.cache_put(cache, "A", "1", 124, "8A")
++        tracks = [
++            {"artist": "A", "track": "1"},   # в кэше
++            {"artist": "B", "track": "2"},   # нет
++        ]
++        hits, misses = ec.split_by_cache(tracks, cache)
++        assert len(hits) == 1 and hits[0][1] == 124 and hits[0][2] == "8A"
++        assert len(misses) == 1 and misses[0]["artist"] == "B"
++
++
++class TestRoundTrip:
++    def test_save_load(self, tmp_path):
++        p = str(tmp_path / "ec.json")
++        c = {}
++        ec.cache_put(c, "A", "1", 124, "8A")
++        assert ec.save_cache(c, p) is True
++        loaded = ec.load_cache(p)
++        assert loaded == c
++
++    def test_missing_file_empty(self, tmp_path):
++        assert ec.load_cache(str(tmp_path / "nope.json")) == {}

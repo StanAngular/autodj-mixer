@@ -1,0 +1,281 @@
+diff --git a/report.py b/report.py
+new file mode 100644
+index 0000000..0a27c50
+--- /dev/null
++++ b/report.py
+@@ -0,0 +1,192 @@
++#!/usr/bin/env python3
++"""
++report.py — генератор финального отчёта по миксу (шаблон «DJ AGENT 001»).
++
++Разделение труда:
++  • ДЕТЕРМИНИРОВАННОЕ (из пайплайна) — время, артист/трек, BPM, ключ/Camelot,
++    переход (тайм-код + смена ключа + маркер отношения), итоги, плейлист.
++  • ТВОРЧЕСКОЕ (заполняет ИИ-агент с интернетом) — интро в стиле муз.журнала и
++    покомментарийные блоки (клубный статус / YouTube-популярность). Пустые слоты
++    помечаются `[…]` с инструкцией — агент дозаполняет.
++
++render_report — чистая функция (тестируется офлайн). CLI собирает данные из
++curator_candidates.json + стампов микса и зовёт render_report.
++"""
++import json
++import re
++
++ENGINE_VER = "v16.3.3"
++SEP = "────────────────"
++
++
++def _camelot_marker(prev: str, cur: str) -> str:
++    """Маркер гармонического отношения между соседними треками (для строки сведения)."""
++    if not prev or not cur:
++        return ""
++    try:
++        pn = int(re.match(r'(\d+)', prev).group(1)); pl = prev[-1]
++        cn = int(re.match(r'(\d+)', cur).group(1)); cl = cur[-1]
++    except (AttributeError, ValueError):
++        return ""
++    if prev == cur:
++        return "[= тот же ключ]"
++    ring = min((pn - cn) % 12, (cn - pn) % 12)
++    if pl == cl and ring == 1:
++        return "[±1 сосед]"
++    if pn == cn and pl != cl:
++        return "[REL relative]"
++    if pl != cl and ring == 1:
++        return "[diag energy]"
++    return "[⚠ скачок]"
++
++
++def _fmt_time(sec) -> str:
++    """Секунды → MM:SS."""
++    try:
++        s = int(round(float(sec)))
++    except (TypeError, ValueError):
++        return "00:00"
++    return f"{s // 60:02d}:{s % 60:02d}"
++
++
++def _slot(value, instruction: str) -> str:
++    """Готовое значение или помеченный творческий слот для заполнения агентом."""
++    return value if value else f"[{instruction}]"
++
++
++def render_report(data: dict) -> str:
++    """
++    Собрать отчёт по шаблону DJ AGENT 001. Чистая функция.
++    data: {title, genre, duration, month, intro?, tracks[], engine?, playlist_url?}
++      title = придуманное название микса (творческое); genre = стиль из брифа.
++      track: {time?, artist, track, flag?, country?, label?, year?, bpm?, key?,
++              camelot?, mix_note?, youtube?, comment?}  (prev_camelot выводится)
++    """
++    tracks = data.get("tracks", [])
++    L = []
++    # Шапка — ПРИДУМАННОЕ название микса (творческое, не жанр). Слот, если не задано.
++    title = data.get("title")
++    header = title.upper() if title else (
++        "[НАЗВАНИЕ МИКСА: придумай яркое образное название сета журнальным тоном — НЕ жанр]")
++    L.append(f"### 🎛 DJ AGENT 001 — {header}")
++    # Подзаголовок — жанр/стиль из брифа (доформулированный)
++    L.append(f"**{data.get('genre', '')}** | **{data.get('duration', '')}** | **{data.get('month', '')}**")
++    L.append(_slot(data.get("intro"),
++                   "ИНТРО: 3-5 предложений в стиле муз.журнала для общего слушателя — "
++                   "про жанр, сцену, лейблы и арку микса (заполнить с интернетом)"))
++    L.append(SEP)
++    L.append("🎧 **ТРЕК-ЛИСТ И СЕТКА СВЕДЕНИЯ**")
++    L.append(SEP)
++
++    prev_cam = ""
++    for i, t in enumerate(tracks):
++        tm = t.get("time") or "00:00"
++        L.append(f"• **{tm} — {t.get('artist', '?')} — {t.get('track', '?')}**")
++        meta = " | ".join(x for x in [t.get("country"), t.get("label"), str(t.get("year", "") or "")] if x)
++        L.append(f"↳ {t.get('flag', '')} {meta}".rstrip())
++        key = t.get("key", "")
++        cam = t.get("camelot", "")
++        L.append(f" * **Параметры:** {t.get('bpm', '?')} BPM | {key} ({cam})".replace(" ()", ""))
++        # Сведение: детерминированная строка перехода + творческий приём
++        if i == 0:
++            note = t.get("mix_note") or "Открывает сет."
++            L.append(f" * **Сведение:** {note}")
++        else:
++            marker = _camelot_marker(prev_cam, cam)
++            base = f"⏱ {tm} — {prev_cam}→{cam} {marker}".rstrip()
++            extra = t.get("mix_note") or "[приём сведения: bass swap / blend — кратко]"
++            L.append(f" * **Сведение:** {base}. {extra}")
++        if t.get("youtube"):
++            L.append(f" * **Медиа:** 🟥 YouTube: {t['youtube']}")
++        L.append(f" * **Комментарий:** " + _slot(
++            t.get("comment"),
++            "клубный статус / YouTube-популярность / фишка трека — 1-2 предложения "
++            "журнальным тоном (заполнить с интернетом)"))
++        prev_cam = cam
++
++    L.append(f"• **{data.get('duration', '')} — END**")
++    L.append(SEP)
++    L.append(f"⚙️ **ТЕХНИЧЕСКИЙ СТЭК (MIX ENGINE {ENGINE_VER})**")
++    L.append(SEP)
++    L.append(data.get("engine") or
++             "madmom RNN downbeats → потактовый варпинг (pyrubberband) → LR4-кроссовер → "
++             "потактовый скоринг (RMS-секции) → hpss bass swap. Жёсткий лимитер −3 дБFS.")
++    L.append(SEP)
++    L.append("📊 **ИТОГОВАЯ ИНФОРМАЦИЯ**")
++    L.append(SEP)
++    L.append(f" * **Всего треков:** {len(tracks)}")
++    L.append(f" * **Общее время звучания:** {data.get('duration', '')}")
++    pl = data.get("playlist_url")
++    L.append(f" * **Полный плейлист:** 🟥 YouTube Playlist " + (pl if pl else "[ссылка]"))
++    L.append(" * **Легенда ключей:** = тот же · ±1 сосед · REL relative · diag energy · ⚠ скачок")
++    return "\n".join(L) + "\n"
++
++
++def build_report_data(candidates: list[dict], stamps: list[dict],
++                      total_dur_s: float, title: str = "", genre: str = "",
++                      month: str = "", playlist_url: str = "") -> dict:
++    """
++    Собрать data для render_report из результата курации + стампов микса.
++    Времена треков берём из стампов (t каждого перехода = старт след. трека).
++    Творческие поля (intro/comment) НЕ заполняются — остаются слотами для агента.
++    """
++    starts = [0.0] + [float(s.get("t", 0)) for s in stamps]   # старт каждого трека
++    tracks = []
++    for i, c in enumerate(candidates):
++        tracks.append({
++            "time": _fmt_time(starts[i]) if i < len(starts) else "",
++            "artist": c.get("artist", "?"),
++            "track": c.get("track", "?"),
++            "country": c.get("country", ""),
++            "label": c.get("label", ""),
++            "year": c.get("year", ""),
++            "bpm": c.get("bpm", ""),
++            "key": c.get("key", ""),
++            "camelot": c.get("camelot", ""),
++            "youtube": c.get("youtube_url", ""),
++        })
++    return {
++        "title": title, "genre": genre, "month": month,
++        "duration": _fmt_time(total_dur_s),
++        "tracks": tracks, "playlist_url": playlist_url,
++    }
++
++
++def _main():
++    import argparse
++    ap = argparse.ArgumentParser(description="Генератор финального отчёта по миксу")
++    ap.add_argument("candidates", help="curator_candidates.json")
++    ap.add_argument("--stamps", help=".npy стампы микса (или JSON-файл)")
++    ap.add_argument("--duration", type=float, default=0.0, help="длительность микса, сек")
++    ap.add_argument("--title", default="", help="придуманное название микса (творческое); пусто → слот для агента")
++    ap.add_argument("--genre", default="")
++    ap.add_argument("--month", default="")
++    ap.add_argument("--playlist", default="")
++    ap.add_argument("--out", default="report.md")
++    args = ap.parse_args()
++
++    candidates = json.load(open(args.candidates, encoding="utf-8"))
++    stamps = []
++    if args.stamps:
++        if args.stamps.endswith(".npy"):
++            import numpy as np
++            d = np.load(args.stamps, allow_pickle=True)
++            stamps = list(d.item() if d.ndim == 0 else d)
++            if isinstance(stamps, dict):
++                stamps = stamps.get("stamps", [])
++        else:
++            stamps = json.load(open(args.stamps, encoding="utf-8"))
++
++    data = build_report_data(candidates, stamps, args.duration,
++                             title=args.title, genre=args.genre,
++                             month=args.month, playlist_url=args.playlist)
++    out = render_report(data)
++    with open(args.out, "w", encoding="utf-8") as f:
++        f.write(out)
++    n_slots = out.count("[")
++    print(f"Отчёт → {args.out} ({len(data['tracks'])} треков). "
++          f"Творческих слотов для заполнения агентом: ~{n_slots} (интро + комментарии).")
++
++
++if __name__ == "__main__":
++    _main()
+diff --git a/tests/unit/test_report.py b/tests/unit/test_report.py
+new file mode 100644
+index 0000000..c6fc981
+--- /dev/null
++++ b/tests/unit/test_report.py
+@@ -0,0 +1,77 @@
++"""Unit tests for report.py (P22): render_report + helpers (offline, pure)."""
++import sys, os
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
++import report as R
++
++
++class TestCamelotMarker:
++    def test_relations(self):
++        assert R._camelot_marker("8A", "8A") == "[= тот же ключ]"
++        assert R._camelot_marker("8A", "9A") == "[±1 сосед]"
++        assert R._camelot_marker("8A", "8B") == "[REL relative]"
++        assert R._camelot_marker("8A", "9B") == "[diag energy]"
++        assert R._camelot_marker("8A", "3B") == "[⚠ скачок]"
++    def test_empty(self):
++        assert R._camelot_marker("", "8A") == ""
++
++
++class TestFmtTime:
++    def test_basic(self):
++        assert R._fmt_time(0) == "00:00"
++        assert R._fmt_time(344) == "05:44"
++        assert R._fmt_time(3550) == "59:10"
++
++
++class TestRenderReport:
++    def _data(self):
++        return {
++            "title": "Ритуал Рассвета", "genre": "Organic House", "duration": "10:00",
++            "month": "Июнь 2026", "playlist_url": "https://youtube.com/playlist?list=X",
++            "tracks": [
++                {"time": "00:00", "artist": "Volen Sentir", "track": "Neunivai",
++                 "flag": "🇺🇦", "country": "Украина", "label": "All Day I Dream",
++                 "year": 2026, "bpm": 120, "key": "E maj", "camelot": "12B",
++                 "youtube": "https://youtu.be/aaa"},
++                {"time": "05:44", "artist": "Nikita Grib", "track": "Raag Yaman",
++                 "bpm": 125, "key": "A min", "camelot": "8A", "youtube": "https://youtu.be/bbb"},
++            ],
++        }
++
++    def test_header_and_totals(self):
++        out = R.render_report(self._data())
++        assert "DJ AGENT 001 — РИТУАЛ РАССВЕТА" in out   # придуманное название, не жанр
++        assert "**Organic House**" in out                          # жанр — подзаголовком
++        assert "Всего треков:** 2" in out
++        assert "playlist?list=X" in out
++
++    def test_title_slot_when_empty(self):
++        d = self._data(); d["title"] = ""
++        out = R.render_report(d)
++        assert "НАЗВАНИЕ МИКСА" in out                 # пустое название → слот для агента
++
++    def test_creative_slots_marked_when_empty(self):
++        out = R.render_report(self._data())
++        assert "ИНТРО:" in out                       # интро-слот
++        assert out.count("клубный статус") == 2      # комментарий-слот на каждый трек
++
++    def test_filled_comment_not_slot(self):
++        d = self._data()
++        d["intro"] = "Готовое интро."
++        d["tracks"][0]["comment"] = "Хит лейбла."
++        out = R.render_report(d)
++        assert "Готовое интро." in out and "Хит лейбла." in out
++
++    def test_transition_marker(self):
++        out = R.render_report(self._data())
++        assert "12B→8A" in out and "⚠ скачок" in out  # переход между треками с маркером
++
++
++class TestBuildReportData:
++    def test_times_from_stamps(self):
++        cands = [{"artist": "A", "track": "1", "camelot": "8A", "youtube_url": "u1"},
++                 {"artist": "B", "track": "2", "camelot": "9A", "youtube_url": "u2"}]
++        stamps = [{"t": 344, "dur": 8}]
++        data = R.build_report_data(cands, stamps, 600.0, title="X")
++        assert data["tracks"][0]["time"] == "00:00"
++        assert data["tracks"][1]["time"] == "05:44"
++        assert data["duration"] == "10:00"

@@ -1,0 +1,19 @@
+{
+  "path": "/opt/autodj-mixer/shared/tracks/3o0v4bpRBL4.wav",
+  "bpm": null,
+  "beats": [],
+  "downbeats": [],
+  "beat_positions": [],
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 2.99,
+      "label": "start"
+    },
+    {
+      "start": 2.99,
+      "end": 3.0,
+      "label": "start"
+    }
+  ]
+}

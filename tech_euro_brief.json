@@ -1,0 +1,22 @@
+{
+  "title": "Euro Tech House Tour 2025-2026",
+  "years": [2025, 2026],
+  "duration_minutes": [55, 65],
+  "speed": "thorough",
+  "trajectory": {
+    "bpm": "ramp",
+    "key": "harmonic_walk",
+    "energy": "rising"
+  },
+  "segments": [
+    {
+      "name": "set",
+      "styles": ["Tech House", "House"],
+      "similar_styles": true,
+      "countries": ["GB", "DE", "FR", "IT", "ES", "NL", "BE", "SE", "PT", "GR", "DK", "CH", "IE", "NO", "AT"],
+      "bpm_range": [124, 132],
+      "discovery": "popular",
+      "count": 18
+    }
+  ]
+}

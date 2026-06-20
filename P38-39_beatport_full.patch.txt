@@ -1,0 +1,575 @@
+diff --git a/beatport_source.py b/beatport_source.py
+new file mode 100644
+index 0000000..0b34ea3
+--- /dev/null
++++ b/beatport_source.py
+@@ -0,0 +1,104 @@
++#!/usr/bin/env python3
++"""
++beatport_source.py — Beatport как источник в ОБЩЕЙ воронке (Path A в Path B).
++
++Beatport отдаёт чистые ТРЕКИ (не сеты) с готовыми BPM/Camelot, но без youtube_url —
++аудио надо найти. Поэтому Beatport-треки превращаются в сид-строки 'Artist - Track'
++С ПРИКЛЕЕННЫМИ метаданными, идут в seed_discover (поиск аудио + проверка личности),
++а метаданные едут с найденным кандидатом. Дальше resolve/prescreen их ПРОПУСКАЮТ
++(Camelot уже есть) — умный bypass, никаких лишних MP3-проб.
++
++tracks_to_seeds_with_meta — чистая (тестируется). beatport_candidates — тонкий I/O.
++"""
++import json
++
++
++def mix_name_ok(mix_name: str) -> bool:
++    """Версия трека годится для микса? Чистая. Radio Edit — отсев (диджею не нужен);
++    пустое/Extended/Original/Club/Dub — ок."""
++    mn = (mix_name or "").strip().lower()
++    if not mn:
++        return True
++    return "radio edit" not in mn and "radio mix" not in mn
++
++
++def release_year(release_date: str) -> int:
++    """'YYYY-MM-DD' → год (int) или 0. Чистая."""
++    s = (release_date or "").strip()
++    if len(s) >= 4 and s[:4].isdigit():
++        return int(s[:4])
++    return 0
++
++
++def tracks_to_seeds_with_meta(tracks: list[dict], year_lo: int | None = None,
++                              year_hi: int | None = None) -> tuple[list[str], dict]:
++    """Beatport-треки → (сид-строки, {сид: метаданные}). Чистая.
++    Отсев Radio Edit и треков вне диапазона года (когда год известен).
++    Метаданные (camelot/bpm/mix_name/label/year/source) поедут с кандидатом."""
++    seeds, meta, seen = [], {}, set()
++    for t in tracks:
++        artist = (t.get("artist") or "").strip()
++        track = (t.get("track") or "").strip()
++        if not artist or not track:
++            continue
++        if not mix_name_ok(t.get("mix_name", "")):
++            continue                                  # Radio Edit — мимо
++        yr = release_year(t.get("release_date", ""))
++        if yr:                                        # год известен → проверяем диапазон
++            if year_lo and yr < year_lo:
++                continue
++            if year_hi and yr > year_hi:
++                continue
++        seed = f"{artist} - {track}"
++        if seed.lower() in seen:
++            continue
++        seen.add(seed.lower())
++        seeds.append(seed)
++        m = {"source_type": "beatport"}
++        for src, dst in (("camelot", "camelot"), ("bpm", "bpm"), ("mix_name", "mix_name"),
++                         ("label", "label"), ("source_url", "source_url"),
++                         ("support_score", "support_score")):
++            v = t.get(src)
++            if v not in (None, "", 0):
++                m[dst] = v
++        if yr:
++            m["year"] = yr
++        meta[seed] = m
++    return seeds, meta
++
++
++def beatport_candidates(genre: str, per: int = 5, verify: bool = True,
++                        year_lo: int | None = None, year_hi: int | None = None) -> list[dict]:
++    """Beatport чарты жанра → кандидаты с аудио (через seed_discover) + метаданными.
++    Тонкий I/O. Жанр маппится через BEATPORT_GENRE_SLUGS; отсев Radio Edit + год."""
++    from curate_tracks import fetch_beatport_charts, BEATPORT_GENRE_SLUGS
++    import seed_discover as sd
++    slug = BEATPORT_GENRE_SLUGS.get(genre.strip().lower(), genre)
++    tracks = fetch_beatport_charts(slug, [])
++    seeds, meta = tracks_to_seeds_with_meta(tracks, year_lo, year_hi)
++    print(f"  Beatport ({slug}): {len(seeds)} треков (после отсева Radio Edit/года) → поиск аудио")
++    return sd.seed_discover(seeds, per_artist=per, verify=verify, seed_meta=meta)
++
++
++def _main():
++    import argparse
++    ap = argparse.ArgumentParser(description="Beatport как источник кандидатов (с метаданными)")
++    ap.add_argument("--genre", required=True, help="жанр Beatport (напр. 'deep trance')")
++    ap.add_argument("--per", type=int, default=5)
++    ap.add_argument("--year-min", type=int, default=None)
++    ap.add_argument("--year-max", type=int, default=None)
++    ap.add_argument("--no-verify", action="store_true")
++    ap.add_argument("--out", default="beatport_candidates.json")
++    args = ap.parse_args()
++
++    cands = beatport_candidates(args.genre, args.per, verify=not args.no_verify,
++                                year_lo=args.year_min, year_hi=args.year_max)
++    with open(args.out, "w", encoding="utf-8") as f:
++        json.dump(cands, f, ensure_ascii=False, indent=2)
++    with_meta = sum(1 for c in cands if (c.get("camelot") or "").strip())
++    print(f"Beatport-источник: {len(cands)} кандидатов ({with_meta} с Camelot — пройдут "
++          f"resolve/prescreen без скачки) → {args.out}")
++
++
++if __name__ == "__main__":
++    _main()
+diff --git a/curate_tracks.py b/curate_tracks.py
+index 9810159..6b77913 100644
+--- a/curate_tracks.py
++++ b/curate_tracks.py
+@@ -1152,6 +1152,10 @@ def fetch_beatport_charts(genre: str, years: list[int]) -> list[dict]:
+             "track":         t.get("track", ""),
+             "bpm":           t.get("bpm", 0),
+             "camelot":       t.get("camelot", ""),
++            "mix_name":      t.get("mix_name", ""),
++            "label":         t.get("label", ""),
++            "release_date":  t.get("release_date", ""),
++            "genre":         t.get("genre", ""),
+             "category":      "Mainstream",
+             "source_url":    t.get("source_url", ""),
+             "youtube_url":   "",
+diff --git a/docs/beatport.md b/docs/beatport.md
+new file mode 100644
+index 0000000..7618ee4
+--- /dev/null
++++ b/docs/beatport.md
+@@ -0,0 +1,71 @@
++# Beatport — спецификация интеграции (источник + резолвер метаданных)
++
++> Полный реестр возможностей Beatport для пайплайна + чек-лист «сделано / TODO».
++> Цель: ничего не терять, не возвращаться к обсуждению. Обновлять при каждом патче.
++
++Beatport — DJ-ориентированный источник: чистые **треки** (не сеты) с готовыми
++BPM/Key, без Cloudflare (в отличие от Tunebat). Используется в двух ролях:
++**(A) источник кандидатов** (чарты/каталоги) и **(B) резолвер метаданных по имени**
++(в каскаде `resolve_metadata`, перед Tunebat).
++
++## 1. Поля трека (data fields)
++
++| Поле | Тип | Назначение | Статус |
++|---|---|---|---|
++| Artist | str | основной артист + ремиксер | ✅ парсится |
++| Title | str | название трека | ✅ парсится |
++| **Mix Name** | str | Extended / Original / Club / Dub / **Radio Edit** | ✅ парсится + **гейт отсева Radio Edit** |
++| BPM | int | точный темп | ✅ парсится |
++| Key | str | муз. ключ → Camelot (`beatport_camelot`) | ✅ парсится |
++| Genre | str | Tech House, Minimal/Deep Tech, Melodic House & Techno… | ⚠️ частично (на уровне запроса) |
++| **Label** | str | лейбл релиза | ✅ парсится (для каталогов лейблов + отчёта) |
++| **Release Date** | YYYY-MM-DD | дата выхода | ✅ парсится + **гейт года (напр. 2026)** |
++
++## 2. Каталоги (эндпоинты)
++
++| Эндпоинт | Что даёт | Статус |
++|---|---|---|
++| `/charts?genre={genre}` | DJ-чарты по жанру | ✅ `fetch_beatport_charts` |
++| `/genre/{genre}/tracks` | вся масса треков стиля | ⛔ TODO |
++| `/label/{label}/tracks` | релизы целевых лейблов (No Art, Solid Grooves…) | ⛔ TODO |
++| `/artist/{artist}/tracks` | дискография по сиду | ⛔ TODO |
++
++## 3. Рейтинги / чарты (источники сидов)
++
++| Чарт | Что даёт | Статус |
++|---|---|---|
++| Genre Top 100 `/genre/{genre}/top-100` | 100 самых продаваемых в жанре | ⛔ TODO |
++| DJ Charts `/artist/{artist}/charts` | топ-10, что артист играет сейчас | ⛔ TODO |
++| **Hype Top 100** | инди-лейблы без мейджоров — андеграунд | ⛔ TODO (ценно для «незаезженного») |
++| Global Top 100 | общий топ всех жанров — макро-тренды | ⛔ TODO |
++
++## 4. Сортировка / фильтры (параметры запроса)
++
++| Фильтр | Назначение | Статус |
++|---|---|---|
++| Release Date (Newest/Oldest) | только свежак за дни/недели | ⛔ TODO (для «2026 / самое новое») |
++| Bestsellers (Top Sellers) | по числу покупок (популярность) | ⛔ TODO (для «только популярное») |
++| Key / BPM в URL | фильтр диапазона BPM / ключа на стороне Beatport | ⛔ TODO (экономит отсев) |
++
++## Роутинг (как используется в пайплайне)
++
++- **Метаданные:** каскад `resolve_metadata` = каталог → кэш → **Beatport-by-name**
++  (`search_beatport_track`) → Tunebat → аудио. **Фоллбэк работает**: нет на Beatport → дальше.
++- **Discovery:** `orchestrate --source beatport | youtube` — пока **взаимоисключающий
++  выбор**, НЕ фоллбэк-цепочка. TODO: композитный поиск «Beatport → потом YouTube/last.fm».
++
++## Порядок реализации (предложенный)
++
++1. ~~**Поля + гейты**: Mix Name / Label / Release Date в парсере; гейт «не Radio Edit»; гейт года~~ ✅ **СДЕЛАНО (P39)** — гейты тестируются, парсер проверит Гермес вживую.
++2. **Сортировка в URL**: Newest / Bestsellers / BPM-Key — для «свежее+популярное».
++3. **Доп. чарты-источники**: Hype Top 100 (андеграунд), Genre Top 100, DJ Charts артиста.
++4. **Каталоги**: /label, /artist, /genre/tracks.
++5. **Композитный discovery с фоллбэком** (Beatport → YouTube/last.fm).
++
++## Существующий код (точки переиспользования)
++
++- `curate_tracks.fetch_beatport_charts(genre, years)` — чарты → треки.
++- `curate_tracks.search_beatport_track(artist, track)` → `(bpm, camelot, style)`, requests, без Cloudflare.
++- `curate_tracks.BEATPORT_GENRE_SLUGS` — жанр → слаг.
++- `playwright_scraper._parse_beatport_chart_tracks` — парсер `__NEXT_DATA__` (сюда добавлять поля).
++- `playwright_scraper.beatport_camelot` / `KEY_NAME_TO_CAMELOT` — ключ → Camelot.
+diff --git a/orchestrate.py b/orchestrate.py
+index 6eeb88a..27e5cc0 100644
+--- a/orchestrate.py
++++ b/orchestrate.py
+@@ -25,9 +25,11 @@ import subprocess
+ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
+                artists: str = "", tag: str = "", bpm_min=None, bpm_max=None,
+                prescreen: bool = True, a1f: bool = False, cleanup: bool = False,
+-               seed_limit: int = 24, max_probe: int = 30, target: int = 16) -> list[tuple]:
++               seed_limit: int = 24, max_probe: int = 30, target: int = 16,
++               source: str = "youtube") -> list[tuple]:
+     """Построить упорядоченный план [(stage, argv)]. Чистая функция.
+-    Лимиты (seed_limit/max_probe/target) — чтобы НЕ качать сотни вслепую (SKILL §7)."""
++    Лимиты (seed_limit/max_probe/target) — чтобы НЕ качать сотни вслепую (SKILL §7).
++    source: youtube (сиды+last.fm) | beatport (чарты жанра с готовыми BPM/Camelot)."""
+     cand = f"{name}_cand.json"
+     plan: list[tuple] = []
+ 
+@@ -37,6 +39,13 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
+         plan.append(("curate", ["python3", "curate_tracks.py", "--config", config, "--out", cand]))
+         plan.append(("bridge_urls", ["python3", "curation_bridge.py", cand, "--name", name]))
+         urls = f"urls_{name}.txt"
++    elif source == "beatport":
++        genre = style or tag
++        if not genre:
++            raise ValueError("source beatport требует --style/--tag (жанр)")
++        plan.append(("beatport", ["python3", "beatport_source.py", "--genre", genre,
++                                  "--per", "5", "--out", cand]))
++        urls = f"{name}_urls.txt"
+     else:
+         if not (style or artists or tag):
+             raise ValueError("path B требует хотя бы --style/--artists/--tag")
+@@ -135,6 +144,8 @@ def _main():
+     ap.add_argument("--seed-limit", type=int, default=24, help="потолок сид-строк")
+     ap.add_argument("--max-probe", type=int, default=30, help="потолок MP3-проб")
+     ap.add_argument("--target", type=int, default=16, help="сколько треков набрать (стоп)")
++    ap.add_argument("--source", choices=["youtube", "beatport"], default="youtube",
++                    help="beatport: чарты жанра с готовыми BPM/Camelot (bypass пробы)")
+     ap.add_argument("--run", action="store_true", help="выполнить (иначе dry-run)")
+     ap.add_argument("--log-dir", default="logs")
+     args = ap.parse_args()
+@@ -142,7 +153,8 @@ def _main():
+     plan = build_plan(args.name, args.path, args.config, args.style, args.artists,
+                       args.tag, args.bpm_min, args.bpm_max,
+                       prescreen=not args.no_prescreen, a1f=args.a1f, cleanup=args.cleanup,
+-                      seed_limit=args.seed_limit, max_probe=args.max_probe, target=args.target)
++                      seed_limit=args.seed_limit, max_probe=args.max_probe, target=args.target,
++                      source=args.source)
+     run_plan(plan, args.log_dir, execute=args.run)
+ 
+ 
+diff --git a/playwright_scraper.py b/playwright_scraper.py
+index 11eda5e..8e12b1a 100644
+--- a/playwright_scraper.py
++++ b/playwright_scraper.py
+@@ -794,16 +794,33 @@ def _parse_beatport_chart_tracks(page, genre: str) -> list[dict]:
+                             )
+                             track_name = item.get("name", "")
+                             bpm = item.get("bpm") or 0
+-                            
++
+                             raw_key = item.get("key", {})
+                             camelot = beatport_camelot(raw_key)
+-                            
++
++                            # P39: Mix Name (отсев Radio Edit), Label, Release Date, Genre
++                            mix_name = item.get("mix_name", "") or \
++                                (item.get("mix", {}) or {}).get("name", "")
++                            release_date = (item.get("release_date") or
++                                            item.get("new_release_date") or
++                                            item.get("publish_date") or "")
++                            rel = item.get("release", {}) or {}
++                            label = ((rel.get("label", {}) or {}).get("name", "")
++                                     if isinstance(rel, dict) else "")
++                            genre_obj = item.get("genre", {}) or {}
++                            genre_name = (genre_obj.get("name", "")
++                                          if isinstance(genre_obj, dict) else "")
++
+                             if artists and track_name:
+                                 tracks.append({
+                                     "artist": artists,
+                                     "track": track_name,
+                                     "bpm": int(bpm),
+                                     "camelot": camelot,
++                                    "mix_name": mix_name,
++                                    "label": label,
++                                    "release_date": release_date,
++                                    "genre": genre_name,
+                                     "category": "Mainstream",
+                                     "source_url": page.url,
+                                     "youtube_url": "",
+diff --git a/resolve_metadata.py b/resolve_metadata.py
+index 370543d..489dce3 100644
+--- a/resolve_metadata.py
++++ b/resolve_metadata.py
+@@ -59,15 +59,38 @@ def from_cache(track: dict, cache: dict) -> bool:
+     return True
+ 
+ 
++def from_beatport(track: dict) -> bool:
++    """BPM/Camelot по ИМЕНИ с Beatport (requests, БЕЗ Cloudflare — в отличие от Tunebat).
++    Переиспользует существующий curate_tracks.search_beatport_track. Тонкий I/O. → нашли?"""
++    artist = (track.get("artist") or "").strip()
++    name = (track.get("track") or "").strip()
++    if not artist or not name:
++        return False
++    try:
++        from curate_tracks import search_beatport_track
++        bpm, cam, _style = search_beatport_track(artist, name)
++    except Exception:
++        return False
++    cam = (cam or "").strip()
++    if not cam:
++        return False
++    track["camelot"] = cam
++    if bpm and not track.get("bpm"):
++        track["bpm"] = bpm
++    track["camelot_source"] = "beatport"
++    return True
++
++
+ def resolve_candidates(candidates: list[dict], catalog_dir: str, cache_path: str,
+-                       use_tunebat: bool = False) -> tuple[list[dict], dict]:
+-    """Каскад каталог→кэш→(опц. Tunebat остаток). Тонкий I/O. Возвращает (cands, stats)."""
++                       use_beatport: bool = True, use_tunebat: bool = False) -> tuple[list[dict], dict]:
++    """Каскад каталог→кэш→Beatport(по имени)→(опц. Tunebat остаток). Тонкий I/O.
++    Beatport-by-name быстрый и не блокируется Cloudflare → стоит ПЕРЕД Tunebat."""
+     import sys
+     sys.path.insert(0, catalog_dir)
+     import catalog_utils as cu
+     index = cu.load_index()
+     cache = ec.load_cache(cache_path)
+-    stats = {"already": 0, "catalog": 0, "cache": 0, "tunebat": 0, "residual": 0}
++    stats = {"already": 0, "catalog": 0, "cache": 0, "beatport": 0, "tunebat": 0, "residual": 0}
+ 
+     residual = []
+     for t in candidates:
+@@ -82,6 +105,19 @@ def resolve_candidates(candidates: list[dict], catalog_dir: str, cache_path: str
+             continue
+         residual.append(t)
+ 
++    # Beatport по имени — быстро, requests, без Cloudflare → до Tunebat
++    if use_beatport and residual:
++        for t in list(residual):
++            try:
++                if from_beatport(t):
++                    ec.cache_put(cache, t.get("artist", ""), t.get("track", ""),
++                                 t.get("bpm"), t.get("camelot"))
++                    residual.remove(t)
++                    stats["beatport"] += 1
++            except Exception:
++                pass
++        ec.save_cache(cache, cache_path)
++
+     # Tunebat — аккуратно и ТОЛЬКО по остатку (медленно, со своими таймаутами)
+     if use_tunebat and residual:
+         try:
+@@ -109,17 +145,20 @@ def _main():
+                     default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                          "shared", "catalog"))
+     ap.add_argument("--cache", default="data/enrich_cache.json")
++    ap.add_argument("--no-beatport", action="store_true", help="не использовать Beatport-by-name")
+     ap.add_argument("--tunebat", action="store_true", help="добить остаток через Tunebat (медленно)")
+     ap.add_argument("--out", default=None)
+     args = ap.parse_args()
+ 
+     cands = json.load(open(args.candidates, encoding="utf-8"))
+-    cands, st = resolve_candidates(cands, args.catalog_dir, args.cache, args.tunebat)
++    cands, st = resolve_candidates(cands, args.catalog_dir, args.cache,
++                                   use_beatport=not args.no_beatport, use_tunebat=args.tunebat)
+     out = args.out or args.candidates
+     with open(out, "w", encoding="utf-8") as f:
+         json.dump(cands, f, ensure_ascii=False, indent=2)
+-    print(f"Каскад: каталог {st['catalog']}, кэш {st['cache']}, tunebat {st['tunebat']}, "
+-          f"уже было {st['already']}. Остаток на аудио-пробу: {st['residual']}. → {out}")
++    print(f"Каскад: каталог {st['catalog']}, кэш {st['cache']}, beatport {st['beatport']}, "
++          f"tunebat {st['tunebat']}, уже было {st['already']}. "
++          f"Остаток на аудио-пробу: {st['residual']}. → {out}")
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/seed_discover.py b/seed_discover.py
+index 20fc961..decd80e 100644
+--- a/seed_discover.py
++++ b/seed_discover.py
+@@ -118,6 +118,19 @@ def style_in_tags(tags: list[str], target_style: str) -> bool:
+     return any(w in blob for w in toks)
+ 
+ 
++def merge_seed_meta(cand: dict, meta: dict) -> dict:
++    """Доклеить метаданные сида (camelot/bpm/source) к найденному кандидату, НЕ затирая
++    личность (track/youtube_url/views). Чистая. Для Beatport-сидов с готовыми BPM/Camelot."""
++    if not meta:
++        return cand
++    for k in ("camelot", "key", "bpm", "mix_name", "label", "year",
++              "source_url", "support_score", "source_type"):
++        v = meta.get(k)
++        if v not in (None, "", 0):
++            cand[k] = v
++    return cand
++
++
+ def build_seed_queries(seeds: list[str], styles: list[str] | None = None) -> list[str]:
+     """
+     Поисковые запросы из сидов. Чистая.
+@@ -166,7 +179,8 @@ def parse_ytdlp_search(data: dict, seed_artist: str = "", country: str = "") ->
+ 
+ def seed_discover(seeds: list[str], styles: list[str] | None = None,
+                   per_artist: int = 5, countries: dict | None = None,
+-                  verify: bool = True, verify_style: str = "") -> list[dict]:
++                  verify: bool = True, verify_style: str = "",
++                  seed_meta: dict | None = None) -> list[dict]:
+     """
+     Найти кандидатов по сидам через yt-dlp ytsearch, на каждый сид выбрать ЛУЧШИЙ
+     уверенный (личность + просмотры − мусор). Тонкий I/O.
+@@ -176,6 +190,7 @@ def seed_discover(seeds: list[str], styles: list[str] | None = None,
+     """
+     queries = build_seed_queries(seeds, styles)
+     countries = countries or {}
++    seed_meta = seed_meta or {}
+     found: list[dict] = []
+     for seed, query in zip(seeds, queries):
+         sa = seed.split(" - ")[0]
+@@ -202,6 +217,7 @@ def seed_discover(seeds: list[str], styles: list[str] | None = None,
+             cands = parse_ytdlp_search(data, seed_artist=sa, country=countries.get(seed, ""))
+             best = pick_best(cands, sa, st_, require_identity=verify)
+             if best:
++                merge_seed_meta(best, seed_meta.get(seed, {}))   # приклеить мету (Beatport)
+                 found.append(best)
+                 print(f"  ✓ {seed}: лучший из {len(cands)} (views {best.get('views') or '?'})")
+             else:
+diff --git a/tests/unit/test_beatport_source.py b/tests/unit/test_beatport_source.py
+new file mode 100644
+index 0000000..284fca1
+--- /dev/null
++++ b/tests/unit/test_beatport_source.py
+@@ -0,0 +1,74 @@
++"""P38: Beatport как источник сидов с метаданными в общей воронке."""
++import sys, os
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
++import beatport_source as bp
++import seed_discover as sd
++
++
++class TestTracksToSeedsWithMeta:
++    def test_builds_seeds_and_meta(self):
++        tracks = [
++            {"artist": "Tale Of Us", "track": "Nova", "bpm": 124, "camelot": "8A", "support_score": 10},
++            {"artist": "Mind Against", "track": "Walk", "bpm": 122, "camelot": "5A"},
++        ]
++        seeds, meta = bp.tracks_to_seeds_with_meta(tracks)
++        assert seeds == ["Tale Of Us - Nova", "Mind Against - Walk"]
++        assert meta["Tale Of Us - Nova"] == {"source_type": "beatport", "camelot": "8A",
++                                             "bpm": 124, "support_score": 10}
++    def test_skips_empty_and_dedups(self):
++        tracks = [{"artist": "", "track": "x"}, {"artist": "A", "track": "b", "camelot": "1A"},
++                  {"artist": "A", "track": "b", "camelot": "1A"}]
++        seeds, meta = bp.tracks_to_seeds_with_meta(tracks)
++        assert seeds == ["A - b"]
++
++
++class TestMergeSeedMeta:
++    def test_merges_metadata_not_identity(self):
++        cand = {"track": "Tale Of Us - Nova (Official)", "youtube_url": "u", "views": 5}
++        sd.merge_seed_meta(cand, {"camelot": "8A", "bpm": 124, "source_type": "beatport"})
++        assert cand["camelot"] == "8A" and cand["bpm"] == 124
++        assert cand["track"] == "Tale Of Us - Nova (Official)"  # личность не затёрта
++    def test_skips_empty_values(self):
++        cand = {"bpm": 126}
++        sd.merge_seed_meta(cand, {"camelot": "", "bpm": 0})
++        assert "camelot" not in cand and cand["bpm"] == 126
++    def test_no_meta(self):
++        cand = {"track": "x"}
++        assert sd.merge_seed_meta(cand, {}) == {"track": "x"}
++
++
++# ── P39: гейты Mix Name (Radio Edit) + год + перенос полей ─────────────────
++
++class TestMixNameGate:
++    def test_radio_edit_rejected(self):
++        assert bp.mix_name_ok("Radio Edit") is False
++        assert bp.mix_name_ok("Radio Mix") is False
++    def test_extended_original_ok(self):
++        assert bp.mix_name_ok("Extended Mix") is True
++        assert bp.mix_name_ok("Original Mix") is True
++        assert bp.mix_name_ok("") is True
++
++class TestReleaseYear:
++    def test_parses(self):
++        assert bp.release_year("2026-03-14") == 2026
++    def test_bad(self):
++        assert bp.release_year("") == 0 and bp.release_year("n/a") == 0
++
++class TestGatesInSeeds:
++    def test_drops_radio_edit_and_offyear(self):
++        tracks = [
++            {"artist": "A", "track": "Good", "mix_name": "Extended Mix",
++             "release_date": "2026-01-01", "camelot": "8A", "bpm": 124, "label": "No Art"},
++            {"artist": "B", "track": "Radio", "mix_name": "Radio Edit",
++             "release_date": "2026-01-01"},                       # Radio Edit → отсев
++            {"artist": "C", "track": "Old", "mix_name": "Original Mix",
++             "release_date": "2019-05-05"},                       # вне года → отсев
++        ]
++        seeds, meta = bp.tracks_to_seeds_with_meta(tracks, year_lo=2026, year_hi=2026)
++        assert seeds == ["A - Good"]
++        assert meta["A - Good"]["year"] == 2026 and meta["A - Good"]["label"] == "No Art"
++        assert meta["A - Good"]["mix_name"] == "Extended Mix"
++    def test_unknown_year_kept(self):
++        tracks = [{"artist": "A", "track": "x", "mix_name": "", "release_date": ""}]
++        seeds, _ = bp.tracks_to_seeds_with_meta(tracks, year_lo=2026, year_hi=2026)
++        assert seeds == ["A - x"]                                  # год неизвестен → не режем
+diff --git a/tests/unit/test_orchestrate.py b/tests/unit/test_orchestrate.py
+index 9295221..cae6eec 100644
+--- a/tests/unit/test_orchestrate.py
++++ b/tests/unit/test_orchestrate.py
+@@ -77,3 +77,13 @@ class TestPlanCaps:
+         plan = orch.build_plan("x", path="b", artists="A", max_probe=25, target=12)
+         psr = dict(plan)["prescreen"]
+         assert "--max-probe" in psr and "25" in psr and "--target" in psr and "12" in psr
++
++
++class TestSourceBeatport:
++    def test_beatport_stage_replaces_seedlist(self):
++        plan = orch.build_plan("x", path="b", style="deep trance", source="beatport")
++        st = [s for s, _ in plan]
++        assert "beatport" in st and "seedlist" not in st and "discover" not in st
++    def test_beatport_then_resolve_prescreen(self):
++        st = [s for s, _ in orch.build_plan("x", style="trance", source="beatport")]
++        assert st[0] == "beatport" and "resolve" in st and "prescreen" in st
+diff --git a/tests/unit/test_resolve_metadata.py b/tests/unit/test_resolve_metadata.py
+index 8716071..9ecd0a4 100644
+--- a/tests/unit/test_resolve_metadata.py
++++ b/tests/unit/test_resolve_metadata.py
+@@ -59,3 +59,39 @@ class TestResolveCascadeOrder:
+         _, st = rm.resolve_candidates(cands, catdir, str(cache_path), use_tunebat=False)
+         assert st["catalog"] == 1 and st["cache"] == 1 and st["residual"] == 1
+         assert cands[0]["camelot"] == "8A" and cands[1]["camelot"] == "5A"
++
++
++# ── P38: Beatport-by-name в каскаде (переиспользует search_beatport_track) ──
++
++class TestFromBeatport:
++    def test_fills_from_beatport(self, monkeypatch):
++        import curate_tracks
++        monkeypatch.setattr(curate_tracks, "search_beatport_track",
++                            lambda a, t: (124, "8A", "Tech House"))
++        track = {"artist": "ANOTR", "track": "Relax", "camelot": ""}
++        assert rm.from_beatport(track) is True
++        assert track["camelot"] == "8A" and track["bpm"] == 124
++        assert track["camelot_source"] == "beatport"
++    def test_miss_returns_false(self, monkeypatch):
++        import curate_tracks
++        monkeypatch.setattr(curate_tracks, "search_beatport_track", lambda a, t: (0, "", ""))
++        assert rm.from_beatport({"artist": "X", "track": "Y", "camelot": ""}) is False
++    def test_no_artist(self):
++        assert rm.from_beatport({"track": "Y", "camelot": ""}) is False
++
++
++class TestCascadeBeatportBeforeTunebat:
++    def test_beatport_resolves_residual(self, tmp_path, monkeypatch):
++        import enrich_cache as ec, curate_tracks
++        cache_path = tmp_path / "c.json"; ec.save_cache({}, str(cache_path))
++        monkeypatch.setattr(rm, "video_id", lambda u: u)
++        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
++        catdir = os.path.join(root, "shared", "catalog"); sys.path.insert(0, catdir)
++        import catalog_utils as cu
++        monkeypatch.setattr(cu, "load_index", lambda: {"tracks": {}})
++        monkeypatch.setattr(curate_tracks, "search_beatport_track", lambda a, t: (126, "9A", ""))
++        cands = [{"youtube_url": "q", "artist": "C", "track": "c", "camelot": ""}]
++        _, st = rm.resolve_candidates(cands, catdir, str(cache_path),
++                                      use_beatport=True, use_tunebat=False)
++        assert st["beatport"] == 1 and st["residual"] == 0
++        assert cands[0]["camelot"] == "9A"

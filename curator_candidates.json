@@ -1,0 +1,234 @@
+[
+  {
+    "artist": "Rafael Anton Irisarri",
+    "track": "Solastalgia",
+    "bpm": 87,
+    "camelot": "8B",
+    "category": "Underground",
+    "source_url": "https://irisarri.bandcamp.com/album/solastalgia?from=discover_page",
+    "youtube_url": "https://www.youtube.com/watch?v=8YfdR1IRwgA",
+    "energy_markers": [],
+    "support_score": 0,
+    "reason": "Bandcamp Ambient; Hidden Gem",
+    "found_in": [
+      "Bandcamp"
+    ],
+    "key": "C major",
+    "bpm_src": "Tunebat",
+    "camelot_src": "Tunebat",
+    "segment": "intro-eurasia",
+    "youtube_status": "verified",
+    "youtube_src": "YouTube",
+    "duration_sec": 0,
+    "youtube_views": 3221
+  },
+  {
+    "artist": "C418",
+    "track": "Minecraft - Volume Alpha",
+    "bpm": 84,
+    "camelot": "3B",
+    "category": "Underground",
+    "source_url": "https://c418.bandcamp.com/album/minecraft-volume-alpha?from=discover_page",
+    "youtube_url": "https://www.youtube.com/watch?v=m0apGY2GmFU",
+    "energy_markers": [],
+    "support_score": 0,
+    "reason": "Bandcamp Ambient; Hidden Gem",
+    "found_in": [
+      "Bandcamp"
+    ],
+    "key": "C♯ major",
+    "bpm_src": "Tunebat",
+    "camelot_src": "Tunebat",
+    "segment": "intro-eurasia",
+    "youtube_status": "verified",
+    "youtube_src": "YouTube",
+    "duration_sec": 0,
+    "youtube_views": 1521406
+  },
+  {
+    "artist": "Rafael Anton Irisarri",
+    "track": "Points of Inaccessibility",
+    "bpm": 0,
+    "camelot": "",
+    "category": "Underground",
+    "source_url": "https://irisarri.bandcamp.com/album/points-of-inaccessibility?from=discover_page",
+    "youtube_url": "https://www.youtube.com/watch?v=Gnuki2SIaFc",
+    "energy_markers": [],
+    "support_score": 0,
+    "reason": "Bandcamp Ambient; Hidden Gem",
+    "found_in": [
+      "Bandcamp"
+    ],
+    "segment": "intro-eurasia",
+    "youtube_status": "verified",
+    "youtube_src": "YouTube",
+    "duration_sec": 0,
+    "youtube_views": 14061
+  },
+  {
+    "artist": "Hot Since 82",
+    "track": "Hot Since 82's Preach chart",
+    "bpm": 123,
+    "camelot": "11A",
+    "category": "Mainstream",
+    "source_url": "https://www.beatport.com/chart/hot-since-82s-preach-chart/814538",
+    "youtube_url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1907114642",
+    "energy_markers": [],
+    "support_score": 20,
+    "reason": "Beatport chart: Hot Since 82's Preach chart (20 tracks)",
+    "found_in": [
+      "Beatport"
+    ],
+    "bpm_src": "cache",
+    "camelot_src": "cache",
+    "segment": "build",
+    "youtube_status": "verified",
+    "youtube_src": "SoundCloud",
+    "duration_sec": 0,
+    "youtube_views": 91753
+  },
+  {
+    "artist": "Lance DeSardi",
+    "track": "Higher!",
+    "bpm": 124,
+    "camelot": "1A",
+    "category": "Mainstream",
+    "source_url": "https://www.beatport.com/chart/higher/814563",
+    "youtube_url": "https://www.youtube.com/watch?v=q2yKBNMcohM",
+    "energy_markers": [],
+    "support_score": 16,
+    "reason": "Beatport chart: Higher! (16 tracks)",
+    "found_in": [
+      "Beatport"
+    ],
+    "bpm_src": "cache",
+    "camelot_src": "cache",
+    "segment": "build",
+    "youtube_status": "verified",
+    "youtube_src": "YouTube",
+    "duration_sec": 0,
+    "youtube_views": 4903
+  },
+  {
+    "artist": "Kostya Outta",
+    "track": "Chasing Highs",
+    "bpm": 122,
+    "camelot": "7A",
+    "category": "Mainstream",
+    "source_url": "https://www.beatport.com/chart/chasing-highs/814909",
+    "youtube_url": "https://www.youtube.com/watch?v=DTfefUqoKqU",
+    "energy_markers": [],
+    "support_score": 15,
+    "reason": "Beatport chart: Chasing Highs (15 tracks)",
+    "found_in": [
+      "Beatport"
+    ],
+    "bpm_src": "Beatport",
+    "camelot_src": "Beatport",
+    "segment": "build",
+    "youtube_status": "verified",
+    "youtube_src": "YouTube",
+    "duration_sec": 0,
+    "youtube_views": 12740
+  },
+  {
+    "artist": "KPD",
+    "track": "Emcee",
+    "bpm": 125,
+    "camelot": "7A",
+    "category": "Mainstream",
+    "source_url": "https://www.beatport.com/chart/emcee/814823",
+    "youtube_url": "https://www.youtube.com/watch?v=wD7Y8UcXzQU",
+    "energy_markers": [],
+    "support_score": 15,
+    "reason": "Beatport chart: Emcee (15 tracks)",
+    "found_in": [
+      "Beatport"
+    ],
+    "bpm_src": "Beatport",
+    "camelot_src": "Beatport",
+    "segment": "build",
+    "youtube_status": "verified",
+    "youtube_src": "YouTube",
+    "duration_sec": 0,
+    "youtube_views": 143
+  },
+  {
+    "artist": "KC Lights",
+    "track": "Sky (Shining Bright) Chart",
+    "bpm": 125,
+    "camelot": "8A",
+    "category": "Mainstream",
+    "source_url": "https://www.beatport.com/chart/sky-shining-bright-chart/814530",
+    "youtube_url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1818816687",
+    "energy_markers": [],
+    "support_score": 13,
+    "reason": "Beatport chart: Sky (Shining Bright) Chart (13 tracks)",
+    "found_in": [
+      "Beatport"
+    ],
+    "key": "A minor",
+    "bpm_src": "Tunebat",
+    "camelot_src": "Tunebat",
+    "segment": "build",
+    "youtube_status": "verified",
+    "youtube_src": "SoundCloud",
+    "duration_sec": 0,
+    "youtube_views": 109863
+  },
+  {
+    "artist": "David Rust",
+    "track": "Without U",
+    "bpm": 155,
+    "camelot": "10A",
+    "country": "US",
+    "category": "Local Underground",
+    "source_url": "https://www.discogs.com/release/37405602-David-Rust-Without-U",
+    "youtube_url": "https://www.youtube.com/watch?v=tYXi8SgyrSw",
+    "energy_markers": [
+      "Hard Trance"
+    ],
+    "support_score": 1,
+    "year": 2026,
+    "reason": "Discogs Hard Trance 2026; want=1 have=0; US",
+    "found_in": [
+      "Discogs"
+    ],
+    "country_src": "Discogs",
+    "bpm_src": "cache",
+    "camelot_src": "cache",
+    "segment": "peak-america",
+    "youtube_status": "verified",
+    "youtube_src": "YouTube",
+    "duration_sec": 0,
+    "youtube_views": 472
+  },
+  {
+    "artist": "Sara Landry & Godtripper",
+    "track": "Hekataia EP",
+    "bpm": 160,
+    "camelot": "10A",
+    "country": "US",
+    "category": "Local Underground",
+    "source_url": "https://www.discogs.com/release/37097325-Sara-Landry-Godtripper-Hekataia-EP",
+    "youtube_url": "https://www.youtube.com/watch?v=wo2PsG9snWE",
+    "energy_markers": [
+      "Psy-Trance",
+      "Hard Techno"
+    ],
+    "support_score": 0,
+    "year": 2026,
+    "reason": "Discogs Hard Trance 2026; want=0 have=1; US",
+    "found_in": [
+      "Discogs"
+    ],
+    "country_src": "Discogs",
+    "bpm_src": "cache",
+    "camelot_src": "cache",
+    "segment": "peak-america",
+    "youtube_status": "verified",
+    "youtube_src": "YouTube",
+    "duration_sec": 0,
+    "youtube_views": 22961
+  }
+]

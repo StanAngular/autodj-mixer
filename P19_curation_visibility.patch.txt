@@ -1,0 +1,121 @@
+diff --git a/curate_tracks.py b/curate_tracks.py
+index dbda6a4..0fcc5d2 100644
+--- a/curate_tracks.py
++++ b/curate_tracks.py
+@@ -544,6 +544,45 @@ def trajectory_summary(tracks: list[dict]) -> str:
+     return line
+ 
+ 
++def harmonic_chain_trace(tracks: list[dict]) -> str:
++    """
++    Компактный трейс гармонической цепочки: Camelot-отношение между соседними
++    треками + счёт плавных/скачков + BPM. Чистая функция — видно, как собран
++    микс по ключам и где большие скачки Camelot (POOR-переходы).
++    """
++    if not tracks:
++        return ""
++    smooth_rel = {"exact match": "=", "wheel neighbour": "±1", "major/minor swap": "maj↔min"}
++    lines = ["Гармоническая цепочка (как собрано по Camelot/BPM):"]
++    smooth = energy = jumps = 0
++    prev = ""
++    for i, t in enumerate(tracks, 1):
++        cam = t.get("camelot") or "?"
++        bpm = t.get("bpm") or "?"
++        mark = ""
++        if prev and cam != "?" and prev != "?":
++            try:
++                rel = camelot_relation(prev, cam)
++            except Exception:
++                rel = ""
++            if rel in smooth_rel:
++                mark = f"   {prev}→{cam} {smooth_rel[rel]}"
++                smooth += 1
++            elif rel == "diagonal energy boost":
++                mark = f"   {prev}→{cam} ↑energy"     # агрессивно — микшер часто рейтит POOR
++                energy += 1
++            else:
++                mark = f"   {prev}→{cam} ⚠скачок"
++                jumps += 1
++        name = (t.get("track") or t.get("artist") or "?")[:26]
++        lines.append(f"  {i:2}. {str(cam):>3} {str(bpm):>3}bpm  {name}{mark}")
++        prev = cam
++    total = smooth + energy + jumps
++    if total:
++        lines.append(f"  → плавных {smooth}/{total} · энергетич. {energy}/{total} · скачков {jumps}/{total}")
++    return "\n".join(lines)
++
++
+ # ─── Умный селектор: count лучших на сегмент (якоря + гармония) ───────────────
+ 
+ def select_segment_tracks(candidates: list[dict], count: int,
+@@ -1637,7 +1676,15 @@ def main():
+     # ШАГ 4.5: СБОРКА по траектории (порядок сегментов + BPM-ramp/harmonic)
+     # ════════════════════════════════════════════════════════════
+     # ШАГ 4.4: умный отбор — count лучших на сегмент (якоря + гармония)
++    _pre: dict[str, int] = {}
++    for t in verified:
++        _pre[t.get("segment", "")] = _pre.get(t.get("segment", ""), 0) + 1
+     verified = select_mix(verified, config, config["speed"])
++    _post: dict[str, int] = {}
++    for t in verified:
++        _post[t.get("segment", "")] = _post.get(t.get("segment", ""), 0) + 1
++    _sel = " · ".join(f"{s or 'mix'}: {_pre.get(s, 0)}→{n}" for s, n in _post.items())
++    print(f"\nОтбор (из пула с запасом → выбрано на сегмент): {_sel}")
+ 
+     verified = assemble_mix(verified, config["trajectory"])
+     _curve = trajectory_summary(verified)
+@@ -1649,14 +1696,19 @@ def main():
+     # ════════════════════════════════════════════════════════════
+     final: list[dict] = []
+ 
++    # Таблица плейлиста печатается ВСЕГДА — видимость и в агентском режиме
++    print("\n═══ ШАГ 5: Плейлист ═══")
++    print(format_approval_table(verified, approval_key))
++    _playlist = build_youtube_playlist_url(verified)
++    if _playlist:
++        print(f"\n▶ YouTube-плейлист (превью всего сета): {_playlist}")
++    print("\n" + harmonic_chain_trace(verified))
++
+     if args.no_approve or not sys.stdin.isatty():
+         final = verified[:total_count]
++        print(f"\n(неинтерактивный режим — принято {len(final)} треков без правок)")
+     else:
+-        print("\n═══ ШАГ 5: Апрув плейлиста ═══")
+-        print(format_approval_table(verified, approval_key))
+-        if _curve:
+-            print(_curve)
+-        print(f"{'─'*55}")
++        print(f"\n{'─'*55}")
+         print("Введи номера треков для УДАЛЕНИЯ через пробел (или Enter для принятия всего):")
+ 
+         try:
+diff --git a/tests/unit/test_curate.py b/tests/unit/test_curate.py
+index 0ea76e7..03592ca 100644
+--- a/tests/unit/test_curate.py
++++ b/tests/unit/test_curate.py
+@@ -579,3 +579,25 @@ class TestEnrichPoolDemandGate:
+         still_incomplete = [t for t in out if not t.get("bpm")]
+         assert len(still_incomplete) == 5
+         assert len(out) == 15
++
++
++# ── Видимость курации (P19): гармоническая цепочка ─────────────────────────
++
++class TestHarmonicChainTrace:
++    def test_smooth_energy_jump_counted(self):
++        tracks = [
++            {"track": "a", "camelot": "8A", "bpm": 124},
++            {"track": "b", "camelot": "8A", "bpm": 124},   # = (exact, smooth)
++            {"track": "c", "camelot": "9A", "bpm": 125},   # ±1 (neighbour, smooth)
++            {"track": "d", "camelot": "3B", "bpm": 126},   # diagonal energy (агрессивно)
++        ]
++        out = ct.harmonic_chain_trace(tracks)
++        assert "плавных 2/3" in out and "энергетич. 1/3" in out
++        assert "↑energy" in out
++
++    def test_empty(self):
++        assert ct.harmonic_chain_trace([]) == ""
++
++    def test_handles_missing_camelot(self):
++        out = ct.harmonic_chain_trace([{"track": "x"}, {"track": "y"}])
++        assert "?" in out          # не падает на отсутствующем Camelot

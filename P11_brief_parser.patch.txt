@@ -1,0 +1,269 @@
+diff --git a/brief_parser.py b/brief_parser.py
+new file mode 100644
+index 0000000..7b2d84b
+--- /dev/null
++++ b/brief_parser.py
+@@ -0,0 +1,179 @@
++#!/usr/bin/env python3
++"""
++brief_parser.py — приёмник ТЗ: свободный текст → конфиг курации.
++
++Последний слой поверх всего: пишешь задание словами, LLM (OpenRouter) заполняет
++контракт curation_config (P6a), результат валидируется. Кривой ответ не пройдёт.
++
++Чистые функции (build_prompt / extract_json / apply_text_overrides /
++missing_fields) тестируются офлайн; сетевая обёртка parse_brief тонкая.
++
++Ключ: OPENROUTER_API_KEY (env). Модель — как в остальном проекте (gemini-flash).
++
++CLI:  OPENROUTER_API_KEY=... python3 brief_parser.py "час андеграундного эмбиента Евразии в хардтранс США, быстро"
++"""
++import json
++import os
++import re
++
++import curation_config
++
++OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
++MODEL = "google/gemini-flash-1.5"
++
++# Слова-триггеры быстрого режима (детерминированный предохранитель поверх LLM)
++_FAST_WORDS = ("сделай быстро", "по-быстрому", "быстро", "quick", "fast", "побыстрее")
++
++
++def build_prompt(brief: str) -> str:
++    """Промпт для LLM: контракт конфига + инструкции + пример. Чистая функция."""
++    return f"""Ты — парсер музыкальных ТЗ для DJ-микшера. Преврати запрос пользователя
++в JSON-конфиг курации. Верни ТОЛЬКО JSON-объект, без пояснений и без markdown.
++
++Схема:
++{{
++  "title": "краткое название",
++  "years": [список годов или []],
++  "duration_minutes": [мин, макс] или [],
++  "speed": "thorough" | "fast",
++  "trajectory": {{"bpm": "ramp"|"constant", "key": "harmonic_walk"|"per_segment"|"none", "energy": "rising"|"flat"}},
++  "segments": [
++    {{"name": "...", "styles": ["..."], "similar_styles": true|false,
++      "countries": ["ISO-коды, напр. RU, US"], "bpm_range": [мин, макс],
++      "discovery": "popular"|"newest"|"underground", "seed_artists": ["..."], "count": целое>0}}
++  ]
++}}
++
++Правила:
++- Разбей запрос на сегменты, если есть переход (напр. «из эмбиента в транс» = 2-3 сегмента).
++- «плавно/постепенно/нарастание» → trajectory.bpm="ramp", energy="rising", key="harmonic_walk".
++- «андеграунд» → discovery="underground"; «новинки/свежее» → "newest"; «топ/популярное» → "popular".
++- «быстро/quick» → speed="fast", иначе "thorough".
++- Названия стран → ISO-коды (Евразия→["RU","KZ","CN"], США→["US"]).
++- ОБЯЗАТЕЛЬНО проставь count в каждом сегменте. Если не указано — оцени от длительности
++  (~13 треков в час, распредели по сегментам). Если стиль непонятен — оставь styles как есть.
++
++Запрос пользователя:
++{brief}"""
++
++
++def extract_json(text: str):
++    """Достать JSON-объект из ответа LLM (учёт ```-ограждений и текста вокруг). Чистая."""
++    if not text:
++        return None
++    t = text.strip()
++    t = re.sub(r"^```(?:json)?", "", t).strip()
++    t = re.sub(r"```$", "", t).strip()
++    start, end = t.find("{"), t.rfind("}")
++    if start == -1 or end == -1 or end < start:
++        return None
++    try:
++        return json.loads(t[start:end + 1])
++    except ValueError:
++        return None
++
++
++def apply_text_overrides(cfg: dict, brief: str) -> dict:
++    """
++    Детерминированный предохранитель поверх LLM: явные слова «быстро» → speed=fast
++    (на случай если LLM это упустил). Чистая функция, мутирует и возвращает cfg.
++    """
++    b = (brief or "").lower()
++    if any(w in b for w in _FAST_WORDS):
++        cfg["speed"] = "fast"
++    return cfg
++
++
++def missing_fields(cfg: dict) -> list[str]:
++    """
++    Уточняющие вопросы по сырому конфигу (до валидации). Чистая функция.
++    Спрашиваем только о критичном, чего LLM не смог вывести.
++    """
++    qs: list[str] = []
++    segs = cfg.get("segments") or []
++    if not segs:
++        qs.append("Какие стили или направления нужны в миксе?")
++        return qs
++    for s in segs:
++        styles = s.get("styles")
++        seeds = s.get("seed_artists")
++        if not styles and not seeds:
++            qs.append(f"Сегмент '{s.get('name', '?')}': какой стиль или исполнители?")
++    has_count = any(isinstance(s.get("count"), int) and s.get("count", 0) > 0 for s in segs)
++    if not cfg.get("duration_minutes") and not has_count:
++        qs.append("Какая длительность микса или сколько треков нужно?")
++    return qs
++
++
++def parse_brief(brief: str, api_key: str = "") -> dict:
++    """
++    Свободный текст → {config, questions, error}. Сетевая обёртка (OpenRouter).
++    - questions непустые → нужно уточнение у пользователя (config может быть None);
++    - error → не удалось распарсить/провалидировать;
++    - config → готовый валидный конфиг курации.
++    Defensive: при любой ошибке возвращает понятный error, не падает.
++    """
++    key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
++    if not key:
++        return {"config": None, "questions": [], "error": "Нет OPENROUTER_API_KEY"}
++    if not (brief or "").strip():
++        return {"config": None, "questions": [], "error": "Пустое ТЗ"}
++
++    try:
++        import requests
++        resp = requests.post(
++            OPENROUTER_URL,
++            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
++            json={"model": MODEL, "max_tokens": 900,
++                  "messages": [{"role": "user", "content": build_prompt(brief)}]},
++            timeout=30,
++        )
++        resp.raise_for_status()
++        content = resp.json()["choices"][0]["message"]["content"]
++    except Exception as e:
++        return {"config": None, "questions": [], "error": f"Ошибка LLM: {e}"}
++
++    raw = extract_json(content)
++    if raw is None:
++        return {"config": None, "questions": [], "error": "LLM не вернул валидный JSON"}
++
++    apply_text_overrides(raw, brief)
++
++    questions = missing_fields(raw)
++    if questions:
++        return {"config": None, "questions": questions, "error": ""}
++
++    try:
++        config = curation_config.load_config(raw)
++    except curation_config.CurationConfigError as e:
++        return {"config": None, "questions": [], "error": f"Конфиг не прошёл валидацию: {e}"}
++
++    return {"config": config, "questions": [], "error": ""}
++
++
++def _main():
++    import argparse
++    ap = argparse.ArgumentParser(description="Парсер свободного ТЗ → конфиг курации")
++    ap.add_argument("brief", help="текст задания в свободной форме")
++    ap.add_argument("--out", default="", help="сохранить конфиг в JSON-файл")
++    args = ap.parse_args()
++
++    res = parse_brief(args.brief)
++    if res["error"]:
++        print(f"ОШИБКА: {res['error']}")
++        return
++    if res["questions"]:
++        print("Нужно уточнить:")
++        for q in res["questions"]:
++            print(f"  • {q}")
++        return
++
++    print(curation_config.describe(res["config"]))
++    if args.out:
++        with open(args.out, "w", encoding="utf-8") as f:
++            json.dump(res["config"], f, ensure_ascii=False, indent=2)
++        print(f"\nСохранено в {args.out} — запускай: curate_tracks.py --config {args.out}")
++
++
++if __name__ == "__main__":
++    _main()
+diff --git a/tests/unit/test_brief_parser.py b/tests/unit/test_brief_parser.py
+new file mode 100644
+index 0000000..bf8606d
+--- /dev/null
++++ b/tests/unit/test_brief_parser.py
+@@ -0,0 +1,78 @@
++"""
++Unit tests for brief_parser.py pure functions (offline; no network/key).
++parse_brief network wrapper is thin/defensive and not unit-tested live.
++"""
++import sys, os
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
++import brief_parser as bp
++
++
++class TestBuildPrompt:
++    def test_contains_contract_and_brief(self):
++        p = bp.build_prompt("час эмбиента")
++        assert '"segments"' in p and '"trajectory"' in p
++        assert "underground" in p and "ramp" in p
++        assert "час эмбиента" in p          # сам запрос вшит
++
++
++class TestExtractJson:
++    def test_bare_object(self):
++        assert bp.extract_json('{"a": 1}') == {"a": 1}
++
++    def test_with_code_fence(self):
++        assert bp.extract_json('```json\n{"a": 1}\n```') == {"a": 1}
++
++    def test_with_surrounding_prose(self):
++        assert bp.extract_json('Вот конфиг:\n{"a": 1}\nГотово.') == {"a": 1}
++
++    def test_invalid_returns_none(self):
++        assert bp.extract_json("no json here") is None
++        assert bp.extract_json("") is None
++        assert bp.extract_json('{broken') is None
++
++
++class TestApplyTextOverrides:
++    def test_fast_word_sets_speed(self):
++        cfg = {"speed": "thorough"}
++        bp.apply_text_overrides(cfg, "сделай быстро пожалуйста")
++        assert cfg["speed"] == "fast"
++
++    def test_no_trigger_keeps_speed(self):
++        cfg = {"speed": "thorough"}
++        bp.apply_text_overrides(cfg, "час глубокого хауса")
++        assert cfg["speed"] == "thorough"
++
++    def test_english_fast(self):
++        cfg = {"speed": "thorough"}
++        bp.apply_text_overrides(cfg, "make it quick")
++        assert cfg["speed"] == "fast"
++
++
++class TestMissingFields:
++    def test_no_segments_asks(self):
++        qs = bp.missing_fields({"segments": []})
++        assert qs and "стил" in qs[0].lower()
++
++    def test_segment_without_style_or_seed(self):
++        qs = bp.missing_fields({"segments": [{"name": "s", "count": 3}]})
++        assert any("s" in q for q in qs)
++
++    def test_complete_no_questions(self):
++        cfg = {"segments": [{"name": "s", "styles": ["ambient"], "count": 3}],
++               "duration_minutes": [60, 70]}
++        assert bp.missing_fields(cfg) == []
++
++    def test_no_duration_no_count_asks(self):
++        cfg = {"segments": [{"name": "s", "styles": ["ambient"]}]}
++        qs = bp.missing_fields(cfg)
++        assert any("длительность" in q.lower() or "треков" in q.lower() for q in qs)
++
++
++class TestParseBriefDefensive:
++    def test_no_key(self):
++        res = bp.parse_brief("час эмбиента", api_key="")
++        assert res["error"] and res["config"] is None
++
++    def test_empty_brief(self):
++        res = bp.parse_brief("", api_key="KEY")
++        assert res["error"]

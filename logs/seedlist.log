@@ -1,0 +1,5 @@
+Сборка сидов: артистов 59, сид-строк 118 → euro_tour_seeds.txt
+  источники: {'input_artists': 3, 'tag_top_artists': 10, 'after_similar': 59}
+  дальше: python3 seed_discover.py --artists-file euro_tour_seeds.txt --per 1
+
+--- stderr ---
