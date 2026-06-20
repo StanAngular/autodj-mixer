@@ -73,7 +73,7 @@ A brief is given in **plain text**. You turn it into seeds/config. There are TWO
 ```
 build_seedlist.py  --style S --artists "A,B" --tag T  → NAME_seeds.txt   (PulseRoots + last.fm, --limit 24)
 seed_discover.py   --artists-file NAME_seeds.txt --per 1 --out NAME_cand.json   (yt-dlp search)
-resolve_metadata.py  NAME_cand.json                   (каскад: каталог→кэш→tunebat, без скачивания)
+resolve_metadata.py  NAME_cand.json                   (каскад: каталог→кэш→Beatport(by-name)→tunebat, без скачивания)
 prescreen.py       NAME_cand.json --bpm-min .. --bpm-max ..  → keepers + url-file   (MP3 probe, --max-probe 30 --target 16)
 yt_download.py     --url-file NAME_urls.txt          (WAV — ONLY keepers, ≤16)
 local_enrich.py    NAME_cand.json --tracks-dir shared/tracks   (Camelot/BPM from WAV)
@@ -101,7 +101,7 @@ Dry-run by default (prints the exact plan). Add `--run` to execute foreground: f
 | `curate_tracks.py` | A | charts → candidates (BPM/Camelot), year/BPM gate, approval table, harmonic order |
 | `build_seedlist.py` | B | style/artists → concrete seed-strings (PulseRoots + last.fm similar/top-tracks/tag) |
 | `seed_discover.py` | B | seeds → YouTube: ищет 5 на сид, проверяет личность/стиль, выбирает лучший по просмотрам (P34) |
-| `resolve_metadata.py` | both | каскад: каталог→кэш→tunebat (без скачивания) |
+| `resolve_metadata.py` | both | каскад: каталог→кэш→**Beatport(by-name)**→tunebat (без скачивания) |
 | `prescreen.py` | B | cheap MP3 probe → Camelot/BPM → keep only fitting (--max-probe 30 --target 16) |
 | `local_enrich.py` | B | compute Camelot/BPM from downloaded WAV (no DB needed) |
 | `lastfm.py` | B | similar / top-tracks / tag / geo (`--check` = live API test) |
@@ -136,7 +136,10 @@ Dry-run by default (prints the exact plan). Add `--run` to execute foreground: f
 - Year/BPM gate (`passes_sanity`): drops a track only if its year/BPM are **known and out of range**; unknown metadata is kept (Path B fills it later).
 
 ### Sources
-- **Beatport-tracks** (Path A): real BPM + Camelot from `__NEXT_DATA__`. Has **no reliable artist country.**
+- **Beatport** (`beatport_source.py` + `curate_tracks.py`): чистые ТРЕКИ (не сеты) с готовыми BPM/Camelot, обход = Playwright stealth + Warp SOCKS5 + xvfb (как раньше). Две роли:
+  (1) **источник** — `orchestrate --source beatport --style <genre>` (чарты жанра → сиды с метаданными → поиск аудио). Поля: Mix Name/Label/Release Date/Genre. Гейты: **отсев Radio Edit** + **год** (`--year-min/--year-max`).
+  (2) **резолвер по имени** — `search_beatport_track` в каскаде resolve (requests, БЕЗ Cloudflare → стоит ПЕРЕД Tunebat). Has **no reliable artist country.** Полная спека и чек-лист: `docs/beatport.md`.
+- **Маршрутизация источников:** метаданные — фоллбэк-каскад (есть). Discovery `--source` пока ВЗАИМОИСКЛЮЧАЮЩИЙ выбор, не цепочка (композитный фоллбэк Beatport→YouTube — TODO, см. docs/beatport.md).
 - **Tunebat**: slow, demand-driven gap-fill only. With Path B local_enrich it's largely unneeded for Camelot/BPM.
 - **last.fm** (`lastfm.py`): `getSimilar`, `getTopTracks` (concrete tracks!), `tag.getTopArtists` (genre-accurate) — solid. `geo.*` = popular IN country (NOT from) — weak.
 - **PulseRoots** (`style_resolver.py` + `data/pulseroots.SOURCE.txt`): style → Beatport slug + seed_artists + similar styles + wikipedia.
@@ -173,6 +176,12 @@ A1F (`all-in-one-fix`, env `A1F_PYTHON`; see `docs/a1f-setup.md`) gives beats/do
 - **prescreen on ALL candidates = mass downloads** (a 206-seed run pulled ~200 MP3s, ~2 h). Run prescreen on a SHORTLIST; cap `build_seedlist` expansion. Don't probe hundreds.
 - **prescreen BPM stored as 0/falsy** in one run → report showed a flat 126 for everyone. Probe BPM must be validated before trusting.
 - **seed_discover track names = YouTube video titles** (messy), not clean artist/track. Names need cleanup before the report.
+
+### Workflow: контрольный прогон перед полным миксом
+Новый/сомнительный поток гоняй СЕГМЕНТАМИ с чекпойнтом: ранние стадии (seedlist→discover→resolve→prescreen) → СТОП → отчёт числами (сколько проб/keeper'ов, имена+BPM+Camelot, сколько из каталога/кэша/Beatport vs остаток) → ждать «ок» → только потом download/WAV/микс. Оркестратор НЕ автопилот.
+
+### Gotcha: seed_discover --no-verify
+`seed_discover` по умолчанию требует совпадение личности (identity_ok) и отсев сетов (длительность). `--no-verify` снимает проверку личности — использовать ТОЛЬКО осознанно (иначе вернутся «какие попало»/сеты). Beatport-сиды чистые → проверка проходит штатно.
 
 ### Data model — Variant A (CANONICAL)
 `db` = one downbeat/bar; `calc_bpm()` = 240 / bar_seconds (counts bars); `fix_ht()` = half/double only (85–165). External BPM (A1F) → **rebuild the grid**, don't paint over it.

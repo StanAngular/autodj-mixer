@@ -59,15 +59,38 @@ def from_cache(track: dict, cache: dict) -> bool:
     return True
 
 
+def from_beatport(track: dict) -> bool:
+    """BPM/Camelot по ИМЕНИ с Beatport (requests, БЕЗ Cloudflare — в отличие от Tunebat).
+    Переиспользует существующий curate_tracks.search_beatport_track. Тонкий I/O. → нашли?"""
+    artist = (track.get("artist") or "").strip()
+    name = (track.get("track") or "").strip()
+    if not artist or not name:
+        return False
+    try:
+        from curate_tracks import search_beatport_track
+        bpm, cam, _style = search_beatport_track(artist, name)
+    except Exception:
+        return False
+    cam = (cam or "").strip()
+    if not cam:
+        return False
+    track["camelot"] = cam
+    if bpm and not track.get("bpm"):
+        track["bpm"] = bpm
+    track["camelot_source"] = "beatport"
+    return True
+
+
 def resolve_candidates(candidates: list[dict], catalog_dir: str, cache_path: str,
-                       use_tunebat: bool = False) -> tuple[list[dict], dict]:
-    """Каскад каталог→кэш→(опц. Tunebat остаток). Тонкий I/O. Возвращает (cands, stats)."""
+                       use_beatport: bool = True, use_tunebat: bool = False) -> tuple[list[dict], dict]:
+    """Каскад каталог→кэш→Beatport(по имени)→(опц. Tunebat остаток). Тонкий I/O.
+    Beatport-by-name быстрый и не блокируется Cloudflare → стоит ПЕРЕД Tunebat."""
     import sys
     sys.path.insert(0, catalog_dir)
     import catalog_utils as cu
     index = cu.load_index()
     cache = ec.load_cache(cache_path)
-    stats = {"already": 0, "catalog": 0, "cache": 0, "tunebat": 0, "residual": 0}
+    stats = {"already": 0, "catalog": 0, "cache": 0, "beatport": 0, "tunebat": 0, "residual": 0}
 
     residual = []
     for t in candidates:
@@ -81,6 +104,19 @@ def resolve_candidates(candidates: list[dict], catalog_dir: str, cache_path: str
             stats["cache"] += 1
             continue
         residual.append(t)
+
+    # Beatport по имени — быстро, requests, без Cloudflare → до Tunebat
+    if use_beatport and residual:
+        for t in list(residual):
+            try:
+                if from_beatport(t):
+                    ec.cache_put(cache, t.get("artist", ""), t.get("track", ""),
+                                 t.get("bpm"), t.get("camelot"))
+                    residual.remove(t)
+                    stats["beatport"] += 1
+            except Exception:
+                pass
+        ec.save_cache(cache, cache_path)
 
     # Tunebat — аккуратно и ТОЛЬКО по остатку (медленно, со своими таймаутами)
     if use_tunebat and residual:
@@ -109,17 +145,20 @@ def _main():
                     default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                          "shared", "catalog"))
     ap.add_argument("--cache", default="data/enrich_cache.json")
+    ap.add_argument("--no-beatport", action="store_true", help="не использовать Beatport-by-name")
     ap.add_argument("--tunebat", action="store_true", help="добить остаток через Tunebat (медленно)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
     cands = json.load(open(args.candidates, encoding="utf-8"))
-    cands, st = resolve_candidates(cands, args.catalog_dir, args.cache, args.tunebat)
+    cands, st = resolve_candidates(cands, args.catalog_dir, args.cache,
+                                   use_beatport=not args.no_beatport, use_tunebat=args.tunebat)
     out = args.out or args.candidates
     with open(out, "w", encoding="utf-8") as f:
         json.dump(cands, f, ensure_ascii=False, indent=2)
-    print(f"Каскад: каталог {st['catalog']}, кэш {st['cache']}, tunebat {st['tunebat']}, "
-          f"уже было {st['already']}. Остаток на аудио-пробу: {st['residual']}. → {out}")
+    print(f"Каскад: каталог {st['catalog']}, кэш {st['cache']}, beatport {st['beatport']}, "
+          f"tunebat {st['tunebat']}, уже было {st['already']}. "
+          f"Остаток на аудио-пробу: {st['residual']}. → {out}")
 
 
 if __name__ == "__main__":
