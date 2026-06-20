@@ -794,33 +794,16 @@ def _parse_beatport_chart_tracks(page, genre: str) -> list[dict]:
                             )
                             track_name = item.get("name", "")
                             bpm = item.get("bpm") or 0
-
+                            
                             raw_key = item.get("key", {})
                             camelot = beatport_camelot(raw_key)
-
-                            # P39: Mix Name (отсев Radio Edit), Label, Release Date, Genre
-                            mix_name = item.get("mix_name", "") or \
-                                (item.get("mix", {}) or {}).get("name", "")
-                            release_date = (item.get("release_date") or
-                                            item.get("new_release_date") or
-                                            item.get("publish_date") or "")
-                            rel = item.get("release", {}) or {}
-                            label = ((rel.get("label", {}) or {}).get("name", "")
-                                     if isinstance(rel, dict) else "")
-                            genre_obj = item.get("genre", {}) or {}
-                            genre_name = (genre_obj.get("name", "")
-                                          if isinstance(genre_obj, dict) else "")
-
+                            
                             if artists and track_name:
                                 tracks.append({
                                     "artist": artists,
                                     "track": track_name,
                                     "bpm": int(bpm),
                                     "camelot": camelot,
-                                    "mix_name": mix_name,
-                                    "label": label,
-                                    "release_date": release_date,
-                                    "genre": genre_name,
                                     "category": "Mainstream",
                                     "source_url": page.url,
                                     "youtube_url": "",

@@ -77,13 +77,3 @@ class TestPlanCaps:
         plan = orch.build_plan("x", path="b", artists="A", max_probe=25, target=12)
         psr = dict(plan)["prescreen"]
         assert "--max-probe" in psr and "25" in psr and "--target" in psr and "12" in psr
-
-
-class TestSourceBeatport:
-    def test_beatport_stage_replaces_seedlist(self):
-        plan = orch.build_plan("x", path="b", style="deep trance", source="beatport")
-        st = [s for s, _ in plan]
-        assert "beatport" in st and "seedlist" not in st and "discover" not in st
-    def test_beatport_then_resolve_prescreen(self):
-        st = [s for s, _ in orch.build_plan("x", style="trance", source="beatport")]
-        assert st[0] == "beatport" and "resolve" in st and "prescreen" in st

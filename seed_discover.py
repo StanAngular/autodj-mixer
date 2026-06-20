@@ -118,19 +118,6 @@ def style_in_tags(tags: list[str], target_style: str) -> bool:
     return any(w in blob for w in toks)
 
 
-def merge_seed_meta(cand: dict, meta: dict) -> dict:
-    """Доклеить метаданные сида (camelot/bpm/source) к найденному кандидату, НЕ затирая
-    личность (track/youtube_url/views). Чистая. Для Beatport-сидов с готовыми BPM/Camelot."""
-    if not meta:
-        return cand
-    for k in ("camelot", "key", "bpm", "mix_name", "label", "year",
-              "source_url", "support_score", "source_type"):
-        v = meta.get(k)
-        if v not in (None, "", 0):
-            cand[k] = v
-    return cand
-
-
 def build_seed_queries(seeds: list[str], styles: list[str] | None = None) -> list[str]:
     """
     Поисковые запросы из сидов. Чистая.
@@ -179,8 +166,7 @@ def parse_ytdlp_search(data: dict, seed_artist: str = "", country: str = "") -> 
 
 def seed_discover(seeds: list[str], styles: list[str] | None = None,
                   per_artist: int = 5, countries: dict | None = None,
-                  verify: bool = True, verify_style: str = "",
-                  seed_meta: dict | None = None) -> list[dict]:
+                  verify: bool = True, verify_style: str = "") -> list[dict]:
     """
     Найти кандидатов по сидам через yt-dlp ytsearch, на каждый сид выбрать ЛУЧШИЙ
     уверенный (личность + просмотры − мусор). Тонкий I/O.
@@ -190,7 +176,6 @@ def seed_discover(seeds: list[str], styles: list[str] | None = None,
     """
     queries = build_seed_queries(seeds, styles)
     countries = countries or {}
-    seed_meta = seed_meta or {}
     found: list[dict] = []
     for seed, query in zip(seeds, queries):
         sa = seed.split(" - ")[0]
@@ -217,7 +202,6 @@ def seed_discover(seeds: list[str], styles: list[str] | None = None,
             cands = parse_ytdlp_search(data, seed_artist=sa, country=countries.get(seed, ""))
             best = pick_best(cands, sa, st_, require_identity=verify)
             if best:
-                merge_seed_meta(best, seed_meta.get(seed, {}))   # приклеить мету (Beatport)
                 found.append(best)
                 print(f"  ✓ {seed}: лучший из {len(cands)} (views {best.get('views') or '?'})")
             else:

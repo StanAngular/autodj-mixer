@@ -59,39 +59,3 @@ class TestResolveCascadeOrder:
         _, st = rm.resolve_candidates(cands, catdir, str(cache_path), use_tunebat=False)
         assert st["catalog"] == 1 and st["cache"] == 1 and st["residual"] == 1
         assert cands[0]["camelot"] == "8A" and cands[1]["camelot"] == "5A"
-
-
-# ── P38: Beatport-by-name в каскаде (переиспользует search_beatport_track) ──
-
-class TestFromBeatport:
-    def test_fills_from_beatport(self, monkeypatch):
-        import curate_tracks
-        monkeypatch.setattr(curate_tracks, "search_beatport_track",
-                            lambda a, t: (124, "8A", "Tech House"))
-        track = {"artist": "ANOTR", "track": "Relax", "camelot": ""}
-        assert rm.from_beatport(track) is True
-        assert track["camelot"] == "8A" and track["bpm"] == 124
-        assert track["camelot_source"] == "beatport"
-    def test_miss_returns_false(self, monkeypatch):
-        import curate_tracks
-        monkeypatch.setattr(curate_tracks, "search_beatport_track", lambda a, t: (0, "", ""))
-        assert rm.from_beatport({"artist": "X", "track": "Y", "camelot": ""}) is False
-    def test_no_artist(self):
-        assert rm.from_beatport({"track": "Y", "camelot": ""}) is False
-
-
-class TestCascadeBeatportBeforeTunebat:
-    def test_beatport_resolves_residual(self, tmp_path, monkeypatch):
-        import enrich_cache as ec, curate_tracks
-        cache_path = tmp_path / "c.json"; ec.save_cache({}, str(cache_path))
-        monkeypatch.setattr(rm, "video_id", lambda u: u)
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        catdir = os.path.join(root, "shared", "catalog"); sys.path.insert(0, catdir)
-        import catalog_utils as cu
-        monkeypatch.setattr(cu, "load_index", lambda: {"tracks": {}})
-        monkeypatch.setattr(curate_tracks, "search_beatport_track", lambda a, t: (126, "9A", ""))
-        cands = [{"youtube_url": "q", "artist": "C", "track": "c", "camelot": ""}]
-        _, st = rm.resolve_candidates(cands, catdir, str(cache_path),
-                                      use_beatport=True, use_tunebat=False)
-        assert st["beatport"] == 1 and st["residual"] == 0
-        assert cands[0]["camelot"] == "9A"

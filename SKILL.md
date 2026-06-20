@@ -100,7 +100,7 @@ Dry-run by default (prints the exact plan). Add `--run` to execute foreground: f
 |---|---|---|
 | `curate_tracks.py` | A | charts → candidates (BPM/Camelot), year/BPM gate, approval table, harmonic order |
 | `build_seedlist.py` | B | style/artists → concrete seed-strings (PulseRoots + last.fm similar/top-tracks/tag) |
-| `seed_discover.py` | B | seeds → YouTube: ищет 5 на сид, проверяет личность/стиль/длительность, выбирает лучший по просмотрам (P34/P35) |
+| `seed_discover.py` | B | seeds → YouTube: ищет 5 на сид, проверяет личность/стиль, выбирает лучший по просмотрам (P34) |
 | `resolve_metadata.py` | both | каскад: каталог→кэш→tunebat (без скачивания) |
 | `prescreen.py` | B | cheap MP3 probe → Camelot/BPM → keep only fitting (--max-probe 30 --target 16) |
 | `local_enrich.py` | B | compute Camelot/BPM from downloaded WAV (no DB needed) |
