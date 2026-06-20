@@ -17,3 +17,11 @@ shared/ann/*.txt
 shared/tracks/*.wav
 shared/tracks/*.webm
 data/enrich_cache.json
+
+# промежуточные артефакты пайплайна (orchestrate/beatport_source/compose_sources)
+*.patch.txt
+*_cand.json
+*_seeds.txt
+*_urls.txt
+beatport_candidates.json
+logs/
