@@ -83,21 +83,32 @@ def tracks_to_seeds_with_meta(tracks: list[dict], year_lo: int | None = None,
 
 
 def beatport_slug(genre: str) -> str:
-    """Жанр → слаг Beatport. Прямая карта → (вспомогательно) нормализация через PulseRoots
-    → если не нашли, пропускаем как есть (fuzzy-match Beatport). PulseRoots вторичен и НЕ
-    ломает: при любой ошибке/промахе возвращаем исходный жанр."""
-    from curate_tracks import BEATPORT_GENRE_SLUGS
+    """Жанр → слаг Beatport. Прямая карта → иначе ЛЕЗЕМ по дереву PulseRoots
+    (канон/родитель/соседи, вверх до 4 уровней) к ближайшему known-жанру → если совсем
+    ничего, пропуск как есть. PulseRoots вторичен и НЕ ломает (ошибки/промах → исходный жанр)."""
+    from curate_tracks import BEATPORT_GENRE_SLUGS as M
     g = (genre or "").strip().lower()
-    if g in BEATPORT_GENRE_SLUGS:
-        return BEATPORT_GENRE_SLUGS[g]
-    try:                                              # вспомогательно: фраза → канон → слаг
-        import style_resolver
-        canon = (style_resolver.resolve(genre).get("style") or "").strip().lower()
-        if canon and canon in BEATPORT_GENRE_SLUGS:
-            return BEATPORT_GENRE_SLUGS[canon]
+    if g in M:
+        return M[g]
+    try:
+        import style_resolver as sr
+        seen, q = set(), genre
+        for _ in range(4):                            # подъём по дереву к known-жанру
+            r = sr.resolve(q)
+            cands = ([r.get("style"), r.get("parent")]
+                     + list(r.get("siblings") or []) + list(r.get("children") or []))
+            for c in cands:
+                cl = (c or "").strip().lower()
+                if cl and cl in M:
+                    return M[cl]
+            parent = (r.get("parent") or "").strip()
+            if not parent or parent.lower() in seen:
+                break
+            seen.add(parent.lower())
+            q = parent                                # поднимаемся к родителю
     except Exception:
         pass
-    return g                                          # неизвестный — как есть, без поломки
+    return g                                          # крайний случай — как есть, без поломки
 
 
 def beatport_candidates(genre: str, per: int = 5, verify: bool = True,

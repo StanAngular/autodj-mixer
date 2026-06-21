@@ -115,3 +115,19 @@ class TestGenreSlugs:
     def test_unknown_passes_through_no_crash(self):
         assert bp.beatport_slug("совсем неизвестный жанр") == "совсем неизвестный жанр"
         assert bp.beatport_slug("") == ""
+
+
+# ── P48: PulseRoots лезет по дереву (родитель/соседи) к ближайшему known-жанру ──
+
+class TestGenreTreeClimb:
+    def test_sibling_climb(self):
+        assert bp.beatport_slug("future garage") == "uk-garage-bassline"   # сосед UK Garage
+    def test_parent_climb(self):
+        assert bp.beatport_slug("neurofunk") == "drum-bass"                # родитель Drum and Bass
+        assert bp.beatport_slug("big room") == "electro-classic-detroit-modern"
+    def test_multilevel_climb(self):
+        assert bp.beatport_slug("liquid dnb") == "drum-bass"               # подъём на 2 уровня
+    def test_truly_unknown_passthrough(self):
+        assert bp.beatport_slug("ксяблорп фывапр") == "ксяблорп фывапр"    # не в дереве → как есть
+    def test_direct_map_still_first(self):
+        assert bp.beatport_slug("deep trance") == "trance-raw-deep-hypnotic"

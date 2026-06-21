@@ -72,9 +72,9 @@ BPM/Key, без Cloudflare (в отличие от Tunebat). Используе�
 ## Карта жанров (P47)
 `BEATPORT_GENRE_SLUGS` (curate_tracks.py) расширена на все основные жанры Beatport V4
 (trance main/raw, dnb, dubstep, house, bass house, minimal, hard techno, psy, breaks,
-nu disco, electro и т.д.) с алиасами. `beatport_source.beatport_slug()`: прямая карта →
-вспомогательно PulseRoots (style_resolver) нормализует фразу → если нет, пропуск как есть
-(не ломает). ⚠️ Слаги V4 — проверить вживую (Beatport мог переименовать).
+nu disco, electro и т.д.) с алиасами. `beatport_source.beatport_slug()`: прямая карта → иначе ЛЕЗЕТ по дереву PulseRoots
+(родитель/соседи, вверх до 4 уровней) к ближайшему known-жанру (напр. neurofunk→drum-bass,
+future garage→uk-garage) → passthrough только если жанра нет в дереве вообще (не ломает). ⚠️ Слаги V4 — проверить вживую (Beatport мог переименовать).
 
 ## Существующий код (точки переиспользования)
 
