@@ -95,3 +95,23 @@ class TestSortBeatportTracks:
     def test_unknown_dates_last(self):
         tracks = [{"track": "x", "release_date": ""}, {"track": "y", "release_date": "2026-01-01"}]
         assert [t["track"] for t in bp.sort_beatport_tracks(tracks, "newest")] == ["y", "x"]
+
+
+# ── P47: полная карта жанров Beatport + PulseRoots как вспомогательный нормализатор ──
+
+class TestGenreSlugs:
+    def test_major_genres_mapped(self):
+        assert bp.beatport_slug("trance") == "trance-main-floor"
+        assert bp.beatport_slug("deep trance") == "trance-raw-deep-hypnotic"
+        assert bp.beatport_slug("drum & bass") == "drum-bass"
+        assert bp.beatport_slug("dubstep") == "dubstep"
+        assert bp.beatport_slug("hard techno") == "hard-techno"
+        assert bp.beatport_slug("minimal") == "minimal-deep-tech"
+    def test_aliases(self):
+        assert bp.beatport_slug("dnb") == bp.beatport_slug("drum and bass") == "drum-bass"
+        assert bp.beatport_slug("psytrance") == bp.beatport_slug("psy trance") == "psy-trance"
+    def test_case_insensitive(self):
+        assert bp.beatport_slug("Deep Trance") == "trance-raw-deep-hypnotic"
+    def test_unknown_passes_through_no_crash(self):
+        assert bp.beatport_slug("совсем неизвестный жанр") == "совсем неизвестный жанр"
+        assert bp.beatport_slug("") == ""

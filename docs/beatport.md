@@ -69,6 +69,13 @@ BPM/Key, без Cloudflare (в отличие от Tunebat). Используе�
 4. **Каталоги**: /label, /artist, /genre/tracks.
 5. ~~**Композитный discovery с фоллбэком** (Beatport → YouTube/last.fm)~~ ✅ **СДЕЛАНО (P42)** — `orchestrate --source auto` → `compose_sources.py`.
 
+## Карта жанров (P47)
+`BEATPORT_GENRE_SLUGS` (curate_tracks.py) расширена на все основные жанры Beatport V4
+(trance main/raw, dnb, dubstep, house, bass house, minimal, hard techno, psy, breaks,
+nu disco, electro и т.д.) с алиасами. `beatport_source.beatport_slug()`: прямая карта →
+вспомогательно PulseRoots (style_resolver) нормализует фразу → если нет, пропуск как есть
+(не ломает). ⚠️ Слаги V4 — проверить вживую (Beatport мог переименовать).
+
 ## Существующий код (точки переиспользования)
 
 - `curate_tracks.fetch_beatport_charts(genre, years)` — чарты → треки.

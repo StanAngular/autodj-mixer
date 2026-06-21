@@ -82,14 +82,32 @@ def tracks_to_seeds_with_meta(tracks: list[dict], year_lo: int | None = None,
     return seeds, meta
 
 
+def beatport_slug(genre: str) -> str:
+    """Жанр → слаг Beatport. Прямая карта → (вспомогательно) нормализация через PulseRoots
+    → если не нашли, пропускаем как есть (fuzzy-match Beatport). PulseRoots вторичен и НЕ
+    ломает: при любой ошибке/промахе возвращаем исходный жанр."""
+    from curate_tracks import BEATPORT_GENRE_SLUGS
+    g = (genre or "").strip().lower()
+    if g in BEATPORT_GENRE_SLUGS:
+        return BEATPORT_GENRE_SLUGS[g]
+    try:                                              # вспомогательно: фраза → канон → слаг
+        import style_resolver
+        canon = (style_resolver.resolve(genre).get("style") or "").strip().lower()
+        if canon and canon in BEATPORT_GENRE_SLUGS:
+            return BEATPORT_GENRE_SLUGS[canon]
+    except Exception:
+        pass
+    return g                                          # неизвестный — как есть, без поломки
+
+
 def beatport_candidates(genre: str, per: int = 5, verify: bool = True,
                         year_lo: int | None = None, year_hi: int | None = None,
                         sort: str = "") -> list[dict]:
     """Beatport чарты жанра → кандидаты с аудио (через seed_discover) + метаданными.
     Тонкий I/O. Жанр маппится через BEATPORT_GENRE_SLUGS; отсев Radio Edit + год; sort."""
-    from curate_tracks import fetch_beatport_charts, BEATPORT_GENRE_SLUGS
+    from curate_tracks import fetch_beatport_charts
     import seed_discover as sd
-    slug = BEATPORT_GENRE_SLUGS.get(genre.strip().lower(), genre)
+    slug = beatport_slug(genre)
     tracks = fetch_beatport_charts(slug, [])
     tracks = sort_beatport_tracks(tracks, sort)
     seeds, meta = tracks_to_seeds_with_meta(tracks, year_lo, year_hi)
