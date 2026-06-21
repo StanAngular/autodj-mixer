@@ -131,3 +131,16 @@ class TestGenreTreeClimb:
         assert bp.beatport_slug("ксяблорп фывапр") == "ксяблорп фывапр"    # не в дереве → как есть
     def test_direct_map_still_first(self):
         assert bp.beatport_slug("deep trance") == "trance-raw-deep-hypnotic"
+
+
+# ── P50: коррекция слагов по живой проверке Beatport V4 ──────────────────────
+
+class TestGenreSlugsV4Fixes:
+    def test_organic_house(self):
+        assert bp.beatport_slug("organic house") == "organic-house"
+    def test_hard_dance_neo_rave(self):
+        assert bp.beatport_slug("hardcore") == "hard-dance-hardcore-neo-rave"
+        assert bp.beatport_slug("hard dance") == "hard-dance-hardcore-neo-rave"
+    def test_new_v4_genres(self):
+        assert bp.beatport_slug("bass club") == "bass-club"
+        assert bp.beatport_slug("mainstage") == "mainstage"
