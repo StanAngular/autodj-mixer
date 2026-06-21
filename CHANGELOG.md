@@ -8,9 +8,51 @@
 - `[mixer]` — изменения в основном процессе сведения
 - `[analyzer]` — изменения в mix_analyzer
 - `[pipeline]` — run_pipeline, config, scripts
-- `[infra]` — структура репозитория, пути, permissions
+- `[source]` — источники данных (Beatport, Bandcamp, last.fm, YouTube)
+- `[discovery]` — поиск кандидатов (seed_discover, compose_sources)
+- `[infra]` — структура репозитория, пути, permissions, gitignore
 
-## v16.10 — 2026-06-16 [Opus 4.7 → Agent] [mixer] Удалён мёртвый EQ Sweep Module (eq_sweep, _sweep_channel, _shelf_coeffs)
+## 2026-06-20 [Hermes] [source][discovery] Дефолт --source auto, приоритет по богатству данных Beatport→Bandcamp→last.fm/YT [P46]
+
+- **Дефолт `--source auto`** — основной режим, без флагов. Источники по убыванию данных:
+  [1] Beatport (BPM/Camelot/год/лейбл) → [2] Bandcamp (жанровый андеграунд) → [3] last.fm/YT (гейт стиля)
+- **compose_sources.py**: Beatport → Bandcamp → last.fm/YouTube, каждый следующий только если не добрали target
+- **Bandcamp** (`fetch_bandcamp_underground`) — жанровый андеграунд, треки в стиле (аудио добираем поиском)
+- **last.fm/YT** — гейт стиля (`verify_style`), рандом не залетает
+- `--remix` работает в дефолте через compose
+- `--source youtube|beatport` — оверрайд для явного выбора
+
+## 2026-06-20 [Hermes] [discovery] Поиск ремиксов --remix в seed_discover [P45]
+
+- **`is_remix(title)`** — распознаёт remix/rework/bootleg/flip/vip/mashup
+- **`build_seed_queries(..., remix=True)`** — дописывает 'remix' к запросу YouTube → отдаёт ремиксы
+- **`require_remix`** в `pick_best` — отсеивает оригиналы (нужны именно ремиксы)
+- **`prefer_remix`** — бонус в скоринге: при равных просмотрах ремикс выигрывает у оригинала
+- Проброшено: `seed_discover --remix` и `orchestrate --remix`
+
+## 2026-06-20 [Hermes] [infra] .gitignore для артефактов пайплайна [P44]
+
+- Игнорируются: `*.patch.txt`, `*_cand.json`, `*_seeds.txt`, `*_urls.txt`, `beatport_candidates.json`, `logs/`
+- Ровно то, что `git add -A` подхватывал как мусор. Легитимные файлы не задеты
+
+## 2026-06-20 [Hermes] [source][discovery] compose_sources — композит Beatport→YouTube/last.fm + --sort [P42-P43]
+
+- **`compose_sources.py`** — новый модуль композитного поиска: Beatport (чистые треки + BPM/Camelot) → если < target → добор YouTube/last.fm
+- **`merge_candidates`** — слияние пулов с дедупом по video_id, приоритет у Beatport
+- **`orchestrate --source auto`** → compose stage
+- **`--sort newest|bestsellers`** — клиентская сортировка пула Beatport по release_date/support_score
+- `sort_beatport_tracks` — чистая функция, тестируется
+
+## 2026-06-20 [Hermes] [source] Beatport — источник + by-name каскад, поля Mix/Label/Date, гейты Radio-Edit/год [P38-P39-P40]
+
+- **`beatport_source.py`** — чарты жанра → сиды с метаданными → seed_discover
+- **`from_beatport`** в resolve_metadata — поиск по имени (requests, без Cloudflare) перед Tunebat
+- **`merge_seed_meta`** — метаданные едут с найденным кандидатом; умный bypass (Camelot есть → без MP3)
+- **`orchestrate --source beatport`** — этап beatport вместо seedlist
+- **Парсер `__NEXT_DATA__`**: Mix Name / Label / Release Date / Genre
+- **Гейты**: `mix_name_ok` (Radio Edit → отсев), `release_year` + `--year-min/--year-max`
+- **`docs/beatport.md`** — спецификация + чек-лист сделано/TODO
+- **SKILL.md**: Beatport в §4 (двойная роль), каскад в §2/таблице, маршрутизация источников, контрольный прогон с чекпойнтом, gotcha `--no-verify`
 
 ### [mixer] — Cleanup: удалена неиспользуемая цепочка eq_sweep
   • `eq_sweep()`, `_sweep_channel()`, `_shelf_coeffs()` — удалены. После фикса bass swap (v16.9) eq_sweep нигде не вызывается, внешних импортов нет.
