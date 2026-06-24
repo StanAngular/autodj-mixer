@@ -122,3 +122,15 @@ class TestDefaultAutoP46:
     def test_youtube_override_style_gate(self):
         disc = dict(orch.build_plan("x", style="tech house", source="youtube"))["discover"]
         assert "--verify-style" in disc and "tech house" in disc
+
+
+class TestTracklistInput:
+    def test_tracklist_skips_discovery(self):
+        st = [s for s, _ in orch.build_plan("x", tracklist="/tmp/tl.txt")]
+        assert st[0] == "tracklist" and "seedlist" not in st and "compose" not in st
+    def test_tracklist_feeds_file(self):
+        tl = dict(orch.build_plan("x", tracklist="/tmp/tl.txt"))["tracklist"]
+        assert "tracklist_source.py" in tl and "/tmp/tl.txt" in tl
+    def test_tracklist_still_resolves_and_mixes(self):
+        st = [s for s, _ in orch.build_plan("x", tracklist="/tmp/tl.txt")]
+        assert "resolve" in st                     # дыры без меты добьёт каскад/local_enrich

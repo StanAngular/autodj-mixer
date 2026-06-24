@@ -26,14 +26,21 @@ def build_plan(name: str, path: str = "b", config: str = "", style: str = "",
                artists: str = "", tag: str = "", bpm_min=None, bpm_max=None,
                prescreen: bool = True, a1f: bool = False, cleanup: bool = False,
                seed_limit: int = 24, max_probe: int = 30, target: int = 16,
-               source: str = "auto", sort: str = "", remix: bool = False) -> list[tuple]:
+               source: str = "auto", sort: str = "", remix: bool = False,
+               tracklist: str = "") -> list[tuple]:
     """Построить упорядоченный план [(stage, argv)]. Чистая функция.
     Лимиты (seed_limit/max_probe/target) — чтобы НЕ качать сотни вслепую (SKILL §7).
     source: youtube (сиды+last.fm) | beatport (чарты жанра с готовыми BPM/Camelot)."""
     cand = f"{name}_cand.json"
     plan: list[tuple] = []
 
-    if path == "a":
+    if tracklist:
+        # явный список (поиск/LLM): метаданные BPM/Camelot ЕДУТ с сидами (как Beatport) →
+        # resolve/prescreen их не перепроверяют (smart-bypass). Любой жанр/год, мимо Cloudflare.
+        plan.append(("tracklist", ["python3", "tracklist_source.py", "--tracklist", tracklist,
+                                   "--out", cand]))
+        urls = f"{name}_urls.txt"
+    elif path == "a":
         if not config:
             raise ValueError("path A требует --config")
         plan.append(("curate", ["python3", "curate_tracks.py", "--config", config, "--out", cand]))
@@ -168,6 +175,9 @@ def _main():
                     help="порядок пула Beatport: newest (свежее) / bestsellers (популярнее)")
     ap.add_argument("--remix", action="store_true",
                     help="искать ремиксы, не оригиналы (Path B / discover)")
+    ap.add_argument("--tracklist", default="",
+                    help="файл с явным списком 'Artist - Title' (из поиска/LLM): минует подбор по жанру, "
+                         "находит аудио и обогащает метаданные. Любой жанр/год, мимо Cloudflare")
     ap.add_argument("--run", action="store_true", help="выполнить (иначе dry-run)")
     ap.add_argument("--log-dir", default="logs")
     args = ap.parse_args()
@@ -176,7 +186,8 @@ def _main():
                       args.tag, args.bpm_min, args.bpm_max,
                       prescreen=not args.no_prescreen, a1f=args.a1f, cleanup=args.cleanup,
                       seed_limit=args.seed_limit, max_probe=args.max_probe, target=args.target,
-                      source=args.source, sort=args.sort, remix=args.remix)
+                      source=args.source, sort=args.sort, remix=args.remix,
+                      tracklist=args.tracklist)
     run_plan(plan, args.log_dir, execute=args.run)
 
 
