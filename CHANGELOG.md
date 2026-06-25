@@ -11,6 +11,40 @@
 - `[source]` — источники данных (Beatport, Bandcamp, last.fm, YouTube)
 - `[discovery]` — поиск кандидатов (seed_discover, compose_sources)
 - `[infra]` — структура репозитория, пути, permissions, gitignore
+- `[analysis]` — аннотация треков (madmom, A1F, batch_a1f)
+
+## 2026-06-27 [Hermes] [analysis] batch_a1f — батч-раннер A1F по одному треку (резюм/скип/изоляция), чтобы микс не падал по таймауту [P53]
+
+- **`batch_a1f.py`** — новый файл: A1F пачкой по трекам, каждый со своим таймаутом, кэшем и резюмом
+- **`--mode auto`** (дефолт) — A1F точечно: короткие (<5 мин, `SHORT_TRACK_SEC=300`) и нерегулярные (`IRREGULAR_CV=0.10`) по CV madmom-даунбитов; регулярным длинным madmom достаточно
+- **`--mode all`** — A1F всем трекам без фильтрации
+- **`--depth full`** (дефолт) — с Demucs (+вокал-интервалы). `--depth fast` — `--skip-separation`, без вокала, 5-10× быстрее
+- **`--timeout 600`** — дефолт на трек; упал один → остальные идут, микс берёт no_a1f
+- **`SKILL.md`** — добавлен блок `batch_a1f.py` в схему common tail
+- Тесты: `test_batch_a1f.py` — 9 тестов (fast/full command, resume, downbeat CV, recommend)
+- Коммит: `035816e`
+
+## 2026-06-21 [Hermes] [source] Коррекция слагов V4 по живой проверке Beatport [P50]
+
+- **`organic-house-downtempo`** → `organic-house` (Beatport V4 переименовал), `downtempo` → `organic-house`
+- **`hard-dance-hardcore`** → `hard-dance-hardcore-neo-rave` (добавили Neo Rave)
+- **`amapiano`** — удалён (Beatport убрал жанр, теперь дерево даёт afro-house)
+- **Добавлены**: `bass-club` (+ `club` алиас), `mainstage`
+- **big room** оставлен на дереве (P48: → electro через родителя)
+- Тесты: `test_beatport_source.py` — 5 новых тестов (organic, hardcore, neo-rave, bass-club, mainstage)
+
+## 2026-06-21 [Hermes] [source] PulseRoots лезет по дереву к ближайшему known-жанру (не passthrough) [P48]
+
+- **`beatport_slug()`** — переработан: прямая карта → иначе ЛЕЗЕТ по дереву PulseRoots (кандидаты: канон, родитель, соседи, вверх до 4 уровней) → passthrough только если жанра нет в дереве вообще
+- **Neurofunk** → `drum-bass` (через родителя Drum & Bass), **future garage** → `uk-garage-bassline` (через соседа UK Garage), **big room** → `electro-classic-detroit-modern`, **liquid dnb** → `drum-bass` (подъём на 2 уровня)
+- Тесты: `test_beatport_source.py` — 5 новых тестов (sibling climb, parent climb, multilevel climb, truly unknown passthrough, direct map still first)
+
+## 2026-06-21 [Hermes] [source] Полная карта жанров Beatport V4 + PulseRoots-нормализатор [P47]
+
+- **`BEATPORT_GENRE_SLUGS`** — расширена на все основные жанры Beatport V4 (trance main/raw, hard techno, minimal, psy, breaks, dnb, dubstep, bass house, nu disco, electro и др.) с алиасами
+- **`beatport_slug()`** — новый хелпер в beatport_source.py: прямая карта → вспомогательно PulseRoots (style_resolver) → пропуск как есть, если не найден (не ломает)
+- **Deep trance** теперь корректно маппится на `trance-raw-deep-hypnotic` (работает живьём в compose_sources.py)
+- Тесты: `test_beatport_source.py` — 4 теста на жанры (major, aliases, case-insensitive, unknown passthrough)
 
 ## 2026-06-20 [Hermes] [source][discovery] Дефолт --source auto, приоритет по богатству данных Beatport→Bandcamp→last.fm/YT [P46]
 
