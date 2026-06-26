@@ -133,6 +133,8 @@ Dry-run by default (prints the exact plan). Add `--run` to execute foreground: f
 
 ### Harmonic order (curation side)
 - `camelot_distance(a,b)` (0 exact · 1 neighbour/relative · 2 diagonal · ≥3 clash) drives `_harmonic_order` (greedy min-distance). `camelot_relation` labels a far pair as **"clash"**, NOT a fake "diagonal energy boost".
+
+- **Camelot alignment (P54)**: микшер берёт КУРИРОВАННЫЙ Camelot primary (`CAMELOTS` в mix_config из curation_bridge), `detect_key` из аудио — fallback (`resolve_camelot`). Гармоническая цепочка курации/треклиста теперь совпадает с тем, что реально сводит микшер (раньше микшер детектил свой и мог разойтись). Лог: `Camelot: 8A [curated] (detect=5A)`.
 - `harmonic_chain_trace` prints the chain (smooth / energy / jump) — shown ALWAYS.
 - Approval table (artist/track/BPM/Camelot+relation/country/views/YouTube + playlist URL) prints in agent mode too. Don't use `--no-approve` for real mixes.
 - Year/BPM gate (`passes_sanity`): drops a track only if its year/BPM are **known and out of range**; unknown metadata is kept (Path B fills it later).
@@ -174,7 +176,7 @@ A1F (`all-in-one-fix`, env `A1F_PYTHON`; see `docs/a1f-setup.md`) gives beats/do
 ## §7 — Critical lessons (DO NOT lose)
 
 ### Open quality issues surfaced by live runs (Euro Tech House Tour, Mix #7/#8)
-- **Mixer detects its OWN Camelot from audio (madmom/A1F) and mixes by that — NOT our curated metadata.** So the harmonic order we curate (P20) can be overridden, and "smooth by our Camelot" becomes "POOR by the mixer's detection." Curated chain ≠ mixer chain until these are aligned. **Top quality issue.**
+- **Mixer detects its OWN Camelot from audio (madmom/A1F) and mixes by that — NOT our curated metadata.** So the harmonic order we curate (P20) can be overridden, and "smooth by our Camelot" becomes "POOR by the mixer's detection." Curated chain ≠ mixer chain until these are aligned. **Top quality issue.** → **ИСПРАВЛЕНО P54**: микшер берёт курированный Camelot primary (`CAMELOTS`/`resolve_camelot`), detect_key — fallback.
 - **prescreen on ALL candidates = mass downloads** (a 206-seed run pulled ~200 MP3s, ~2 h). Run prescreen on a SHORTLIST; cap `build_seedlist` expansion. Don't probe hundreds.
 - **prescreen BPM stored as 0/falsy** in one run → report showed a flat 126 for everyone. Probe BPM must be validated before trusting.
 - **seed_discover track names = YouTube video titles** (messy), not clean artist/track. Names need cleanup before the report.

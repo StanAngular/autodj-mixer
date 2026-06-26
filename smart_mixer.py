@@ -211,6 +211,14 @@ def camelot_code(key_str):
     """Convert key string to Camelot code (e.g. 'D maj' → '10B')."""
     return CAMELOT.get(key_str, '?')
 
+
+def resolve_camelot(curated, detected):
+    """Курированный Camelot (из курации/треклиста) — PRIMARY; detect_key из аудио — fallback.
+    Так гармоническая цепочка курации совпадает с тем, что реально сводит микшер. Чистая.
+    Курированное значение валидно, если непустое и не '?'."""
+    c = (curated or '').strip()
+    return c if c and c != '?' else detected
+
 def key_compat(k1, k2):
     """Camelot compatibility score: 1.0 (same), 0.9 (adjacent), 0.8 (relative), 0.3 (bad)."""
     c1 = camelot_code(k1)
@@ -1453,7 +1461,7 @@ def build_cf_lr4(m_cf, s_cf, m_bpm, s_bpm, m_db, s_db, mode, cf_bars=16, sr=SR, 
 def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                style=None, author=None,
                use_quiet_exit=False, stabilizer=True, transitions_dir=None,
-               cf_bars='auto', analysis_mode='a1f'):
+               cf_bars='auto', analysis_mode='a1f', camelots=None):
     """
     Main entry point. Mix a list of tracks into a continuous DJ mix.
 
@@ -1517,8 +1525,11 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         t_key = time.time()
         mono = audio.mean(1) if audio.ndim == 2 else audio
         key = detect_key(mono, sr)
-        cam = camelot_code(key)
-        print(f"    Key: {key:8s}  Camelot: {cam}  (in {time.time()-t_key:.1f}s)")
+        detected_cam = camelot_code(key)
+        curated_cam = (camelots or {}).get(wav_file, '')
+        cam = resolve_camelot(curated_cam, detected_cam)   # curated primary, detect fallback
+        src = 'curated' if cam == (curated_cam or '').strip() and curated_cam.strip() not in ('', '?') else 'detected'
+        print(f"    Key: {key:8s}  Camelot: {cam} [{src}]  (detect={detected_cam}, in {time.time()-t_key:.1f}s)")
 
         # ── A1F Track Data (load BEFORE section analysis) ────────────
         CATALOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -2259,4 +2270,5 @@ if __name__ == "__main__":
                style=args.style, author=args.author,
                use_quiet_exit=args.use_quiet_exit, stabilizer=not args.no_stabilizer,
                transitions_dir=args.transitions_dir, cf_bars=args.cf_bars,
-               analysis_mode=args.analysis_mode)
+               analysis_mode=args.analysis_mode,
+               camelots=getattr(cfg, 'CAMELOTS', {}) if args.config else {})

@@ -116,3 +116,17 @@ class TestPruneByAvailable:
         ns = {}
         exec(compile(src, "<gen>", "exec"), ns)
         assert len(ns["TRACKS"]) == 1
+
+
+class TestCamelotsCarry:
+    def test_camelots_keyed_by_wav(self):
+        import curation_bridge as cb
+        cands = [{"youtube_url": "https://youtu.be/abcdefghijk", "camelot": "8A", "artist": "A", "track": "x", "bpm": 128}]
+        entries = cb.mix_config_entries(cands)
+        cams = cb.mix_config_camelots(cands, entries)
+        assert cams == {"abcdefghijk.wav": "8A"}
+    def test_camelots_in_rendered_config(self):
+        import curation_bridge as cb
+        cands = [{"youtube_url": "https://youtu.be/abcdefghijk", "camelot": "8A", "artist": "A", "track": "x", "bpm": 128}]
+        cfg = cb.render_mix_config(cands, "shared/tracks", "shared/ann")
+        assert "CAMELOTS = {'abcdefghijk.wav': '8A'}" in cfg

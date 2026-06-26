@@ -110,7 +110,23 @@ def render_mix_config(candidates: list[dict], wav_dir: str, ann_dir: str,
     for label, wav, txt in entries:
         lines.append(f'    ({label!r}, {wav!r}, {txt!r}),')
     lines.append("]")
+    # CAMELOTS: курированный Camelot на каждый wav → микшер берёт его primary (detect_key fallback),
+    # чтобы реальное сведение совпадало с гармонической цепочкой курации.
+    cams = mix_config_camelots(candidates, entries)
+    lines.append("")
+    lines.append(f"CAMELOTS = {cams!r}")
     return "\n".join(lines) + "\n"
+
+
+def mix_config_camelots(candidates: list[dict], entries: list[tuple]) -> dict:
+    """wav → курированный Camelot для треков, реально попавших в TRACKS. Чистая."""
+    by_wav = {}
+    for c in candidates:
+        vid = extract_video_id(c.get("youtube_url", ""))
+        cam = (c.get("camelot") or "").strip()
+        if vid and cam:
+            by_wav[f"{vid}.wav"] = cam
+    return {wav: by_wav[wav] for _, wav, _ in entries if wav in by_wav}
 
 
 def recommend_analysis(candidates: list[dict]) -> dict:
