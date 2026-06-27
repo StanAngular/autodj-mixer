@@ -222,7 +222,7 @@ def _main():
     print(f"  python3 batch_annotate.py            # madmom даунбиты → {args.ann_dir}")
     if rec["a1f"]:
         import a1f
-        a1f_cmd = " ".join(a1f.a1f_command("<wav>", args.ann_dir, fast=True))
+        a1f_cmd = " ".join(a1f.a1f_command("<wav>", args.ann_dir))
         print(f"  # A1F рекомендован (режим {rec['a1f_mode']}). Пример вызова на трек:")
         print(f"  {a1f_cmd}")
         print(f"  # {rec['note']}")

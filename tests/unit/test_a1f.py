@@ -17,18 +17,30 @@ class TestA1fPython:
 
 
 class TestA1fCommand:
-    def test_fast_has_skip_separation(self, monkeypatch):
+    def test_no_stems_runs_demucs_keeps(self, monkeypatch, tmp_path):
         monkeypatch.setenv("A1F_PYTHON", "/py")
-        cmd = a1f.a1f_command("song.wav", "/out", fast=True)
+        cmd = a1f.a1f_command("song.wav", "/out", demix_dir=str(tmp_path))
         assert cmd[:5] == ["/py", "-m", "allin1fix.cli", "song.wav", "-o"]
-        assert "--skip-separation" in cmd
+        assert "-k" in cmd and "--demix-dir" in cmd          # сохраняем стемы
+        assert "--skip-separation" not in cmd                # стемов нет → demucs RUN
         assert "--overwrite" in cmd
 
-    def test_full_no_skip_separation(self, monkeypatch):
+    def test_stems_present_skips_separation(self, monkeypatch, tmp_path):
         monkeypatch.setenv("A1F_PYTHON", "/py")
-        cmd = a1f.a1f_command("song.wav", "/out", fast=False)
-        assert "--skip-separation" not in cmd     # полный Demucs
+        st = tmp_path / "htdemucs" / "song"
+        st.mkdir(parents=True)
+        for s in ("bass", "drums", "other", "vocals"):
+            (st / f"{s}.wav").write_text("")
+        cmd = a1f.a1f_command("song.wav", "/out", demix_dir=str(tmp_path))
+        assert "--skip-separation" in cmd                    # стемы есть → reuse
 
-    def test_no_overwrite(self, monkeypatch):
+    def test_overwrite_false(self, monkeypatch, tmp_path):
         monkeypatch.setenv("A1F_PYTHON", "/py")
-        assert "--overwrite" not in a1f.a1f_command("s.wav", "/o", overwrite=False)
+        assert "--overwrite" not in a1f.a1f_command("s.wav", "/o", demix_dir=str(tmp_path), overwrite=False)
+
+    def test_stems_ready_detection(self, tmp_path):
+        assert a1f.stems_ready("song.wav", str(tmp_path)) is False
+        st = tmp_path / "htdemucs" / "song"; st.mkdir(parents=True)
+        for s in ("bass", "drums", "other", "vocals"):
+            (st / f"{s}.wav").write_text("")
+        assert a1f.stems_ready("song.wav", str(tmp_path)) is True

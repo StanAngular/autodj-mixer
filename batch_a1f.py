@@ -14,12 +14,12 @@ batch_annotate: считаем ЗАРАНЕЕ, ПО ОДНОМУ треку, к�
   • Фон     — запускать через `nohup … &`, чтобы не рвалось при обрыве сессии.
   • Деградация — что не посчиталось, для того микс сам возьмёт no_a1f (не падает).
 
-ПОЛНОТА vs СКОРОСТЬ (--depth):
-  • full (дефолт) — с Demucs: + ВОКАЛ-ИНТЕРВАЛЫ. Собираем максимум, т.к. кэш переиспользуется
-                    в других миксах (и под будущий real-time). Медленнее.
-  • fast          — та самая «быстрая галочка» (--skip-separation): beats/downbeats/segments,
-                    БЕЗ вокала. 5-10× быстрее. (activations/embeddings -a/-e — огромные и нигде
-                    не используются, поэтому не собираем; флаг можно добавить, если понадобится.)
+СТЕМЫ И СКОРОСТЬ (важно): модель A1F работает на 4 demucs-стемах — «fast без стемов» НЕ
+существует by design (прежний --skip-separation без стемов и был багом, см. a1f.py). Реальный
+ускоритель — КЭШ стемов: первый прогон трека считает demucs и СОХРАНЯЕТ стемы в --demix-dir,
+последующие прогоны (этот микс или будущие) их ПЕРЕИСПОЛЬЗУЮТ (--skip-separation, быстро).
+A1F всегда собирает полный набор (вокал-интервалы тоже) — стемы для этого уже есть. Команду
+строит a1f.a1f_command (он сам решает demucs-run vs reuse по наличию стемов).
 
 ТОЧЕЧНОСТЬ (--mode auto): не гнать тяжёлый A1F на все треки. По дешёвым первичным признакам
   (длительность + регулярность madmom-даунбитов) решаем по-треково: короткий/нерегулярный →
@@ -27,7 +27,7 @@ batch_annotate: считаем ЗАРАНЕЕ, ПО ОДНОМУ треку, к�
   пул-уровневой curation_bridge.recommend_analysis (та решает «нужен ли A1F всему миксу»).
 
 Usage:
-  python3 batch_a1f.py <wav_dir> [a1f_dir] [--mode auto|all] [--depth full|fast] [--ann-dir D] [--timeout 600]
+  python3 batch_a1f.py <wav_dir> [a1f_dir] [--mode auto|all] [--demix-dir D] [--ann-dir D] [--timeout 600]
   # a1f_dir по умолчанию = <wav_dir>/a1f_results (откуда микс читает и catalog_register забирает)
   # --mode auto (дефолт): A1F точечно (короткие/сложные); --ann-dir даёт madmom для оценки
   # потом: микс с --a1f-dir <a1f_dir> → catalog_register уложит A1F в каталог к остальному
@@ -95,11 +95,12 @@ def pending(wav_dir: str, a1f_dir: str) -> list[str]:
             if not os.path.exists(os.path.join(a1f_dir, os.path.splitext(w)[0] + ".json"))]
 
 
-def run_one(wav: str, wav_dir: str, a1f_dir: str, timeout: int, full: bool) -> bool:
-    """Посчитать A1F для одного трека (свой таймаут, ошибки не пробрасываются). True если ок."""
+def run_one(wav: str, wav_dir: str, a1f_dir: str, timeout: int, demix_dir: str) -> bool:
+    """Посчитать A1F для одного трека (свой таймаут, ошибки не пробрасываются). True если ок.
+    a1f_command сам решает: demucs-run+сохранить стемы ИЛИ reuse (--skip-separation)."""
     path = os.path.join(wav_dir, wav)
     out_json = os.path.join(a1f_dir, os.path.splitext(wav)[0] + ".json")
-    cmd = a1f_command(path, a1f_dir, fast=not full)
+    cmd = a1f_command(path, a1f_dir, demix_dir=demix_dir)
     t0 = time.time()
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -122,21 +123,22 @@ def main():
                          "для микса и catalog_register)")
     ap.add_argument("--mode", choices=["auto", "all"], default="auto",
                     help="auto: A1F точечно (короткие/нерегулярные; остальным madmom достаточно); all: всем")
-    ap.add_argument("--depth", choices=["full", "fast"], default="full",
-                    help="full(дефолт): +вокал Demucs, собираем ВСЁ для переиспользования; "
-                         "fast: --skip-separation, без вокала, 5-10× быстрее")
+    ap.add_argument("--demix-dir", default=None,
+                    help="кэш demucs-стемов; дефолт <wav_dir>/demix. Первый прогон считает и "
+                         "сохраняет стемы, следующие — переиспользуют (быстро)")
     ap.add_argument("--ann-dir", default=None, help="madmom-аннотации (.txt) для рекомендации в auto")
     ap.add_argument("--timeout", type=int, default=600, help="секунд на ОДИН трек (дефолт 600; full тяжелее)")
     args = ap.parse_args()
 
     a1f_dir = args.a1f_dir or os.path.join(args.wav_dir, "a1f_results")
+    demix_dir = args.demix_dir or os.path.join(args.wav_dir, "demix")
     os.makedirs(a1f_dir, exist_ok=True)
+    os.makedirs(demix_dir, exist_ok=True)
     total = len([f for f in os.listdir(args.wav_dir) if f.endswith(".wav")])
     todo = pending(args.wav_dir, a1f_dir)
     print(f"A1F batch: всего {total}, к расчёту {len(todo)}, уже готово {total - len(todo)}",
           flush=True)
 
-    full = (args.depth == "full")
     ok, fail, skipped = 0, [], []
     for i, wav in enumerate(todo, 1):
         if args.mode == "auto":
@@ -146,10 +148,11 @@ def main():
                 skipped.append(wav)
                 print(f"[{i}/{len(todo)}] {wav} — пропуск A1F ({why}; микс возьмёт madmom/no_a1f)", flush=True)
                 continue
-            print(f"[{i}/{len(todo)}] {wav} — A1F нужен: {why} [{args.depth}] …", flush=True)
+            tag = "reuse-stems" if __import__("a1f").stems_ready(os.path.join(args.wav_dir, wav), demix_dir) else "demucs"
+            print(f"[{i}/{len(todo)}] {wav} — A1F нужен: {why} [{tag}] …", flush=True)
         else:
-            print(f"[{i}/{len(todo)}] {wav} [{args.depth}] …", flush=True)
-        if run_one(wav, args.wav_dir, a1f_dir, args.timeout, full):
+            print(f"[{i}/{len(todo)}] {wav} …", flush=True)
+        if run_one(wav, args.wav_dir, a1f_dir, args.timeout, demix_dir):
             ok += 1
         else:
             fail.append(wav)

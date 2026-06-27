@@ -5,11 +5,14 @@ import a1f, batch_a1f
 
 
 class TestA1FCommand:
-    def test_fast_has_skip_separation(self):
-        cmd = a1f.a1f_command("/x/t.wav", "/out", fast=True)
-        assert "--skip-separation" in cmd and "/x/t.wav" in cmd and "/out" in cmd
-    def test_full_no_skip(self):
-        assert "--skip-separation" not in a1f.a1f_command("/x/t.wav", "/out", fast=False)
+    def test_no_stems_no_skip(self, tmp_path):
+        cmd = a1f.a1f_command("/x/t.wav", "/out", demix_dir=str(tmp_path))
+        assert "/x/t.wav" in cmd and "/out" in cmd and "-k" in cmd
+        assert "--skip-separation" not in cmd            # стемов нет → demucs
+    def test_stems_present_skip(self, tmp_path):
+        st = tmp_path / "htdemucs" / "t"; st.mkdir(parents=True)
+        for s in ("bass", "drums", "other", "vocals"): (st / f"{s}.wav").write_text("")
+        assert "--skip-separation" in a1f.a1f_command("/x/t.wav", "/out", demix_dir=str(tmp_path))
 
 
 class TestResume:

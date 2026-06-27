@@ -685,9 +685,9 @@ def run_a1f_analysis(wav_path, cache_dir, timeout=600):
 
     os.makedirs(cache_dir, exist_ok=True)
     try:
+        demix_dir = os.path.join(os.path.dirname(cache_dir.rstrip('/')) or '.', 'demix')
         r = subprocess.run(
-            [a1f_venv, '-m', 'allin1fix.cli', wav_path,
-             '-o', cache_dir, '--overwrite', '--skip-separation'],
+            a1f.a1f_command(wav_path, cache_dir, demix_dir=demix_dir),
             capture_output=True, text=True, timeout=timeout
         )
         if r.returncode == 0 and os.path.exists(out_path):
@@ -1549,12 +1549,10 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                 a1f_venv = a1f.a1f_python()
                 if os.path.exists(a1f_venv):
                     wav_abs = os.path.join(wav_dir, wav_file)
-                    cmd = [a1f_venv, '-m', 'allin1fix.cli', wav_abs,
-                           '-o', CATALOG_DIR, '--overwrite']
-                    if analysis_mode == 'a1f_fast':
-                        cmd.append('--skip-separation')
+                    demix_dir = os.path.join(os.path.dirname(CATALOG_DIR), 'demix')
+                    cmd = a1f.a1f_command(wav_abs, CATALOG_DIR, demix_dir=demix_dir)
                     subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    print(f"    ↳ A1F analysis launched in background [{analysis_mode}] (results on next run)")
+                    print(f"    ↳ A1F launched in background (stems reuse if cached, results next run)")
 
             if a1f_data:
                 has_a1f_data = True
@@ -1640,11 +1638,10 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
                 a1f_venv = a1f.a1f_python()
                 if os.path.exists(a1f_venv):
                     wav_abs = os.path.join(wav_dir, wav_file)
-                    cmd = [a1f_venv, '-m', 'allin1fix.cli', wav_abs,
-                           '-o', CATALOG_DIR, '--overwrite']
-                    # No --skip-separation — full Demucs for vocal precision
+                    demix_dir = os.path.join(os.path.dirname(CATALOG_DIR), 'demix')
+                    cmd = a1f.a1f_command(wav_abs, CATALOG_DIR, demix_dir=demix_dir)
                     subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    print(f"    ↳ Full A1F analysis launched in background (results on next run)")
+                    print(f"    ↳ Full A1F launched in background (results on next run)")
                 else:
                     print(f"    ⚠ A1F venv not found, cannot upgrade analysis")
             elif a1f_data is not None:
