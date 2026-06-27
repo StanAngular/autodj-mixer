@@ -507,6 +507,29 @@ def section_at_bar(secs, bar):
     return 'ACTIVE'
 
 
+# A1F-метки, музыкально удачные для выхода/входа (HARMONIX vocab)
+A1F_EXIT_LABELS = ('outro', 'break', 'inst')   # уходить хорошо на outro/break/инструментале
+A1F_ENTRY_LABELS = ('intro', 'inst')           # входить хорошо на intro/инструментале
+
+
+def a1f_snap_bar(bar, bar_labels, prefer, window=4):
+    """Примагнитить бар к ближайшей НАЧАЛЬНОЙ границе A1F-сегмента с меткой из prefer в окне
+    ±window. Индексы — в ПОЛНОЙ сетке трека (как bar_labels). Энергия остаётся якорем: если
+    подходящей границы в окне нет — возвращаем bar как есть. Чистая функция.
+    → (snapped_bar, label) при попадании, иначе (bar, None)."""
+    if not bar_labels or bar is None:
+        return bar, None
+    n = len(bar_labels)
+    best, best_d = None, window + 1
+    for i in range(max(0, bar - window), min(n, bar + window + 1)):
+        starts = (i == 0) or (bar_labels[i - 1] != bar_labels[i])   # начало сегмента
+        if bar_labels[i] in prefer and starts:
+            d = abs(i - bar)
+            if d < best_d:
+                best, best_d = i, d
+    return (best, bar_labels[best]) if best is not None else (bar, None)
+
+
 def snap_bar(bar, grid=4):
     """Snap bar index to nearest multiple of grid (phrase boundary)."""
     return round(bar / grid) * grid
@@ -1606,6 +1629,22 @@ def mix_tracks(tracks, wav_dir, ann_dir, output_mp3, bitrate="320k", sr=SR,
         # Find first BUILD section bar for soft entry
         fa = next((s for s, e, l in st if l in ('ACTIVE', 'DROP')), 0)
         se = next((s for s, e, l in st if l == 'BUILD'), fa)
+        # ── A1F structural refinement: примагнитить выход/вход к функциональной границе ──
+        #    Энергия — якорь; bounded ±4 бара; off при no_a1f. Перевод обрезанной сетки в
+        #    полную через смещение eb. Live-сверка: a1f vs no_a1f.
+        last_t = len(dbt) - 1
+        if has_a1f_data and a1f_bar_labels:
+            if qe is not None:
+                qs, qlab = a1f_snap_bar(qe + eb, a1f_bar_labels, A1F_EXIT_LABELS)
+                qs -= eb
+                if qlab and 0 <= qs <= last_t and qs != qe:
+                    print(f"    ↳ A1F exit snap: bar{qe}→bar{qs} ({qlab})")
+                    qe = qs
+            ss, slab = a1f_snap_bar(se + eb, a1f_bar_labels, A1F_ENTRY_LABELS)
+            ss -= eb
+            if slab and 0 <= ss <= last_t and ss != se:
+                print(f"    ↳ A1F entry snap: bar{se}→bar{ss} ({slab})")
+                se = ss
         dur = len(at) / sr
         print(f"    Trimmed: {int(dur // 60)}:{int(dur % 60):02d}  bars {eb}-{xb}")
         print(f"    quiet_exit={'bar' + str(qe) if qe is not None else 'none'}  "

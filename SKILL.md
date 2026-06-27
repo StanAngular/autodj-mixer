@@ -224,3 +224,5 @@ For "one track per country", "French organic house", underground, new releases:
 4. Common tail (bridge → run_pipeline → catalog → cleanup).
 
 Reliable last.fm for this: `getTopTracks(artist)` (concrete tracks), `getSimilar` (expand), `tag.getTopArtists` (genre). Avoid leaning on `geo.*` for "from country".
+
+- **A1F структура → вход/выход (P57)**: микшер примагничивает энергетическую точку выхода к ближайшему `outro/break/inst` и входа к `intro/inst` (`a1f_snap_bar`), bounded ±4 бара — энергия остаётся якорем, off при `no_a1f`. Перевод обрезанной сетки в полную через смещение `eb`. Лог: `A1F exit snap: bar12→bar14 (outro)`. **Требует live-сверки** (аудио в песочнице не прогнать): сравнить микс `a1f` vs `no_a1f`, если переход хуже — это локально и обратимо. Vocal-aware бленды — следующий шаг.
