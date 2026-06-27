@@ -2,7 +2,8 @@
 """
 AutoDJ Pipeline v1 — один вызов для полного цикла:
   1. Pre-flight check (аннотации, A1F, формат)
-  2. Mix (no_a1f default, a1f если готово)
+  1.5 A1F precompute (мастер по умолчанию: точечно на нужных треках, после скачки)
+  2. Mix (читает готовый A1F; что не посчитано — no_a1f для трека)
   3. Upload to catbox
   4. Transitions preview
   5. Article (DJ AI001 format)
@@ -116,6 +117,27 @@ def fix_annotations(wav_dir, ann_dir, sr=44100):
         print(f"    [{i+1}/{len(to_fix)}] {base}: {n_dbs} dbs ({time.time()-t0:.1f}s)", flush=True)
 
 
+def a1f_precompute_cmd(wav_dir, ann_dir, a1f_dir, demix_dir=None, timeout=600):
+    """Команда точечного A1F-предрасчёта (batch_a1f, --mode auto). Чистая (только сборка).
+    Селективно: recommend_track_a1f сам решает, каким трекам A1F нужен."""
+    cmd = [sys.executable, "batch_a1f.py", wav_dir, a1f_dir,
+           "--mode", "auto", "--ann-dir", ann_dir, "--timeout", str(timeout)]
+    if demix_dir:
+        cmd += ["--demix-dir", demix_dir]
+    return cmd
+
+
+def precompute_a1f(wav_dir, ann_dir, a1f_dir, demix_dir=None, timeout=600):
+    """Мастер-поток: ДО микса точечно досчитать A1F на нужных треках (короткие/нерегулярные/
+    вокальные — остальным madmom достаточно). Пишет в a1f_dir, откуда микс читает. Не падает:
+    что не посчиталось — микс возьмёт no_a1f для того трека."""
+    os.makedirs(a1f_dir, exist_ok=True)
+    try:
+        subprocess.run(a1f_precompute_cmd(wav_dir, ann_dir, a1f_dir, demix_dir, timeout))
+    except Exception as e:
+        print(f"  ⚠ A1F precompute пропущен: {e}")
+
+
 def run_mix(wav_dir, ann_dir, config, output, style="AutoDJ Mix", author="DJ AGENT 01",
             analysis_mode="no_a1f", bitrate="320k", cf_bars="auto"):
     """Run smart_mixer.py with given params."""
@@ -176,6 +198,9 @@ def main():
     parser.add_argument("--author", default="DJ AGENT 01")
     parser.add_argument("--analysis-mode", default="a1f_fast", choices=["a1f", "a1f_fast", "no_a1f"])
     parser.add_argument("--a1f-dir", default=None)
+    parser.add_argument("--no-a1f-precompute", action="store_true",
+                        help="не досчитывать A1F точечно перед миксом (по умолчанию мастер досчитывает)")
+    parser.add_argument("--a1f-timeout", type=int, default=600, help="секунд на один трек при A1F-предрасчёте")
     parser.add_argument("--skip-upload", action="store_true")
     parser.add_argument("--skip-preview", action="store_true")
     parser.add_argument("--upload-only", action="store_true")
@@ -204,6 +229,13 @@ def main():
                 print("  ❌ Cannot fix automatically. Abort.")
                 sys.exit(1)
     
+    # Step 1.5: A1F precompute (master default) — точечно, после скачки, до микса.
+    # Включён по умолчанию когда режим не no_a1f; --no-a1f-precompute отключает.
+    if args.analysis_mode != "no_a1f" and not args.no_a1f_precompute:
+        a1f_dir = args.a1f_dir or os.path.join(args.wav_dir, "a1f_results")
+        print("\n🧠 A1F precompute (точечно: короткие/нерегулярные/вокальные)...")
+        precompute_a1f(args.wav_dir, args.ann_dir, a1f_dir, timeout=args.a1f_timeout)
+
     # Step 2: Mix
     mix_num = 0
     outname = ''

@@ -89,6 +89,8 @@ run_pipeline.py --wav-dir shared/tracks --ann-dir shared/ann --config mix_config
                 --analysis-mode a1f_fast|no_a1f          (does mix + report + preview + upload)
 
 - **A1F длинных миксов**: `batch_a1f.py <wav_dir> [a1f_dir]` — A1F ПАЧКОЙ по одному треку (свой таймаут/резюм/скип) в `a1f_results` (оттуда микс читает и catalog_register кладёт в каталог). В фоне (`nohup … &`) ДО микса; затем микс с `--a1f-dir`. Стемы demucs обязательны (модель на них работает) — «fast без стемов» НЕ существует (прежний `--skip-separation` без стемов и был багом). Ускоритель — КЭШ стемов: `--demix-dir` (дефолт `<wav_dir>/demix`), первый прогон считает+сохраняет, следующие переиспользуют (`--skip-separation` корректно). `--mode auto`(дефолт): A1F ТОЧЕЧНО — короткие/нерегулярные треки (длительность + CV madmom-даунбитов, `--ann-dir`), регулярным madmom достаточно; по-трековое дополнение к пул-уровневой curation_bridge.recommend_analysis. Что не посчиталось — микс берёт no_a1f, не падает.
+
+- **A1F в мастере (авто)**: `run_pipeline` по умолчанию ДО микса точечно досчитывает A1F (`a1f_precompute_cmd`→`batch_a1f --mode auto`): только короткие/нерегулярные/вокальные треки, остальным madmom достаточно. Решение — ПОСЛЕ скачки (по аудио: длительность + CV madmom), это точнее метадаты. Пишет в `a1f_results` (микс читает оттуда). `--no-a1f-precompute` отключает; при `--analysis-mode no_a1f` шаг пропускается. Стемы кэшируются (P55) → повторные миксы быстрые.
 catalog_register.py NAME_cand.json --a1f-dir shared/a1f_results
 cleanup_wavs.py --tracks-dir shared/tracks [--apply]      (after delivery)
 ```
@@ -155,10 +157,11 @@ Dry-run by default (prints the exact plan). Add `--run` to execute foreground: f
 
 A1F (`all-in-one-fix`, env `A1F_PYTHON`; see `docs/a1f-setup.md`) gives beats/downbeats/**segments**. Segments = **where to place transitions**. madmom alone gives beats but NO section boundaries, so **without A1F the mixer places transitions blind** (wrong spots). For anything beyond trivial, A1F structure is needed for good placement.
 
-- **fast** (`--skip-separation`): CPU, no Demucs — beats/downbeats/segments. Default.
-- **full** (Demucs): only for vocal_intervals; heavy.
+Модель harmonix работает на 4 demucs-стемах — анализ всегда ПОЛНЫЙ (beats/downbeats/segments + vocal_intervals); «fast без стемов» НЕ существует. Разница не в данных, а в вычислено-vs-кэшировано:
+- **первый прогон трека**: demucs считает стемы (медленно), `-k --demix-dir` их сохраняет.
+- **последующие**: `--skip-separation` переиспользует кэш (быстро), те же данные.
 
-⚠ **KNOWN BREAKAGE (open):** `--skip-separation` still tries to read `demix/htdemucs/*/bass.wav` and crashes on missing stems; faking empty stub stems yields silence → `BPM=None, beats=0`. Do **not** fake stems. Until A1F fast is fixed on the server, structure is unreliable — this is a maintainer patch, not an agent workaround.
+✅ **ИСПРАВЛЕНО P55:** прежний `--skip-separation` без стемов падал на `bass.wav` — это была НАША ошибка вызова (флаг значит «бери готовые стемы», а не «без стемов»). Теперь `a1f.a1f_command` сам делает demucs-run+сохранение, а `--skip-separation` добавляет только когда стемы реально готовы. Стемы не подделывать.
 
 ---
 
