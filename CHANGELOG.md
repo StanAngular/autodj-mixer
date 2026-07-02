@@ -13,6 +13,22 @@
 - `[infra]` — структура репозитория, пути, permissions, gitignore
 - `[analysis]` — аннотация треков (madmom, A1F, batch_a1f)
 
+## 2026-07-02 [Hermes] [discovery] SoundCloud-фоллбэк в seed_discover (треки только на SC) [P59]
+
+- **`seed_discover()`** — новый параметр `soundcloud=True`: если на YouTube уверенного совпадения нет, фоллбэк на `scsearch` (SoundCloud через yt-dlp). Покрывает треки, которые есть ТОЛЬКО на SC и ни в каких чартах. `soundcloud=False` отключает
+- **`_ytdlp_search()`** — рефакторинг: единая функция для ytsearch/scsearch (было дублирование subprocess.run)
+- **`parse_ytdlp_search(platform=...)`** — параметр `platform="youtube"|"soundcloud"`. Для SC: url из `e.get("url")` (без youtu.be-фоллбэка); записи без url → пропуск. Поле `"platform"` в кандидате
+- **Логирование** — в выводе `seed_discover` пишется платформа (YouTube/SoundCloud) и фоллбэк-статус
+- **SKILL.md** — добавлен § «Discovery: YouTube + SoundCloud (P59)»
+- **Тесты:** `test_seed_discover.py` — 4 новых: parse SC entry, SC без url (скип), YT-фоллбэк url, SC-fallback при пустом YT
+- Коммит: `9b56559`
+
+## 2026-07-02 [Hermes] [discovery] Discovery-fallback — любой агент через web_search (не скрейп с VPS), Фаза 1→--tracklist [P58]
+
+- **SKILL.md** — добавлен § «Discovery fallback (когда источников не хватило)»: при < target (мало кандидатов) — триггер запустить `skills/music_tracklist_builder.md` Фазу 1 (веб-ресёрч: 3-5 запросов → артист+трек+BPM+тональность → 30-40 кандидатов → фильтр). Делает любой агент через свой `web_search`-инструмент (API-канал), а НЕ сырой скрейп с VPS (curl/Playwright — Cloudflare/CAPTCHA)
+- **`skills/music_tracklist_builder.md`** — версия 2.1, блок «СОВРЕМЕННАЯ ИНТЕГРАЦИЯ»: Фаза 1-2 → `--tracklist` JSON → `orchestrate --tracklist` (мета едет с сидами, YouTube только за аудио; заменяет ручной `yt_download`/`smart_mixer --yt-urls`)
+- Коммит: `210fd23`
+
 ## 2026-06-27 [Hermes] [analysis] batch_a1f — батч-раннер A1F по одному треку (резюм/скип/изоляция), чтобы микс не падал по таймауту [P53]
 
 - **`batch_a1f.py`** — новый файл: A1F пачкой по трекам, каждый со своим таймаутом, кэшем и резюмом
