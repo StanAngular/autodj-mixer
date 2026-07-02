@@ -33,3 +33,36 @@ class TestRemixSeeking:
         best = sd.pick_best(cands, "Lana Del Rey", "Video Games",
                             require_identity=False, require_remix=True)
         assert best is not None and sd.is_remix(best["track"])   # выбран ремикс, не оригинал
+
+
+class TestSoundCloudDiscovery:
+    def test_parse_soundcloud_entry(self):
+        data = {"entries": [{"id": "12345", "title": "Deep Cut", "uploader": "Obscure Artist",
+                             "url": "https://soundcloud.com/obscure/deep-cut", "view_count": 500}]}
+        cands = sd.parse_ytdlp_search(data, seed_artist="Obscure Artist", platform="soundcloud")
+        assert len(cands) == 1
+        assert cands[0]["youtube_url"] == "https://soundcloud.com/obscure/deep-cut"
+        assert cands[0]["platform"] == "soundcloud"
+        assert cands[0]["camelot_source"] == "pending_local"   # BPM/Camelot из аудио
+
+    def test_soundcloud_entry_without_url_skipped(self):
+        data = {"entries": [{"id": "x", "title": "T"}]}      # нет url → нечего качать
+        assert sd.parse_ytdlp_search(data, platform="soundcloud") == []
+
+    def test_youtube_keeps_fallback_url(self):
+        data = {"entries": [{"id": "abc123", "title": "T", "uploader": "A"}]}  # без url
+        cands = sd.parse_ytdlp_search(data, platform="youtube")
+        assert cands[0]["youtube_url"] == "https://youtu.be/abc123"            # YT-фоллбэк цел
+        assert cands[0]["platform"] == "youtube"
+
+    def test_sc_fallback_when_youtube_empty(self, monkeypatch):
+        # YouTube пусто → SoundCloud находит
+        def fake_search(query, per, prefix, sa, country, platform="youtube"):
+            if prefix == "scsearch":
+                return [{"artist": sa, "track": "Deep Cut", "video_id": "1", "views": 100,
+                         "youtube_url": "https://soundcloud.com/a/deep-cut", "platform": "soundcloud"}]
+            return []
+        monkeypatch.setattr(sd, "_ytdlp_search", fake_search)
+        monkeypatch.setattr(sd, "pick_best", lambda c, *a, **k: c[0] if c else None)
+        out = sd.seed_discover(["Obscure Artist - Deep Cut"], verify=False)
+        assert len(out) == 1 and out[0]["platform"] == "soundcloud"

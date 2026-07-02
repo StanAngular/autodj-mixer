@@ -169,9 +169,10 @@ def is_remix(title: str) -> bool:
     return any(m in t for m in _REMIX_MARKERS)
 
 
-def parse_ytdlp_search(data: dict, seed_artist: str = "", country: str = "") -> list[dict]:
+def parse_ytdlp_search(data: dict, seed_artist: str = "", country: str = "",
+                       platform: str = "youtube") -> list[dict]:
     """
-    yt-dlp -J (dict с 'entries') → кандидаты Path B. Чистая.
+    yt-dlp -J (dict с 'entries') → кандидаты Path B. Чистая. platform: youtube|soundcloud.
     Camelot пуст (camelot_source='pending_local') — посчитается локально после скачивания.
     """
     out = []
@@ -181,11 +182,16 @@ def parse_ytdlp_search(data: dict, seed_artist: str = "", country: str = "") -> 
         vid = e.get("id", "")
         if not vid:
             continue
+        # URL для скачки: для SoundCloud берём реальный url (без youtu.be-фоллбэка)
+        url = e.get("url") or e.get("webpage_url") or (f"https://youtu.be/{vid}" if platform == "youtube" else "")
+        if not url:
+            continue                              # SC-запись без url — качать нечего
         out.append({
             "artist":         seed_artist or e.get("uploader", ""),
             "track":          e.get("title", ""),
             "video_id":       vid,
-            "youtube_url":    e.get("url") or e.get("webpage_url") or f"https://youtu.be/{vid}",
+            "youtube_url":    url,                # канонический audio-url (yt-dlp качает и SC)
+            "platform":       platform,
             "duration":       e.get("duration"),
             "views":          e.get("view_count"),
             "country":        country,
@@ -197,15 +203,35 @@ def parse_ytdlp_search(data: dict, seed_artist: str = "", country: str = "") -> 
     return out
 
 
+def _ytdlp_search(query: str, per: int, prefix: str, sa: str, country: str,
+                  platform: str = "youtube") -> list[dict]:
+    """Один yt-dlp поиск (ytsearch|scsearch) → распарсенные кандидаты. Тонкий I/O.
+    Ошибки/пусто → []."""
+    try:
+        res = subprocess.run(
+            ["yt-dlp", f"{prefix}{per}:{query}", "-J", "--flat-playlist", "--no-warnings"],
+            capture_output=True, text=True, timeout=60)
+        if res.returncode != 0 or not res.stdout.strip():
+            return []
+        return parse_ytdlp_search(json.loads(res.stdout), seed_artist=sa,
+                                  country=country, platform=platform)
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+        return []
+
+
 def seed_discover(seeds: list[str], styles: list[str] | None = None,
                   per_artist: int = 5, countries: dict | None = None,
                   verify: bool = True, verify_style: str = "",
-                  seed_meta: dict | None = None, remix: bool = False) -> list[dict]:
+                  seed_meta: dict | None = None, remix: bool = False,
+                  soundcloud: bool = True) -> list[dict]:
     """
-    Найти кандидатов по сидам через yt-dlp ytsearch, на каждый сид выбрать ЛУЧШИЙ
-    уверенный (личность + просмотры − мусор). Тонкий I/O.
+    Найти кандидатов по сидам через yt-dlp, на каждый сид выбрать ЛУЧШИЙ уверенный
+    (личность + просмотры − мусор). Тонкий I/O.
       verify        — требовать совпадение личности (иначе сид пропускается);
-      verify_style  — опц.: перепроверить стиль артиста по тегам last.fm перед выбором.
+      verify_style  — опц.: перепроверить стиль артиста по тегам last.fm перед выбором;
+      soundcloud    — если на YouTube уверенного совпадения нет, искать на SoundCloud
+                      (треки бывают ТОЛЬКО на SC и ни в каких чартах). BPM/Camelot всё
+                      равно посчитаются из аудио после скачки.
     countries: {seed: 'FR'} — страна трека (для констрейнта уникальности).
     """
     queries = build_seed_queries(seeds, styles, remix=remix)
@@ -225,26 +251,26 @@ def seed_discover(seeds: list[str], styles: list[str] | None = None,
             except Exception:
                 pass                              # last.fm недоступен — не блокируем
 
-        try:
-            res = subprocess.run(
-                ["yt-dlp", f"ytsearch{per_artist}:{query}", "-J",
-                 "--flat-playlist", "--no-warnings"],
-                capture_output=True, text=True, timeout=60)
-            if res.returncode != 0 or not res.stdout.strip():
-                print(f"  ⚠ ничего по сиду: {seed}")
-                continue
-            data = json.loads(res.stdout)
-            cands = parse_ytdlp_search(data, seed_artist=sa, country=countries.get(seed, ""))
-            best = pick_best(cands, sa, st_, require_identity=verify,
+        country = countries.get(seed, "")
+        cands = _ytdlp_search(query, per_artist, "ytsearch", sa, country)
+        best = pick_best(cands, sa, st_, require_identity=verify,
+                         require_remix=remix, prefer_remix=remix)
+        src = "YouTube"
+        # SoundCloud-фоллбэк: трек может быть только на SC / не в чартах
+        if best is None and soundcloud:
+            sc = _ytdlp_search(query, per_artist, "scsearch", sa, country, platform="soundcloud")
+            best = pick_best(sc, sa, st_, require_identity=verify,
                              require_remix=remix, prefer_remix=remix)
             if best:
-                merge_seed_meta(best, seed_meta.get(seed, {}))   # приклеить мету (Beatport)
-                found.append(best)
-                print(f"  ✓ {seed}: лучший из {len(cands)} (views {best.get('views') or '?'})")
-            else:
-                print(f"  ⚠ {seed}: уверенного совпадения нет из {len(cands)} — пропуск")
-        except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
-            print(f"  ⚠ сид {seed}: {type(e).__name__}")
+                src, cands = "SoundCloud", sc
+
+        if best:
+            merge_seed_meta(best, seed_meta.get(seed, {}))   # приклеить мету (Beatport)
+            found.append(best)
+            print(f"  ✓ {seed}: лучший из {len(cands)} на {src} (views {best.get('views') or '?'})")
+        else:
+            print(f"  ⚠ {seed}: уверенного совпадения нет (YouTube"
+                  + ("+SoundCloud" if soundcloud else "") + ") — пропуск")
     return found
 
 
