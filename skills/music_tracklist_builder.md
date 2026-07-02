@@ -1,6 +1,6 @@
 # SKILL: music_tracklist_builder
 
-**Версия:** 2.0  
+**Версия:** 2.1 (Фаза 3 → --tracklist/orchestrate; Фаза 1 = discovery-fallback при < target)  
 **Назначение:** Поиск треков → треклист → скачка → микс для autodj-mixer  
 **Совместимость:** ClaudeClaw, Hermes Agent (оба агента)
 
@@ -78,6 +78,20 @@
 ---
 
 ## Фаза 3 — Скачивание
+
+### ⚡ СОВРЕМЕННАЯ ИНТЕГРАЦИЯ (используй ЭТО): Фаза 1-2 → `--tracklist` → orchestrate
+
+Выход ресёрча (Фазы 1-2) — НЕ ручная скачка, а файл `--tracklist`:
+```bash
+# 1) треклист как JSON [{artist,track,bpm,camelot,year}] (camelot можно посчитать из key)
+#    кладём, напр., deep_tech_2026.json
+# 2) превью кандидатов (сколько с готовым Camelot)
+python3 tracklist_source.py --tracklist deep_tech_2026.json --out /tmp/tl.json
+# 3) полный поток: discover(YouTube)→resolve→prescreen→download→annotate→A1F-precompute→mix
+python3 orchestrate.py --tracklist deep_tech_2026.json --style "<genre>" --analysis-mode a1f
+```
+Мета (BPM/Camelot) **едет с сидами** (P52, `seed_meta`) → resolve/prescreen НЕ лезут на Beatport (Cloudflare не нужен); YouTube — только за аудио. Это заменяет ручной `yt_download`/`source_check`/`track_analyzer`/`smart_mixer --yt-urls` ниже (тот блок — LEGACY).
+
 
 ### Warp/Cloudflare прокси (антиблокировка)
 
@@ -181,7 +195,7 @@ SoundCloud лучше для андеграунд/техно треков.
 
 **Red flags:** длительность < 2:30, BPM > 180 или < 80, неизвестный артист без лейбла, плохое качество
 
-### Полный пайплайн (со Strict Gates)
+### Полный пайплайн (со Strict Gates) — ⚠️ LEGACY (см. СОВРЕМЕННАЯ ИНТЕГРАЦИЯ выше)
 
 ```bash
 # Gate 0: проверка исходников
