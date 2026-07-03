@@ -134,3 +134,17 @@ class TestTracklistInput:
     def test_tracklist_still_resolves_and_mixes(self):
         st = [s for s, _ in orch.build_plan("x", tracklist="/tmp/tl.txt")]
         assert "resolve" in st                     # дыры без меты добьёт каскад/local_enrich
+
+
+class TestDoctor:
+    def test_checks_structure(self):
+        import orchestrate as o
+        checks = o.doctor_checks()
+        assert len(checks) >= 8
+        for name, ok, hint in checks:
+            assert isinstance(name, str) and isinstance(ok, bool) and isinstance(hint, str)
+    def test_critical_tools_present_in_checks(self):
+        import orchestrate as o
+        names = [c[0] for c in o.doctor_checks()]
+        assert "yt-dlp" in names and "ffmpeg" in names and "A1F venv" in names
+        assert "env DISCOGS_TOKEN" in names        # Фаза 1 канал виден заранее
