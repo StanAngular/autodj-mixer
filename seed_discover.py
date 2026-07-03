@@ -130,7 +130,7 @@ def merge_seed_meta(cand: dict, meta: dict) -> dict:
     if not meta:
         return cand
     for k in ("camelot", "key", "bpm", "mix_name", "label", "year",
-              "source_url", "support_score", "source_type"):
+              "source_url", "support_score", "source_type", "styles"):
         v = meta.get(k)
         if v not in (None, "", 0):
             cand[k] = v

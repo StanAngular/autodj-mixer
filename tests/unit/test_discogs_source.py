@@ -78,3 +78,40 @@ class TestSeedsWithMeta:
         tracks = [{"artist": "A", "track": "T", "year": 2026}] * 2
         seeds, _ = dg.tracks_to_seeds_with_meta(tracks)
         assert len(seeds) == 1
+
+
+class TestEntityVerification:
+    def test_verify_style_defaults_to_search_style(self, monkeypatch):
+        # Carly-кейс: релиз Disco, но артист pop → seed_discover получает verify_style='Disco'
+        captured = {}
+        import seed_discover as sd
+        def fake_discover(seeds, per_artist=5, verify=True, verify_style="", seed_meta=None, **kw):
+            captured["verify_style"] = verify_style
+            return []
+        monkeypatch.setattr(sd, "seed_discover", fake_discover)
+        monkeypatch.setattr(dg, "search_releases", lambda *a, **k: [{"release_id": 1}])
+        monkeypatch.setattr(dg, "fetch_release_tracks",
+                            lambda rid: [{"artist": "A", "track": "T", "year": 2026}])
+        dg.discogs_candidates("Disco", 2025, 2026, target=1)
+        assert captured["verify_style"] == "Disco"
+
+    def test_verify_style_can_be_disabled(self, monkeypatch):
+        captured = {}
+        import seed_discover as sd
+        def fake_discover(seeds, per_artist=5, verify=True, verify_style="", seed_meta=None, **kw):
+            captured["verify_style"] = verify_style
+            return []
+        monkeypatch.setattr(sd, "seed_discover", fake_discover)
+        monkeypatch.setattr(dg, "search_releases", lambda *a, **k: [{"release_id": 1}])
+        monkeypatch.setattr(dg, "fetch_release_tracks",
+                            lambda rid: [{"artist": "A", "track": "T", "year": 2026}])
+        dg.discogs_candidates("Disco", 2025, 2026, target=1, verify_style="")
+        assert captured["verify_style"] == ""
+
+
+class TestStylesTravel:
+    def test_merge_seed_meta_carries_styles(self):
+        import seed_discover as sd
+        cand = {"track": "Found On YT", "youtube_url": "u"}
+        out = sd.merge_seed_meta(cand, {"styles": ["Deep House"], "year": 2026, "source_type": "discogs"})
+        assert out["styles"] == ["Deep House"] and out["year"] == 2026

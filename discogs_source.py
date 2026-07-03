@@ -147,9 +147,14 @@ def fetch_release_tracks(release_id: int) -> list[dict]:
 
 
 def discogs_candidates(style: str, year_lo: int, year_hi: int, target: int = 16,
-                       country: str = "", per: int = 5, verify: bool = True) -> list[dict]:
+                       country: str = "", per: int = 5, verify: bool = True,
+                       verify_style: str | None = None) -> list[dict]:
     """style+годы → релизы → АДАПТЕР → треки → сиды с метой → seed_discover (YT→SC).
-    Останавливается, когда сидов хватает (~2×target на отсев discover'ом)."""
+    Останавливается, когда сидов хватает (~2×target на отсев discover'ом).
+    verify_style (Фаза 1в, дефолт = сам style): ВЕРИФИКАЦИЯ СУЩНОСТИ артиста по last.fm-тегам
+    — Discogs-стиль вешается на РЕЛИЗ, и в «Disco» попадает мейнстрим-поп (кейс Carly Rae
+    Jepsen); теги артиста отсекают не-сценовых. ""/None при LASTFM_API_KEY отсутствии — мягко
+    пропускается (seed_discover не блокирует без ключа)."""
     import seed_discover as sd
     all_tracks: list[dict] = []
     for year in range(year_hi, year_lo - 1, -1):       # свежие сперва
@@ -163,9 +168,11 @@ def discogs_candidates(style: str, year_lo: int, year_hi: int, target: int = 16,
         if len(all_tracks) >= 2 * target:
             break
     seeds, meta = tracks_to_seeds_with_meta(all_tracks, year_lo, year_hi)
+    vs = style if verify_style is None else verify_style
     print(f"  Discogs: {len(all_tracks)} треков из релизов → {len(seeds)} сидов "
-          f"({year_lo}-{year_hi}, style={style!r})")
-    return sd.seed_discover(seeds[: 2 * target], per_artist=per, verify=verify, seed_meta=meta)
+          f"({year_lo}-{year_hi}, style={style!r}, verify_style={vs!r})")
+    return sd.seed_discover(seeds[: 2 * target], per_artist=per, verify=verify,
+                            verify_style=vs, seed_meta=meta)
 
 
 def _main():
@@ -178,13 +185,16 @@ def _main():
     ap.add_argument("--country", default="")
     ap.add_argument("--per", type=int, default=5)
     ap.add_argument("--no-verify", action="store_true")
+    ap.add_argument("--verify-style", default=None,
+                    help="last.fm-верификация СУЩНОСТИ артиста (дефолт: сам --style; '' — выключить)")
     ap.add_argument("--out", default="discogs_candidates.json")
     args = ap.parse_args()
     if not _token():
         print("Нет DISCOGS_TOKEN в env (.env). discogs.com → Settings → Developers → token")
         sys.exit(2)
     cands = discogs_candidates(args.style, args.year_min, args.year_max, args.target,
-                               args.country, args.per, verify=not args.no_verify)
+                               args.country, args.per, verify=not args.no_verify,
+                               verify_style=args.verify_style)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(cands, f, ensure_ascii=False, indent=2)
     print(f"Discogs: {len(cands)} кандидатов → {args.out}")
