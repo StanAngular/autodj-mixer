@@ -7,7 +7,9 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-# Mock heavy audio deps so unit tests run without a full audio stack
+# Mock heavy audio deps ONLY when truly missing, so unit tests run without a full
+# audio stack — but use the REAL packages when installed (M1: физ-тесты DSP-ядра
+# должны гонять настоящий scipy/pyloudnorm, а не MagicMock).
 _HEAVY = [
     "soundfile", "pyrubberband", "librosa", "pyloudnorm",
     "scipy", "scipy.signal", "madmom",
@@ -15,8 +17,12 @@ _HEAVY = [
     "madmom.audio", "madmom.audio.signal",
 ]
 for _m in _HEAVY:
-    if _m not in sys.modules:
-        sys.modules[_m] = MagicMock()
+    if _m in sys.modules:
+        continue
+    try:
+        __import__(_m)                       # реальный пакет есть — используем его
+    except Exception:
+        sys.modules[_m] = MagicMock()        # нет — мок, чтобы чистая логика тестировалась
 
 # Make project root importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
