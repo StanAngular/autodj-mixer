@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
 """
-club_rework.py — M4: pop→club rework. Из поп-трека собирается КЛУБНАЯ версия:
-DJ-структура (длинное луп-интро → тело → луп-аутро) + клубный грув (drums попсы
-приглушаются, подкладывается drums-стем клубного донора) + клубный темп.
+club_rework.py — M4 v2: pop→club rework КАК ДЕЛАЮТ РЕМИКСЕРЫ, а не сумматор.
+v1 честно провалил прослушку («два трека параллельно») — v2 строит СЕКЦИОННУЮ
+клубную аранжировку по A1F обоих треков:
+
+  groove-интро → verse (разреженно) → build (sweep+lift) → DROP = ПРИПЕВ попсы →
+  breakdown (вокал без ударных) → build → DROP 2 = припев ПОВТОРНО (хук — главный
+  актив) → groove-аутро (fade)
+
+DJ-принципы, зашитые в рендер:
+  • частотные РОЛИ, не гейны: низ принадлежит клубному груву (вся попса под HPF
+    ~150Гц, поп-drums выброшены совсем); в breakdown попсе возвращается тело;
+  • sidechain: кик-доли продавливают вокал/other (duck по четвертям);
+  • лупы донора подбираются ПО ЕГО A1F: для дропа — из пиковой части, для
+    интро — из разреженной (v1 брал «середину», попадая в 3-минутное интро Exhale);
+  • приёмы на стыках: filter-sweep в build, drum-lift перед дропом, fade в аутро.
 
 Опирается на уже построенное:
   • структура попсы: A1F bar_labels (intro/verse/chorus/…): smart_mixer.load_a1f_track_data
@@ -159,6 +171,167 @@ def _stretch(x: np.ndarray, sr: int, rate: float) -> np.ndarray:
     return pyrb.time_stretch(x, sr, rate).astype("float32")
 
 
+# ─── v2: DSP-кирпичи ремиксера (чистые numpy) ────────────────────────────────
+
+def _sos_filter(x: np.ndarray, sr: int, fc: float, btype: str) -> np.ndarray:
+    import scipy.signal as signal
+    sos = signal.butter(4, fc / (sr / 2), btype=btype, output="sos")
+    out = np.empty_like(x)
+    for ch in range(x.shape[1]):
+        out[:, ch] = signal.sosfilt(sos, x[:, ch]).astype(np.float32)
+    return out
+
+
+def hpf(x, sr, fc):
+    """High-pass: срезать низ (частотная РОЛЬ: низ отдан клубному груву)."""
+    return _sos_filter(x, sr, fc, "high")
+
+
+def lpf(x, sr, fc):
+    return _sos_filter(x, sr, fc, "low")
+
+
+def sidechain_duck(x: np.ndarray, sr: int, quarter: int, depth_db: float = -5.0,
+                   release_ms: float = 110.0) -> np.ndarray:
+    """Кик продавливает слой: на каждой четверти гейн падает до depth и экспоненциально
+    восстанавливается (классический pumping). quarter — интервал доли в сэмплах."""
+    if quarter <= 0 or len(x) == 0:
+        return x
+    depth = 10 ** (depth_db / 20.0)
+    rel = max(1, int(sr * release_ms / 1000))
+    env = np.ones(len(x), dtype="float32")
+    t = np.arange(rel, dtype="float32")
+    curve = depth + (1.0 - depth) * (1.0 - np.exp(-4.0 * t / rel))
+    for pos in range(0, len(x), quarter):
+        seg = min(rel, len(x) - pos)
+        env[pos:pos + seg] = np.minimum(env[pos:pos + seg], curve[:seg])
+    return x * env[:, None]
+
+
+def hpf_sweep(x: np.ndarray, sr: int, fc_from: float, fc_to: float, blocks: int = 8) -> np.ndarray:
+    """Filter-sweep для build: cutoff растёт ступенями по блокам (дёшево и музыкально)."""
+    if len(x) == 0 or blocks < 1:
+        return x
+    out = np.empty_like(x)
+    step = max(1, len(x) // blocks)
+    for i in range(blocks):
+        a, b = i * step, (len(x) if i == blocks - 1 else (i + 1) * step)
+        fc = fc_from + (fc_to - fc_from) * (i / max(1, blocks - 1))
+        out[a:b] = _sos_filter(x[a:b], sr, fc, "high")
+    return out
+
+
+def fade_gain(x: np.ndarray, g_from: float, g_to: float) -> np.ndarray:
+    """Линейная гейн-рампа (fade аутро)."""
+    if len(x) == 0:
+        return x
+    return x * np.linspace(g_from, g_to, len(x), dtype="float32")[:, None]
+
+
+# ─── v2: выбор лупов донора по ЕГО A1F ───────────────────────────────────────
+
+def pick_donor_loop_bars(d_labels: list[str], kind: str, loop_len: int = 8) -> tuple[int, int]:
+    """Бары лупа донора по его меткам. 'peak' — из энергетической части (chorus/drop/inst
+    после интро), 'sparse' — из интро/разреженного начала. Чистая; фоллбэк — середина."""
+    n = len(d_labels or [])
+    if n == 0:
+        return (0, loop_len)
+    blocks = _blocks(d_labels)
+    if kind == "sparse":
+        got = _pick_loop(blocks, ("intro", "start", "verse"), loop_len)
+        if got:
+            return got
+        return (0, min(loop_len, n))
+    # peak: первый содержательный блок ПОСЛЕ интро
+    for s, e, l in blocks:
+        if l in ("chorus", "solo", "inst", "break", "verse") and s >= max(4, n // 10):
+            return (s, min(e, s + loop_len))
+    mid = max(0, n // 2 - loop_len // 2)
+    return (mid, min(n, mid + loop_len))
+
+
+# ─── v2: секционная аранжировка ─────────────────────────────────────────────
+
+def club_arrangement(bar_labels: list[str], intro_bars: int = 16, build_bars: int = 8,
+                     outro_bars: int = 16) -> list[dict]:
+    """Клубная арка из A1F-структуры попсы. Чистая. Секция:
+      {kind, pop: (s,e)|None, bars, groove: 'peak'|'sparse'|None}
+    Хук (chorus) играет ДВАЖДЫ (drop1/drop2) — главный актив попсы."""
+    blocks = _blocks(bar_labels or [])
+    verses = [(s, e) for s, e, l in blocks if l == "verse"]
+    chors = [(s, e) for s, e, l in blocks if l == "chorus"]
+    breaks = [(s, e) for s, e, l in blocks if l in ("bridge", "inst", "break")]
+    n = len(bar_labels or [])
+    if not chors:                                        # структуры нет — честный фоллбэк
+        chors = [(0, n)] if n else [(0, 8)]
+    hook = max(chors, key=lambda p: p[1] - p[0])         # самый длинный припев = хук
+    verse1 = verses[0] if verses else None
+    brk = breaks[0] if breaks else (verses[1] if len(verses) > 1 else None)
+
+    arr: list[dict] = [
+        dict(kind="intro", pop=None, bars=intro_bars, groove="sparse"),
+    ]
+    if verse1:
+        arr.append(dict(kind="verse", pop=verse1, bars=verse1[1] - verse1[0], groove="peak"))
+    arr.append(dict(kind="build", pop=None, bars=build_bars, groove="peak"))
+    arr.append(dict(kind="drop", pop=hook, bars=hook[1] - hook[0], groove="peak"))
+    if brk:
+        arr.append(dict(kind="breakdown", pop=brk, bars=brk[1] - brk[0], groove=None))
+        arr.append(dict(kind="build", pop=None, bars=build_bars, groove="peak"))
+        arr.append(dict(kind="drop", pop=hook, bars=hook[1] - hook[0], groove="peak"))
+    arr.append(dict(kind="outro", pop=None, bars=outro_bars, groove="peak"))
+    return arr
+
+
+HPF_POP = 150.0          # частотная роль: низ у клубного грува
+DUCK_DB = -5.0
+
+
+def _slice_bars(audio: np.ndarray, db: np.ndarray, s: int, e: int) -> np.ndarray:
+    last = len(db) - 1
+    s, e = max(0, min(s, last)), max(1, min(e, last))
+    return audio[int(db[s]):int(db[e])] if e > s else audio[:0]
+
+
+def render_section(sec: dict, pop: dict, db: np.ndarray, groove_loops: dict,
+                   sr: int, bar_len: int, quarter: int) -> np.ndarray:
+    """Секция → аудио по DJ-ролям. pop = {'vocals','other','bass'} (drums попсы ВЫБРОШЕНЫ)."""
+    total = sec["bars"] * bar_len
+    layers: list[np.ndarray] = []
+
+    if sec["groove"]:
+        g = tile_to_length(groove_loops[sec["groove"]], total, sr)
+        if sec["kind"] == "build":
+            g = g.copy()
+            lift = min(bar_len, total)                   # drum-lift: последний бар без ударных
+            g[-lift:] = 0.0
+        if sec["kind"] == "outro":
+            g = fade_gain(g, 1.0, 0.15)
+        layers.append(g)
+
+    if sec["pop"] is not None:
+        s, e = sec["pop"]
+        voc = _slice_bars(pop["vocals"], db, s, e)[:total]
+        oth = _slice_bars(pop["other"], db, s, e)[:total]
+        bas = _slice_bars(pop["bass"], db, s, e)[:total]
+        if sec["kind"] == "breakdown":                   # попсе возвращают тело, грува нет
+            mix_pop = voc + oth + bas * 0.8
+        else:                                            # частотные роли: низ не её
+            mix_pop = hpf(voc + oth, sr, HPF_POP)
+            if sec["groove"]:
+                mix_pop = sidechain_duck(mix_pop, sr, quarter, DUCK_DB)
+        pad = total - len(mix_pop)
+        if pad > 0:
+            mix_pop = np.concatenate([mix_pop, np.zeros((pad, mix_pop.shape[1]), dtype=mix_pop.dtype)])
+        layers.append(mix_pop)
+
+    if sec["kind"] == "build" and layers:                # sweep на всём билде
+        layers = [hpf_sweep(sum(layers), sr, 120, 700, blocks=max(2, sec["bars"] // 1))]
+
+    out = sum(layers) if layers else np.zeros((total, 2), dtype="float32")
+    return out[:total]
+
+
 # ─── Сборка (I/O) ────────────────────────────────────────────────────────────
 
 def _load_track(wav, demix_dir, ann_dir, sr):
@@ -175,6 +348,8 @@ def _load_track(wav, demix_dir, ann_dir, sr):
 def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
                 intro_bars=16, outro_bars=16, pop_drums_db=-12.0, club_drums_db=0.0,
                 force=False, out="club_edit.wav"):
+    """v2: секционная аранжировка (см. докстринг модуля). pop_drums_db сохранён в
+    сигнатуре для совместимости, но поп-drums в v2 ВЫБРОШЕНЫ (частотная роль грува)."""
     import soundfile as sf
     stems, db, pop_bpm, labels = _load_track(pop_wav, demix_dir, ann_dir, sr)
     d_stems, d_db, d_bpm, d_labels = _load_track(donor_wav, demix_dir, ann_dir, sr)
@@ -184,27 +359,31 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
     if not ok and not force:
         sys.exit(2)
 
-    plan = rework_plan(labels, intro_bars, outro_bars)
-    print(f"План: {plan} ({plan_length_bars(plan)} бар из {len(labels)})")
+    # попса: стретч стемов к клубному темпу один раз; сетка масштабируется тем же rate
+    pop = {k: _stretch(v, sr, rate) for k, v in stems.items() if k != "drums"}
+    db_s = (np.asarray(db, dtype="float64") / rate).astype("int64")
 
-    # поп-стемы: единый план → единая нарезка → стретч к клубному темпу
-    rendered = {k: _stretch(render_plan(v, db, plan, sr), sr, rate) for k, v in stems.items()}
-    total = min(len(v) for v in rendered.values())
+    # грув: 2 лупа донора по ЕГО A1F (peak для тела, sparse для интро), к target-темпу
+    d_rate = (tgt / d_bpm) if d_bpm else 1.0
+    loops = {}
+    for kind in ("peak", "sparse"):
+        ls, le = pick_donor_loop_bars(d_labels, kind)
+        raw = _slice_bars(d_stems["drums"], d_db, ls, le)
+        loops[kind] = _stretch(raw, sr, d_rate) if len(raw) else np.zeros((1, 2), "float32")
+    if not len(loops["sparse"]):
+        loops["sparse"] = loops["peak"]
 
-    # клубный грув: 8 бар drums донора из середины, к target, тайлом на всю длину
-    mid = max(0, (len(d_db) - 1) // 2 - 4)
-    loop = d_stems["drums"][int(d_db[mid]):int(d_db[min(mid + 8, len(d_db) - 1)])]
-    loop = _stretch(loop, sr, tgt / d_bpm if d_bpm else 1.0)
-    club_drums = tile_to_length(loop, total, sr)
+    bar_len = int(round(60.0 / tgt * 4 * sr))
+    quarter = max(1, bar_len // 4)
+    arr = club_arrangement(labels, intro_bars=intro_bars, outro_bars=outro_bars)
+    print("Аранжировка: " + " → ".join(f"{s['kind']}({s['bars']}b)" for s in arr))
 
-    g_pop, g_club = 10 ** (pop_drums_db / 20), 10 ** (club_drums_db / 20)
-    mix = (rendered["vocals"][:total] + rendered["bass"][:total] +
-           rendered["other"][:total] + rendered["drums"][:total] * g_pop +
-           club_drums * g_club)
-    mix = _limit(mix)
+    parts = [render_section(sec, pop, db_s, loops, sr, bar_len, quarter) for sec in arr]
+    mix = _limit(_xfade_concat(parts, sr, ms=25))
     sf.write(out, mix, sr)
-    print(f"Club edit: {out} ({total/sr:.1f}s @ {tgt:.0f} BPM; поп-drums {pop_drums_db}dB, "
-          f"клубный грув из {os.path.basename(donor_wav)})")
+    g_club = 10 ** (club_drums_db / 20)                  # noqa: сохранён для CLI-совместимости
+    print(f"Club edit v2: {out} ({len(mix)/sr:.1f}s @ {tgt:.0f} BPM; хук ×2, sidechain, "
+          f"HPF {HPF_POP:.0f}Гц, грув по A1F донора)")
     return out
 
 
