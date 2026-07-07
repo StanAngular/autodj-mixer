@@ -120,7 +120,7 @@ def pending(wav_dir: str, a1f_dir: str) -> list[str]:
             if not os.path.exists(os.path.join(a1f_dir, os.path.splitext(w)[0] + ".json"))]
 
 
-def run_one(wav: str, wav_dir: str, a1f_dir: str, timeout: int, demix_dir: str) -> bool:
+def run_one(wav: str, wav_dir: str, a1f_dir: str, timeout: int | None, demix_dir: str) -> bool:
     """Посчитать A1F для одного трека (свой таймаут, ошибки не пробрасываются). True если ок.
     a1f_command сам решает: demucs-run+сохранить стемы ИЛИ reuse (--skip-separation)."""
     path = os.path.join(wav_dir, wav)
@@ -152,8 +152,10 @@ def main():
                     help="кэш demucs-стемов; дефолт <wav_dir>/demix. Первый прогон считает и "
                          "сохраняет стемы, следующие — переиспользуют (быстро)")
     ap.add_argument("--ann-dir", default=None, help="madmom-аннотации (.txt) для рекомендации в auto")
-    ap.add_argument("--timeout", type=int, default=600, help="секунд на ОДИН трек (дефолт 600; full тяжелее)")
+    ap.add_argument("--timeout", type=int, default=0, help="секунд на ОДИН трек (0 = без таймаута, дефолт)")
     args = ap.parse_args()
+
+    timeout = args.timeout if args.timeout > 0 else None
 
     a1f_dir = args.a1f_dir or os.path.join(args.wav_dir, "a1f_results")
     demix_dir = args.demix_dir or os.path.join(args.wav_dir, "demix")
@@ -183,7 +185,7 @@ def main():
         write_progress(round((i - 0.5) / len(todo) * 100), len(todo), ok, len(fail), len(skipped),
                        wav, "processing")
         t0_track = time.time()
-        if run_one(wav, args.wav_dir, a1f_dir, args.timeout, demix_dir):
+        if run_one(wav, args.wav_dir, a1f_dir, timeout, demix_dir):
             ok += 1
             track_time = time.time() - t0_track
             remaining = len(todo) - i
