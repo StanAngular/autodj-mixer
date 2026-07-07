@@ -36,8 +36,33 @@ import argparse
 import os
 import subprocess
 import time
+import json
 
 from a1f import a1f_command
+
+
+# ── Прогресс-файл для внешнего watcher (прогресс-бар в телегу) ───────────────
+PROGRESS_FILE = "/tmp/a1f_progress.json"
+MILESTONES = [1, 5, 25, 50, 75, 100]
+
+
+def write_progress(pct: float, total: int, done: int, fail: int, skip: int,
+                   current: str, status: str, eta_s: int = 0):
+    """Записать прогресс в JSON для внешнего watcher (крон шлёт в телегу)."""
+    data = {
+        "total": total, "completed": done, "failed": fail, "skipped": skip,
+        "current": current, "status": status,
+        "progress_pct": round(pct),
+        "milestones": {},
+        "eta_sec": eta_s,
+    }
+    for m in MILESTONES:
+        data["milestones"][m] = pct >= m
+    try:
+        with open(PROGRESS_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
 
 # Пороги по-трековой рекомендации (прозрачны/настраиваемы, в духе curation_bridge)
 SHORT_TRACK_SEC = 300       # < 5 мин — короткий: тайтовые переходы, структура критична → A1F
@@ -140,6 +165,7 @@ def main():
           flush=True)
 
     ok, fail, skipped = 0, [], []
+    write_progress(0, len(todo), 0, 0, 0, "", "starting")
     for i, wav in enumerate(todo, 1):
         if args.mode == "auto":
             ann = os.path.join(args.ann_dir, os.path.splitext(wav)[0] + ".txt") if args.ann_dir else None
@@ -147,13 +173,23 @@ def main():
             if not rec:
                 skipped.append(wav)
                 print(f"[{i}/{len(todo)}] {wav} — пропуск A1F ({why}; микс возьмёт madmom/no_a1f)", flush=True)
+                write_progress(round(i / len(todo) * 100), len(todo), ok, len(fail), len(skipped),
+                               wav + " (skip)", "running")
                 continue
             tag = "reuse-stems" if __import__("a1f").stems_ready(os.path.join(args.wav_dir, wav), demix_dir) else "demucs"
             print(f"[{i}/{len(todo)}] {wav} — A1F нужен: {why} [{tag}] …", flush=True)
         else:
             print(f"[{i}/{len(todo)}] {wav} …", flush=True)
+        write_progress(round((i - 0.5) / len(todo) * 100), len(todo), ok, len(fail), len(skipped),
+                       wav, "processing")
+        t0_track = time.time()
         if run_one(wav, args.wav_dir, a1f_dir, args.timeout, demix_dir):
             ok += 1
+            track_time = time.time() - t0_track
+            remaining = len(todo) - i
+            eta_s = int(track_time * remaining) if remaining else 0
+            write_progress(round(i / len(todo) * 100), len(todo), ok, len(fail), len(skipped),
+                           "", "running", eta_s=eta_s)
         else:
             fail.append(wav)
 
@@ -162,6 +198,7 @@ def main():
     if fail:
         print("  не вышло (микс возьмёт no_a1f): " + ", ".join(fail), flush=True)
     print(f"Готово в {a1f_dir}. Микс: --a1f-dir {a1f_dir} → catalog_register уложит A1F в каталог.", flush=True)
+    write_progress(100, len(todo), ok, len(fail), len(skipped), "", "done")
 
 
 if __name__ == "__main__":
