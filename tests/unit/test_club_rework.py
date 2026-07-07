@@ -163,3 +163,59 @@ class TestRenderSection:
         sec = dict(kind="build", pop=None, bars=4, groove="peak")
         out = cr.render_section(sec, self._pop(bar=bar), db, loops, sr, bar, bar // 4)
         assert np.abs(out[-bar // 2:]).max() < 1e-6                     # drum-lift
+
+
+# ═══ P68: анализ попсы первым → спека донора; «чистый плюс» ═══
+
+class TestDonorSpec:
+    def test_bpm_range_intersects_club(self):
+        spec = cr.donor_spec(128)
+        lo, hi = spec["bpm_range"]
+        assert lo >= 120 and hi <= 130 and lo <= hi
+    def test_slow_pop_still_reaches_club(self):
+        spec = cr.donor_spec(104)                        # ×1.25 → до 130
+        assert spec["bpm_range"] == (120.0, 130.0)
+    def test_camelot_compatibles(self):
+        spec = cr.donor_spec(128, "8A")
+        assert set(spec["camelot_compatible"]) == {"8A", "9A", "7A", "8B"}
+    def test_wraparound(self):
+        spec = cr.donor_spec(128, "12B")
+        assert "1B" in spec["camelot_compatible"] and "11B" in spec["camelot_compatible"]
+
+
+class TestCheckDonor:
+    def test_vocal_donor_rejected(self):
+        checks = dict((n, ok) for n, ok, _ in cr.check_donor(128, "", 124, "", 0.08, 60))
+        assert checks["instrumental"] is False           # вокальный донор — мимо
+    def test_good_donor_all_green(self):
+        assert all(ok for _, ok, _ in cr.check_donor(128, "8A", 126, "9A", 0.001, 60))
+    def test_thin_structure_rejected(self):
+        checks = dict((n, ok) for n, ok, _ in cr.check_donor(128, "", 124, "", 0.001, 8))
+        assert checks["peak_structure"] is False
+
+
+class TestVocalDensity:
+    def test_density_by_section(self):
+        bar = 1000
+        db = np.arange(0, 9) * bar
+        voc = np.zeros((8 * bar, 2), dtype="float32")
+        voc[4 * bar:] = 0.5                              # вокал только во 2-й половине
+        dens = cr.vocal_density_by_section(voc, db, ["intro"] * 4 + ["chorus"] * 4)
+        assert dens["intro"][0] < 0.01 and dens["chorus"][0] > 0.3
+
+
+class TestPopLayers:
+    def _setup(self, bar):
+        db = np.arange(0, 65) * bar
+        voc = np.ones((64 * bar, 2), dtype="float32") * 0.2
+        oth = np.ones((64 * bar, 2), dtype="float32") * 0.4
+        pop = {"vocals": voc, "other": oth, "bass": np.zeros_like(voc)}
+        loops = {"peak": np.zeros((bar, 2), "float32"), "sparse": np.zeros((bar, 2), "float32")}
+        return pop, db, loops
+    def test_vocals_only_excludes_other(self):
+        sr, bar = 44100, 44100 // 4
+        pop, db, loops = self._setup(bar)
+        sec = dict(kind="drop", pop=(0, 4), bars=4, groove="peak")
+        full = cr.render_section(sec, pop, db, loops, sr, bar, bar // 4, pop_layers="full")
+        vonly = cr.render_section(sec, pop, db, loops, sr, bar, bar // 4, pop_layers="vocals")
+        assert np.abs(full).mean() > 1.5 * np.abs(vonly).mean()   # «чистый плюс» тише: other убран

@@ -294,8 +294,9 @@ def _slice_bars(audio: np.ndarray, db: np.ndarray, s: int, e: int) -> np.ndarray
 
 
 def render_section(sec: dict, pop: dict, db: np.ndarray, groove_loops: dict,
-                   sr: int, bar_len: int, quarter: int) -> np.ndarray:
-    """Секция → аудио по DJ-ролям. pop = {'vocals','other','bass'} (drums попсы ВЫБРОШЕНЫ)."""
+                   sr: int, bar_len: int, quarter: int, pop_layers: str = "full") -> np.ndarray:
+    """Секция → аудио по DJ-ролям. pop = {'vocals','other','bass'} (drums попсы ВЫБРОШЕНЫ).
+    pop_layers: 'full' (вокал+other) | 'vocals' («чистый плюс»: только вокал попсы)."""
     total = sec["bars"] * bar_len
     layers: list[np.ndarray] = []
 
@@ -315,9 +316,10 @@ def render_section(sec: dict, pop: dict, db: np.ndarray, groove_loops: dict,
         oth = _slice_bars(pop["other"], db, s, e)[:total]
         bas = _slice_bars(pop["bass"], db, s, e)[:total]
         if sec["kind"] == "breakdown":                   # попсе возвращают тело, грува нет
-            mix_pop = voc + oth + bas * 0.8
+            mix_pop = voc + (oth + bas * 0.8 if pop_layers == "full" else 0)
         else:                                            # частотные роли: низ не её
-            mix_pop = hpf(voc + oth, sr, HPF_POP)
+            src = voc if pop_layers == "vocals" else voc + oth
+            mix_pop = hpf(src, sr, HPF_POP)
             if sec["groove"]:
                 mix_pop = sidechain_duck(mix_pop, sr, quarter, DUCK_DB)
         pad = total - len(mix_pop)
@@ -347,7 +349,7 @@ def _load_track(wav, demix_dir, ann_dir, sr):
 
 def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
                 intro_bars=16, outro_bars=16, pop_drums_db=-12.0, club_drums_db=0.0,
-                force=False, out="club_edit.wav"):
+                force=False, out="club_edit.wav", pop_layers="full", donor_bass=False):
     """v2: секционная аранжировка (см. докстринг модуля). pop_drums_db сохранён в
     сигнатуре для совместимости, но поп-drums в v2 ВЫБРОШЕНЫ (частотная роль грува)."""
     import soundfile as sf
@@ -369,6 +371,8 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
     for kind in ("peak", "sparse"):
         ls, le = pick_donor_loop_bars(d_labels, kind)
         raw = _slice_bars(d_stems["drums"], d_db, ls, le)
+        if donor_bass:                                   # бас донора в груве (нужна Camelot-совместимость!)
+            raw = raw + _slice_bars(d_stems["bass"], d_db, ls, le)[:len(raw)]
         loops[kind] = _stretch(raw, sr, d_rate) if len(raw) else np.zeros((1, 2), "float32")
     if not len(loops["sparse"]):
         loops["sparse"] = loops["peak"]
@@ -378,7 +382,8 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
     arr = club_arrangement(labels, intro_bars=intro_bars, outro_bars=outro_bars)
     print("Аранжировка: " + " → ".join(f"{s['kind']}({s['bars']}b)" for s in arr))
 
-    parts = [render_section(sec, pop, db_s, loops, sr, bar_len, quarter) for sec in arr]
+    parts = [render_section(sec, pop, db_s, loops, sr, bar_len, quarter, pop_layers)
+             for sec in arr]
     mix = _limit(_xfade_concat(parts, sr, ms=25))
     sf.write(out, mix, sr)
     g_club = 10 ** (club_drums_db / 20)                  # noqa: сохранён для CLI-совместимости
@@ -387,10 +392,112 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
     return out
 
 
+
+# ─── P68: анализ попсы → спека донора (порядок правильный: сначала попса) ────
+
+CLUB_BPM_RANGE = (120.0, 130.0)      # типовой клубный диапазон (house/tech)
+DONOR_VOCAL_RMS_MAX = 0.02           # донор должен быть инструментальным
+MIN_PEAK_BARS = 16                   # у донора должна быть содержательная часть
+
+
+def vocal_density_by_section(vocals: np.ndarray, db: np.ndarray,
+                             labels: list[str]) -> dict:
+    """RMS вокал-стема по A1F-секциям попсы: где вокал реально живёт. Чистая."""
+    out = {}
+    for st, en, lab in _blocks(labels or []):
+        seg = _slice_bars(vocals, db, st, en)
+        rms = float(np.sqrt((seg.astype("float64") ** 2).mean())) if len(seg) else 0.0
+        out.setdefault(lab, []).append(round(rms, 4))
+    return out
+
+
+def donor_spec(pop_bpm: float, pop_camelot: str = "") -> dict:
+    """Спека клубного донора ИЗ анализа попсы (а не наоборот, как в v1/v2, где донор
+    диктовал target BPM). Чистая.
+      bpm_range: клубные BPM, достижимые из pop_bpm в гейте стретча [0.85..1.25];
+      camelot: совместимые коды (нужны, если брать БАС донора — drums атональны);
+      instrumental: вокал донора обязан молчать (два вокала подерутся);
+      structure: peak-часть ≥ MIN_PEAK_BARS."""
+    lo = max(CLUB_BPM_RANGE[0], pop_bpm * STRETCH_LO)
+    hi = min(CLUB_BPM_RANGE[1], pop_bpm * STRETCH_HI)
+    cams = []
+    if pop_camelot:
+        pc = _parse_cam_cr(pop_camelot)
+        if pc:
+            num, mode = pc
+            cams = [f"{num}{mode}", f"{(num % 12) + 1}{mode}",
+                    f"{(num - 2) % 12 + 1}{mode}", f"{num}{'B' if mode == 'A' else 'A'}"]
+    return {
+        "bpm_range": (round(lo, 1), round(hi, 1)) if lo <= hi else None,
+        "camelot_compatible": cams,
+        "instrumental_required": True,
+        "min_peak_bars": MIN_PEAK_BARS,
+        "style_hint": "melodic/vocal house" if pop_bpm < 118 else "tech/deep house",
+    }
+
+
+def _parse_cam_cr(cam: str):
+    cam = (cam or "").strip().upper()
+    if len(cam) < 2 or cam[-1] not in ("A", "B"):
+        return None
+    try:
+        num = int(cam[:-1])
+    except ValueError:
+        return None
+    return (num, cam[-1]) if 1 <= num <= 12 else None
+
+
+def check_donor(pop_bpm: float, pop_camelot: str, d_bpm: float, d_camelot: str,
+                d_vocal_rms: float, d_peak_bars: int) -> list[tuple[str, bool, str]]:
+    """Вердикты по конкретному кандидату-донору против спеки. Чистая."""
+    spec = donor_spec(pop_bpm, pop_camelot)
+    checks = []
+    if spec["bpm_range"]:
+        lo, hi = spec["bpm_range"]
+        ok = lo <= d_bpm <= hi
+        checks.append(("bpm", ok, f"{d_bpm:.0f} vs рекомендованный [{lo}..{hi}]"))
+    inst_ok = d_vocal_rms < DONOR_VOCAL_RMS_MAX
+    checks.append(("instrumental", inst_ok,
+                   f"vocal RMS {d_vocal_rms:.4f} (< {DONOR_VOCAL_RMS_MAX} = инструментал)"))
+    checks.append(("peak_structure", d_peak_bars >= MIN_PEAK_BARS,
+                   f"{d_peak_bars} бар содержательной части (нужно ≥{MIN_PEAK_BARS})"))
+    if spec["camelot_compatible"] and d_camelot:
+        ok = d_camelot.upper() in spec["camelot_compatible"]
+        checks.append(("camelot", ok,
+                       f"{d_camelot} vs {spec['camelot_compatible']} (важно для --donor-bass)"))
+    return checks
+
+
+def analyze_pop(pop_wav: str, demix_dir: str, sr: int = 44100) -> dict:
+    """Профиль попсы: BPM/структура/арка/вокал-карта + спека донора. I/O-тонкое."""
+    stems, db, bpm, labels = _load_track(pop_wav, demix_dir, None, sr)
+    camelot = ""
+    try:
+        from smart_mixer import detect_key, camelot_code
+        mono = (stems["vocals"] + stems["bass"] + stems["other"]).mean(1)
+        camelot = camelot_code(detect_key(mono.astype("float32"), sr))
+    except Exception:
+        pass                                          # librosa нет — Camelot опционален
+    arr = club_arrangement(labels)
+    return {
+        "bpm": bpm, "camelot": camelot, "bars": len(labels),
+        "structure": [(s, e, l) for s, e, l in _blocks(labels)],
+        "vocal_density": vocal_density_by_section(stems["vocals"], db, labels),
+        "arrangement": [(a["kind"], a["bars"], a["pop"]) for a in arr],
+        "donor_spec": donor_spec(bpm, camelot),
+    }
+
+
 def _main():
     ap = argparse.ArgumentParser(description="M4: pop→club rework (структура+грув+темп)")
     ap.add_argument("--pop", required=True, help="поп-трек WAV (нужны его A1F + стемы)")
-    ap.add_argument("--drums-donor", required=True, help="клубный трек WAV (его drums-стем = грув)")
+    ap.add_argument("--drums-donor", default="", help="клубный трек WAV (его drums-стем = грув)")
+    ap.add_argument("--analyze", action="store_true",
+                    help="ШАГ 1: только анализ попсы → профиль + спека донора (без рендера)")
+    ap.add_argument("--pop-layers", choices=["full", "vocals"], default="full",
+                    help="vocals = «чистый плюс»: из попсы только вокал (без её музыки)")
+    ap.add_argument("--donor-bass", action="store_true",
+                    help="взять и bass-стем донора (низ в дропе); требует Camelot-совместимости")
     ap.add_argument("--demix-dir", required=True)
     ap.add_argument("--ann-dir", default=None)
     ap.add_argument("--target-bpm", type=float, default=0, help="дефолт: BPM донора")
@@ -402,8 +509,26 @@ def _main():
     ap.add_argument("--sr", type=int, default=44100)
     ap.add_argument("--out", default="club_edit.wav")
     a = ap.parse_args()
+    if a.analyze:
+        import json as _json
+        prof = analyze_pop(a.pop, a.demix_dir, a.sr)
+        print(_json.dumps(prof, ensure_ascii=False, indent=2, default=str))
+        if a.drums_donor:                                # заодно проверить кандидата
+            d_st, d_db, d_bpm, d_lab = _load_track(a.drums_donor, a.demix_dir, a.ann_dir, a.sr)
+            v = d_st["vocals"]
+            d_rms = float(np.sqrt((v.astype("float64") ** 2).mean())) if len(v) else 0.0
+            ps, pe = pick_donor_loop_bars(d_lab, "peak")
+            peak_bars = sum(e - s for s, e, l in _blocks(d_lab)
+                            if l in ("chorus", "solo", "inst", "break") ) or (pe - ps)
+            print("\n=== check-donor ===")
+            for name, ok, why in check_donor(prof["bpm"], prof["camelot"], d_bpm, "", d_rms, peak_bars):
+                print(f"  {'✓' if ok else '✗'} {name}: {why}")
+        return
+    if not a.drums_donor:
+        ap.error("--drums-donor обязателен (или запусти --analyze для шага 1)")
     pop_to_club(a.pop, a.drums_donor, a.demix_dir, a.ann_dir, a.target_bpm, a.sr,
-                a.intro_bars, a.outro_bars, a.pop_drums_db, a.club_drums_db, a.force, a.out)
+                a.intro_bars, a.outro_bars, a.pop_drums_db, a.club_drums_db, a.force, a.out,
+                pop_layers=a.pop_layers, donor_bass=a.donor_bass)
 
 
 if __name__ == "__main__":
