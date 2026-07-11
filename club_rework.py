@@ -418,14 +418,19 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
     if phrases_text:                                     # P70: фразы, ЗАДАННЫЕ ТЕКСТОМ
         try:
             from vocal_phrases import transcribe_words, find_text_span
-            words = transcribe_words(pop["vocals"], sr, asr=asr)
+            # транскрибация ДО стретча (на исходном вокале)
+            words = transcribe_words(stems["vocals"], sr, asr=asr)
             if not words:
                 print("  ⚠ word-ASR пуст (нет GROQ_API_KEY/CLI?) — фразы по тексту недоступны")
             for i, q in enumerate(phrases_text):
                 hit = find_text_span(words, q)
                 if hit:
                     fs, fe, ratio, matched = hit
-                    seg = pop["vocals"][fs:fe]
+                    # пересчёт оригинальных сэмплов → стретч-позиции
+                    rate = tgt / pop_bpm
+                    fs_s = int(fs / rate)
+                    fe_s = int(fe / rate)
+                    seg = pop["vocals"][fs_s:fe_s]
                     print(f"Фраза[{i}] найдена ({ratio:.2f}): «{matched}» "
                           f"[{fs/sr:.1f}s–{fe/sr:.1f}s]")
                     if i == 0:

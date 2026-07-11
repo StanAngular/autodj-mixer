@@ -143,40 +143,85 @@ def find_hook(vocals: np.ndarray, sr: int, phrases: list[tuple[int, int]],
 def transcribe_words(vocals: np.ndarray, sr: int, asr: str = "groq") -> list[dict]:
     """Word-level распознавание ВСЕГО вокала → [{word, start, end}] (сэмплы, абсолютные).
     asr='groq' — Groq Whisper API (env GROQ_API_KEY, verbose_json + word timestamps,
-    тот же стек, что в ClaudeClaw); иначе asr = CLI-шаблон '{wav}', ожидающий JSON
-    [{word,start,end(сек)}] в stdout. Ошибки → [] (слова опциональны)."""
+    тот же стек, что в ClaudeClaw; даунсемпл до 16kHz моно + чанки по 90с если файл >20MB);
+    иначе asr = CLI-шаблон '{wav}', ожидающий JSON [{word,start,end(сек)}] в stdout.
+    Ошибки → [] (слова опциональны)."""
     try:
         import soundfile as sf
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            sf.write(f.name, vocals, sr)
-            path = f.name
+        # даунсемпл до 16kHz моно (Whisper не нужно стерео/высокий SR)
+        mono = vocals.mean(1).astype("float32") if vocals.ndim == 2 else vocals.astype("float32")
+        if sr != 16000:
+            import scipy.signal
+            ds = int(sr / 16000)
+            mono = scipy.signal.resample(mono, max(1, len(mono) // ds))
+            sr = 16000
+        dur = len(mono) / sr
+        max_chunk = 90.0                                   # 90с × 16kHz × 2byte ≈ 2.88MB, безопасно
+        orig_sr = int(len(vocals) / dur) if dur else 44100
         if asr == "groq":
-            words = _groq_words(path)
+            all_words = []
+            for chunk_start in range(0, int(dur), int(max_chunk)):
+                ch_e = min(chunk_start + max_chunk, dur)
+                seg = mono[int(chunk_start * sr):int(ch_e * sr)]
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                    sf.write(f.name, seg, sr)
+                    path = f.name
+                try:
+                    words = _groq_words(path) or []
+                except Exception:
+                    words = []
+                if words:
+                    for w in words:
+                        w["start"] = int((float(w["start"]) + chunk_start) * orig_sr)
+                        w["end"] = int((float(w["end"]) + chunk_start) * orig_sr)
+                    all_words.extend(words)
+                os.unlink(path)
+            return [{"word": w["word"].strip(), "start": w["start"],
+                     "end": w["end"]} for w in all_words if w.get("word")]
         else:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                sf.write(f.name, mono, sr)
+                path = f.name
             r = subprocess.run(asr.replace("{wav}", path).split(),
                                capture_output=True, text=True, timeout=600)
             words = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
-        os.unlink(path)
-        return [{"word": w["word"].strip(), "start": int(float(w["start"]) * sr),
-                 "end": int(float(w["end"]) * sr)} for w in words if w.get("word")]
+            os.unlink(path)
+            return [{"word": w["word"].strip(), "start": int(float(w["start"]) * sr),
+                     "end": int(float(w["end"]) * sr)} for w in words if w.get("word")]
     except Exception:
         return []
 
 
 def _groq_words(wav_path: str) -> list[dict]:
-    """Groq Whisper: verbose_json + word timestamps. env GROQ_API_KEY."""
+    """Groq Whisper: verbose_json + word timestamps. env GROQ_API_KEY.
+    Прокси socks5://127.0.0.1:40000 если доступен (VPS за блокировками)."""
     import requests
+    try:
+        from dotenv import load_dotenv
+        here = os.path.dirname(os.path.abspath(__file__))
+        load_dotenv(os.path.join(here, ".env"))
+    except Exception:
+        pass
     key = os.environ.get("GROQ_API_KEY", "")
     if not key:
         return []
+    kw = {
+        "headers": {"Authorization": f"Bearer {key}"},
+        "data": {"model": "whisper-large-v3", "response_format": "verbose_json",
+                 "timestamp_granularities[]": "word"},
+        "timeout": 300,
+    }
+    # проверка доступности прокси (не блокирующая — просто пробуем)
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(1)
+    proxy_ok = s.connect_ex(("127.0.0.1", 40000)) == 0
+    s.close()
+    if proxy_ok:
+        kw["proxies"] = {"https": "socks5://127.0.0.1:40000"}
     with open(wav_path, "rb") as fh:
-        r = requests.post(
-            "https://api.groq.com/openai/v1/audio/transcriptions",
-            headers={"Authorization": f"Bearer {key}"},
-            files={"file": (os.path.basename(wav_path), fh, "audio/wav")},
-            data={"model": "whisper-large-v3", "response_format": "verbose_json",
-                  "timestamp_granularities[]": "word"},
-            timeout=300)
+        kw["files"] = {"file": (os.path.basename(wav_path), fh, "audio/wav")}
+        r = requests.post("https://api.groq.com/openai/v1/audio/transcriptions", **kw)
     r.raise_for_status()
     return r.json().get("words") or []
 
