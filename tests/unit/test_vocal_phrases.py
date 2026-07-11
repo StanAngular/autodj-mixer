@@ -80,3 +80,67 @@ class TestStutterIntegration:
         hook = np.ones((600, 2), "float32")
         out = cr._hook_stutter(hook, bar, total, 44100)
         assert not out[:6500].any() and out[7000:].any()             # хвост build
+
+
+# ═══ P70: дробление слипшихся, фраза по тексту, статтер целиком ═══
+
+class TestSplitLong:
+    def test_giant_phrase_split_at_quietest(self):
+        sr = 44100
+        # 30s почти сплошного тона с проседанием посередине (пауз >400мс нет → P69 слил бы)
+        a = _tone(440, 14.5); dip = _tone(440, 1.0, amp=0.06); b = _tone(440, 14.5)
+        v = np.stack([np.concatenate([a, dip, b])]*2, 1)
+        ph = vp.detect_phrases(v, sr, max_phrase_s=12.0)
+        assert len(ph) >= 2                                        # разрезано
+        assert all((e - s) <= 16 * sr for s, e in ph)              # гигантов нет
+    def test_short_untouched(self):
+        v = _voc([(440, 2.0)])
+        assert len(vp.detect_phrases(v, 44100, max_phrase_s=12.0)) == 1
+
+
+class TestFindTextSpan:
+    WORDS = [{"word": w, "start": i * 1000, "end": i * 1000 + 900}
+             for i, w in enumerate("я приходжу я іду до тебе знову на душевну розмову".split())]
+    def test_exact_quote(self):
+        hit = vp.find_text_span(self.WORDS, "іду до тебе знову")
+        assert hit and hit[0] == 3000 and hit[1] == 6900           # точные сэмплы слов
+    def test_fuzzy_quote_tolerated(self):
+        hit = vp.find_text_span(self.WORDS, "iду до тебе знов")    # неточная цитата
+        assert hit is not None and hit[2] >= 0.55
+    def test_absent_none(self):
+        assert vp.find_text_span(self.WORDS, "совсем другой текст про зиму") is None
+    def test_empty(self):
+        assert vp.find_text_span([], "что-то") is None
+        assert vp.find_text_span(self.WORDS, "") is None
+
+
+class TestWholePhraseStutter:
+    def test_never_cuts_midword(self):
+        bar, total = 1000, 8000
+        hook = np.ones((2600, 2), "float32")                       # фраза 2.6 бара
+        out = cr._hook_stutter(hook, bar, total, 44100)
+        nz = np.nonzero(out[:, 0])[0]
+        assert len(nz) % 2600 == 0                                 # только ЦЕЛЫЕ повторы
+    def test_too_long_refuses(self):
+        out = cr._hook_stutter(np.ones((9000, 2), "float32"), 1000, 8000, 44100)
+        assert not out.any()                                       # лучше без, чем обрубок
+    def test_fits_repeats(self):
+        out = cr._hook_stutter(np.ones((3000, 2), "float32"), 1000, 8000, 44100)
+        assert np.nonzero(out[:, 0])[0].size == 6000               # 2 целых повтора
+
+
+class TestGrooveNotSwept:
+    def test_build_groove_keeps_bass(self):
+        sr, bar = 44100, 44100 // 4
+        db = np.arange(0, 65) * bar
+        t = np.arange(bar) / sr
+        bassloop = np.stack([np.sin(2 * np.pi * 80 * t)] * 2, 1).astype("float32")
+        pop = {"vocals": np.zeros((64*bar, 2), "float32"),
+               "other": np.zeros((64*bar, 2), "float32"),
+               "bass": np.zeros((64*bar, 2), "float32")}
+        loops = {"peak": bassloop, "sparse": bassloop}
+        sec = dict(kind="build", pop=None, bars=8, groove="peak")
+        out = cr.render_section(sec, pop, db, loops, sr, bar, bar // 4)
+        seg = slice(2048, 4 * bar)                                 # до lift-хвоста
+        # P70: 80Гц грува ЖИВЫ в build (раньше hpf_sweep 120→700 их убивал)
+        assert np.abs(out[seg]).mean() > 0.4

@@ -38,9 +38,12 @@ def rms_envelope(x: np.ndarray, sr: int, win_ms: float = 50, hop_ms: float = 25)
 
 
 def detect_phrases(vocals: np.ndarray, sr: int, min_pause_ms: float = 400,
-                   min_phrase_ms: float = 600, thresh_ratio: float = 0.10) -> list[tuple[int, int]]:
+                   min_phrase_ms: float = 600, thresh_ratio: float = 0.10,
+                   max_phrase_s: float = 12.0) -> list[tuple[int, int]]:
     """Фразы вокала: активные участки между паузами. Порог адаптивный
-    (thresh_ratio × 95-й перцентиль огибающей). → [(start, end)] в сэмплах. Чистая."""
+    (thresh_ratio × 95-й перцентиль огибающей). Куски длиннее max_phrase_s РЕКУРСИВНО
+    дробятся по самой глубокой внутренней паузе (96-секундная «фраза» — не фраза,
+    а слипшийся припев: live-урок P69). → [(start, end)] в сэмплах. Чистая."""
     env, hop = rms_envelope(vocals, sr)
     if len(env) == 0:
         return []
@@ -66,7 +69,28 @@ def detect_phrases(vocals: np.ndarray, sr: int, min_pause_ms: float = 400,
         s, e = start * hop, len(env) * hop
         if e - s >= min_phrase:
             phrases.append((s, e))
-    return phrases
+    return _split_long(vocals, sr, phrases, env, hop, int(max_phrase_s * sr), min_phrase)
+
+
+def _split_long(vocals, sr, phrases, env, hop, max_len, min_phrase):
+    """Рекурсивно дробит длинные куски по самой тихой точке внутри (глубочайшая пауза)."""
+    out = []
+    for s, e in phrases:
+        if e - s <= max_len:
+            out.append((s, e))
+            continue
+        i0, i1 = s // hop, e // hop
+        pad = max(1, (i1 - i0) // 8)                     # не резать у краёв
+        seg = env[i0 + pad:i1 - pad]
+        if len(seg) == 0:
+            out.append((s, e))
+            continue
+        cut = (i0 + pad + int(np.argmin(seg))) * hop
+        if cut - s >= min_phrase and e - cut >= min_phrase:
+            out.extend(_split_long(vocals, sr, [(s, cut), (cut, e)], env, hop, max_len, min_phrase))
+        else:
+            out.append((s, e))
+    return out
 
 
 # ─── Отпечатки и хук (чистое, numpy) ─────────────────────────────────────────
@@ -113,6 +137,77 @@ def find_hook(vocals: np.ndarray, sr: int, phrases: list[tuple[int, int]],
 
 
 # ─── ASR-плагин (I/O-тонкое) ─────────────────────────────────────────────────
+
+# ─── P70: слова с таймингами + фраза ПО ТЕКСТУ ──────────────────────────────
+
+def transcribe_words(vocals: np.ndarray, sr: int, asr: str = "groq") -> list[dict]:
+    """Word-level распознавание ВСЕГО вокала → [{word, start, end}] (сэмплы, абсолютные).
+    asr='groq' — Groq Whisper API (env GROQ_API_KEY, verbose_json + word timestamps,
+    тот же стек, что в ClaudeClaw); иначе asr = CLI-шаблон '{wav}', ожидающий JSON
+    [{word,start,end(сек)}] в stdout. Ошибки → [] (слова опциональны)."""
+    try:
+        import soundfile as sf
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            sf.write(f.name, vocals, sr)
+            path = f.name
+        if asr == "groq":
+            words = _groq_words(path)
+        else:
+            r = subprocess.run(asr.replace("{wav}", path).split(),
+                               capture_output=True, text=True, timeout=600)
+            words = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else []
+        os.unlink(path)
+        return [{"word": w["word"].strip(), "start": int(float(w["start"]) * sr),
+                 "end": int(float(w["end"]) * sr)} for w in words if w.get("word")]
+    except Exception:
+        return []
+
+
+def _groq_words(wav_path: str) -> list[dict]:
+    """Groq Whisper: verbose_json + word timestamps. env GROQ_API_KEY."""
+    import requests
+    key = os.environ.get("GROQ_API_KEY", "")
+    if not key:
+        return []
+    with open(wav_path, "rb") as fh:
+        r = requests.post(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {key}"},
+            files={"file": (os.path.basename(wav_path), fh, "audio/wav")},
+            data={"model": "whisper-large-v3", "response_format": "verbose_json",
+                  "timestamp_granularities[]": "word"},
+            timeout=300)
+    r.raise_for_status()
+    return r.json().get("words") or []
+
+
+def _norm_text(t: str) -> list[str]:
+    import re
+    return [w for w in re.sub(r"[^\w\s]", " ", (t or "").lower()).split() if w]
+
+
+def find_text_span(words: list[dict], query: str, min_ratio: float = 0.55):
+    """Найти фразу ПО ТЕКСТУ («бери фразу: Я приходжу…»): скользящее окно слов,
+    похожесть SequenceMatcher (терпит неточную цитату). → (start, end, ratio, matched)
+    в сэмплах | None. Чистая."""
+    from difflib import SequenceMatcher
+    q = _norm_text(query)
+    toks = [_norm_text(w["word"]) for w in words]
+    flat = [(t[0], i) for i, t in enumerate(toks) if t]
+    if not q or not flat:
+        return None
+    best = None
+    n = len(q)
+    for width in {max(1, n - 2), n, n + 2}:
+        for i in range(0, max(1, len(flat) - width + 1)):
+            win = flat[i:i + width]
+            ratio = SequenceMatcher(None, " ".join(q), " ".join(w for w, _ in win)).ratio()
+            if ratio >= min_ratio and (best is None or ratio > best[2]):
+                s = words[win[0][1]]["start"]
+                e = words[win[-1][1]]["end"]
+                best = (s, e, round(ratio, 3), " ".join(w for w, _ in win))
+    return best
+
 
 def transcribe_phrase(vocals: np.ndarray, sr: int, s: int, e: int, asr_cmd: str) -> str:
     """Текст фразы внешним ASR: '{wav}' в asr_cmd подменяется на temp-файл фразы,

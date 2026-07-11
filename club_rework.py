@@ -289,17 +289,19 @@ STUTTER_REPEATS = 2      # hook-фраза перед дропом (P69)
 
 
 def _hook_stutter(hook: np.ndarray, bar_len: int, total: int, sr: int) -> np.ndarray:
-    """Классика edit'ов: хук-фраза повторяется STUTTER_REPEATS раза в хвосте build.
-    Каждый повтор обрезан до бара; вписывается в последние 2 бара. Чистая."""
+    """Статтер ЦЕЛЫМИ фразами (P70: обрезка посреди слова = «непонятная фигня»).
+    Повторов столько, сколько целых фраз влезает в хвост (≤STUTTER_REPEATS);
+    фраза длиннее секции → один проигрыш хвостовой части ОТ НАЧАЛА фразы не режем —
+    отказ (нулевой слой), лучше без статтера, чем с обрубком. Чистая."""
     out = np.zeros((total, 2), dtype="float32")
-    piece = hook[: min(len(hook), bar_len)]
-    span = STUTTER_REPEATS * len(piece)
-    pos = max(0, total - span)
-    for r in range(STUTTER_REPEATS):
+    piece = hook
+    if len(piece) > total:
+        return out                                        # не влезает целиком — без статтера
+    reps = min(STUTTER_REPEATS, total // max(1, len(piece)))
+    pos = total - reps * len(piece)
+    for r in range(reps):
         a = pos + r * len(piece)
-        b = min(total, a + len(piece))
-        if b > a:
-            out[a:b] += piece[: b - a]
+        out[a:a + len(piece)] += piece
     return out
 
 
@@ -311,7 +313,8 @@ def _slice_bars(audio: np.ndarray, db: np.ndarray, s: int, e: int) -> np.ndarray
 
 def render_section(sec: dict, pop: dict, db: np.ndarray, groove_loops: dict,
                    sr: int, bar_len: int, quarter: int, pop_layers: str = "full",
-                   hook_audio: np.ndarray | None = None) -> np.ndarray:
+                   hook_audio: np.ndarray | None = None,
+                   tease_audio: np.ndarray | None = None) -> np.ndarray:
     """Секция → аудио по DJ-ролям. pop = {'vocals','other','bass'} (drums попсы ВЫБРОШЕНЫ).
     pop_layers: 'full' (вокал+other) | 'vocals' («чистый плюс»: только вокал попсы)."""
     total = sec["bars"] * bar_len
@@ -344,17 +347,19 @@ def render_section(sec: dict, pop: dict, db: np.ndarray, groove_loops: dict,
             mix_pop = np.concatenate([mix_pop, np.zeros((pad, mix_pop.shape[1]), dtype=mix_pop.dtype)])
         layers.append(mix_pop)
 
-    if sec["kind"] == "build" and layers:                # sweep на всём билде
-        layers = [hpf_sweep(sum(layers), sr, 120, 700, blocks=max(2, sec["bars"] // 1))]
+    if sec["kind"] == "build":
+        # P70-фикс: sweep раньше применялся ко ВСЕЙ сумме — т.е. к клубному груву
+        # («зачем-то срезал частоты клубного» — Стас прав). Грув не трогаем.
         if hook_audio is not None and len(hook_audio):   # P69: hook-stutter перед дропом
             st = _hook_stutter(hook_audio, bar_len, total, sr)
             layers.append(hpf(st, sr, HPF_POP))
-    if sec["kind"] == "intro" and hook_audio is not None and len(hook_audio):
-        tease = np.zeros((total, 2), dtype="float32")    # P69: тизер — фраза в середине интро
-        piece = hook_audio[: min(len(hook_audio), 2 * bar_len)]
+    t_src = tease_audio if tease_audio is not None else hook_audio
+    if sec["kind"] == "intro" and t_src is not None and len(t_src):
+        tease = np.zeros((total, 2), dtype="float32")    # P69/P70: тизер — ЦЕЛАЯ фраза
+        piece = t_src if len(t_src) <= total else t_src[:0]   # не влезает — не режем
         pos = max(0, total // 2 - len(piece) // 2)
         tease[pos:pos + len(piece)] = piece * 0.8
-        layers.append(hpf(tease, sr, HPF_POP * 2))       # суше обычного — «издалека»
+        layers.append(hpf(tease, sr, HPF_POP))           # P70: без лишнего среза
 
     out = sum(layers) if layers else np.zeros((total, 2), dtype="float32")
     return out[:total]
@@ -376,7 +381,7 @@ def _load_track(wav, demix_dir, ann_dir, sr):
 def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
                 intro_bars=16, outro_bars=16, pop_drums_db=-12.0, club_drums_db=0.0,
                 force=False, out="club_edit.wav", pop_layers="full", donor_bass=False,
-                hook_stutter=True):
+                hook_stutter=True, phrases_text=None, asr="groq"):
     """v2: секционная аранжировка (см. докстринг модуля). pop_drums_db сохранён в
     сигнатуре для совместимости, но поп-drums в v2 ВЫБРОШЕНЫ (частотная роль грува)."""
     import soundfile as sf
@@ -409,8 +414,28 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
     arr = club_arrangement(labels, intro_bars=intro_bars, outro_bars=outro_bars)
     print("Аранжировка: " + " → ".join(f"{s['kind']}({s['bars']}b)" for s in arr))
 
-    hook_audio = None
-    if hook_stutter:                                     # P69: найти «что прёт» в вокале
+    hook_audio, tease_audio = None, None
+    if phrases_text:                                     # P70: фразы, ЗАДАННЫЕ ТЕКСТОМ
+        try:
+            from vocal_phrases import transcribe_words, find_text_span
+            words = transcribe_words(pop["vocals"], sr, asr=asr)
+            if not words:
+                print("  ⚠ word-ASR пуст (нет GROQ_API_KEY/CLI?) — фразы по тексту недоступны")
+            for i, q in enumerate(phrases_text):
+                hit = find_text_span(words, q)
+                if hit:
+                    fs, fe, ratio, matched = hit
+                    seg = pop["vocals"][fs:fe]
+                    print(f"Фраза[{i}] найдена ({ratio:.2f}): «{matched}» "
+                          f"[{fs/sr:.1f}s–{fe/sr:.1f}s]")
+                    if i == 0:
+                        hook_audio = seg
+                    tease_audio = seg if i == len(phrases_text) - 1 else tease_audio
+                else:
+                    print(f"  ⚠ фраза[{i}] не найдена в словах: «{q[:40]}…»")
+        except Exception as e:
+            print(f"  ⚠ фразы по тексту: {type(e).__name__}")
+    if hook_audio is None and hook_stutter:              # P69: авто-хук («что прёт»)
         try:
             from vocal_phrases import detect_phrases, find_hook
             ph = detect_phrases(pop["vocals"], sr)
@@ -423,7 +448,8 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
         except Exception as e:
             print(f"  ⚠ хук не извлечён ({type(e).__name__}) — rework без статтера")
     parts = [render_section(sec, pop, db_s, loops, sr, bar_len, quarter, pop_layers,
-                            hook_audio=hook_audio)
+                            hook_audio=hook_audio,
+                            tease_audio=tease_audio if tease_audio is not None else hook_audio)
              for sec in arr]
     mix = _limit(_xfade_concat(parts, sr, ms=25))
     sf.write(out, mix, sr)
@@ -541,6 +567,11 @@ def _main():
                     help="взять и bass-стем донора (низ в дропе); требует Camelot-совместимости")
     ap.add_argument("--no-hook-stutter", action="store_true",
                     help="P69: отключить hook-статтер перед дропом и тизер в интро")
+    ap.add_argument("--phrase", action="append", default=[],
+                    help="P70: фраза ПО ТЕКСТУ (можно несколько): точная вырезка по словам "
+                         "ASR; первая → статтер, последняя → тизер")
+    ap.add_argument("--asr", default="groq",
+                    help="word-ASR: 'groq' (env GROQ_API_KEY) или CLI-шаблон '{wav}'→JSON")
     ap.add_argument("--demix-dir", required=True)
     ap.add_argument("--ann-dir", default=None)
     ap.add_argument("--target-bpm", type=float, default=0, help="дефолт: BPM донора")
@@ -572,7 +603,7 @@ def _main():
     pop_to_club(a.pop, a.drums_donor, a.demix_dir, a.ann_dir, a.target_bpm, a.sr,
                 a.intro_bars, a.outro_bars, a.pop_drums_db, a.club_drums_db, a.force, a.out,
                 pop_layers=a.pop_layers, donor_bass=a.donor_bass,
-                hook_stutter=not a.no_hook_stutter)
+                hook_stutter=not a.no_hook_stutter, phrases_text=a.phrase, asr=a.asr)
 
 
 if __name__ == "__main__":
