@@ -285,6 +285,22 @@ def club_arrangement(bar_labels: list[str], intro_bars: int = 16, build_bars: in
 
 HPF_POP = 150.0          # частотная роль: низ у клубного грува
 DUCK_DB = -5.0
+STUTTER_REPEATS = 2      # hook-фраза перед дропом (P69)
+
+
+def _hook_stutter(hook: np.ndarray, bar_len: int, total: int, sr: int) -> np.ndarray:
+    """Классика edit'ов: хук-фраза повторяется STUTTER_REPEATS раза в хвосте build.
+    Каждый повтор обрезан до бара; вписывается в последние 2 бара. Чистая."""
+    out = np.zeros((total, 2), dtype="float32")
+    piece = hook[: min(len(hook), bar_len)]
+    span = STUTTER_REPEATS * len(piece)
+    pos = max(0, total - span)
+    for r in range(STUTTER_REPEATS):
+        a = pos + r * len(piece)
+        b = min(total, a + len(piece))
+        if b > a:
+            out[a:b] += piece[: b - a]
+    return out
 
 
 def _slice_bars(audio: np.ndarray, db: np.ndarray, s: int, e: int) -> np.ndarray:
@@ -294,7 +310,8 @@ def _slice_bars(audio: np.ndarray, db: np.ndarray, s: int, e: int) -> np.ndarray
 
 
 def render_section(sec: dict, pop: dict, db: np.ndarray, groove_loops: dict,
-                   sr: int, bar_len: int, quarter: int, pop_layers: str = "full") -> np.ndarray:
+                   sr: int, bar_len: int, quarter: int, pop_layers: str = "full",
+                   hook_audio: np.ndarray | None = None) -> np.ndarray:
     """Секция → аудио по DJ-ролям. pop = {'vocals','other','bass'} (drums попсы ВЫБРОШЕНЫ).
     pop_layers: 'full' (вокал+other) | 'vocals' («чистый плюс»: только вокал попсы)."""
     total = sec["bars"] * bar_len
@@ -329,6 +346,15 @@ def render_section(sec: dict, pop: dict, db: np.ndarray, groove_loops: dict,
 
     if sec["kind"] == "build" and layers:                # sweep на всём билде
         layers = [hpf_sweep(sum(layers), sr, 120, 700, blocks=max(2, sec["bars"] // 1))]
+        if hook_audio is not None and len(hook_audio):   # P69: hook-stutter перед дропом
+            st = _hook_stutter(hook_audio, bar_len, total, sr)
+            layers.append(hpf(st, sr, HPF_POP))
+    if sec["kind"] == "intro" and hook_audio is not None and len(hook_audio):
+        tease = np.zeros((total, 2), dtype="float32")    # P69: тизер — фраза в середине интро
+        piece = hook_audio[: min(len(hook_audio), 2 * bar_len)]
+        pos = max(0, total // 2 - len(piece) // 2)
+        tease[pos:pos + len(piece)] = piece * 0.8
+        layers.append(hpf(tease, sr, HPF_POP * 2))       # суше обычного — «издалека»
 
     out = sum(layers) if layers else np.zeros((total, 2), dtype="float32")
     return out[:total]
@@ -349,7 +375,8 @@ def _load_track(wav, demix_dir, ann_dir, sr):
 
 def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
                 intro_bars=16, outro_bars=16, pop_drums_db=-12.0, club_drums_db=0.0,
-                force=False, out="club_edit.wav", pop_layers="full", donor_bass=False):
+                force=False, out="club_edit.wav", pop_layers="full", donor_bass=False,
+                hook_stutter=True):
     """v2: секционная аранжировка (см. докстринг модуля). pop_drums_db сохранён в
     сигнатуре для совместимости, но поп-drums в v2 ВЫБРОШЕНЫ (частотная роль грува)."""
     import soundfile as sf
@@ -382,7 +409,21 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
     arr = club_arrangement(labels, intro_bars=intro_bars, outro_bars=outro_bars)
     print("Аранжировка: " + " → ".join(f"{s['kind']}({s['bars']}b)" for s in arr))
 
-    parts = [render_section(sec, pop, db_s, loops, sr, bar_len, quarter, pop_layers)
+    hook_audio = None
+    if hook_stutter:                                     # P69: найти «что прёт» в вокале
+        try:
+            from vocal_phrases import detect_phrases, find_hook
+            ph = detect_phrases(pop["vocals"], sr)
+            hk = find_hook(pop["vocals"], sr, ph)
+            if hk:
+                hs, he = ph[hk["hook_index"]]
+                hook_audio = pop["vocals"][hs:he]
+                print(f"Хук: фраза #{hk['hook_index']} ({(he-hs)/sr:.1f}s, "
+                      f"повторов в треке: {len(hk['repeats'])}) → stutter в build + тизер в intro")
+        except Exception as e:
+            print(f"  ⚠ хук не извлечён ({type(e).__name__}) — rework без статтера")
+    parts = [render_section(sec, pop, db_s, loops, sr, bar_len, quarter, pop_layers,
+                            hook_audio=hook_audio)
              for sec in arr]
     mix = _limit(_xfade_concat(parts, sr, ms=25))
     sf.write(out, mix, sr)
@@ -498,6 +539,8 @@ def _main():
                     help="vocals = «чистый плюс»: из попсы только вокал (без её музыки)")
     ap.add_argument("--donor-bass", action="store_true",
                     help="взять и bass-стем донора (низ в дропе); требует Camelot-совместимости")
+    ap.add_argument("--no-hook-stutter", action="store_true",
+                    help="P69: отключить hook-статтер перед дропом и тизер в интро")
     ap.add_argument("--demix-dir", required=True)
     ap.add_argument("--ann-dir", default=None)
     ap.add_argument("--target-bpm", type=float, default=0, help="дефолт: BPM донора")
@@ -528,7 +571,8 @@ def _main():
         ap.error("--drums-donor обязателен (или запусти --analyze для шага 1)")
     pop_to_club(a.pop, a.drums_donor, a.demix_dir, a.ann_dir, a.target_bpm, a.sr,
                 a.intro_bars, a.outro_bars, a.pop_drums_db, a.club_drums_db, a.force, a.out,
-                pop_layers=a.pop_layers, donor_bass=a.donor_bass)
+                pop_layers=a.pop_layers, donor_bass=a.donor_bass,
+                hook_stutter=not a.no_hook_stutter)
 
 
 if __name__ == "__main__":
