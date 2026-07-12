@@ -172,3 +172,59 @@ class TestPlacePhraseLayer:
         out = cr.place_phrase_layer([{"audio": seg, "at_bar": 8, "repeat": 1}],
                                     total=10000, bar_len=1000, sr=44100, quarter=250)
         assert not out.any()                                             # целиком не влезла — пропуск
+
+
+# ═══ P72: мягкие края, overlap, слово-статтер, скретч, транскрипт ═══
+
+class TestEdgeFadeAndFx:
+    def test_edges_soft(self):
+        seg = np.ones((4410, 2), "float32")
+        out = cr.edge_fade(seg, 44100, ms=20)
+        assert out[0, 0] < 1e-6 and out[-1, 0] < 1e-6 and out[2205, 0] > 0.99
+    def test_reverse(self):
+        seg = np.arange(1000, dtype="float32").reshape(-1, 1).repeat(2, 1)
+        assert cr.apply_fx(seg, 44100, "reverse")[0, 0] == 999
+    def test_scratch_same_length_deterministic(self):
+        seg = np.stack([_tone(440, 0.5)] * 2, 1)
+        a, b = cr.apply_fx(seg, 44100, "scratch"), cr.apply_fx(seg, 44100, "scratch")
+        assert len(a) == len(seg) and np.array_equal(a, b)
+
+
+class TestOverlapControl:
+    def test_second_overlapping_skipped(self):
+        seg = np.ones((2000, 2), "float32")
+        out = cr.place_phrase_layer(
+            [{"audio": seg, "at_bar": 1}, {"audio": seg, "at_bar": 1}],
+            total=10000, bar_len=1000, sr=44100, quarter=250)
+        # вторая поверх первой не легла: пик слоя ≈ одна вставка (duck меняет форму, но не удваивает)
+        assert float(np.max(out)) < 1.5
+
+
+class TestWordStutter:
+    WORDS = [{"word": w, "start": i * 1000, "end": i * 1000 + 800}
+             for i, w in enumerate("я іду до тебе я знову я".split())]
+    def test_kth_occurrence(self):
+        assert vp.find_word_span(self.WORDS, "я", 1) == (0, 800)
+        assert vp.find_word_span(self.WORDS, "я", 2) == (4000, 4800)
+        assert vp.find_word_span(self.WORDS, "Я,", 3) == (6000, 6800)   # нормализация
+    def test_missing(self):
+        assert vp.find_word_span(self.WORDS, "нема", 1) is None
+        assert vp.find_word_span(self.WORDS, "до тебе", 1) is None      # не слово
+    def test_spacing_beats_layout(self):
+        seg = np.ones((500, 2), "float32")
+        out = cr.place_phrase_layer([{"audio": seg, "at_bar": 0, "repeat": 3,
+                                      "spacing_beats": 1}],
+                                    total=10000, bar_len=1000, sr=44100, quarter=1000)
+        nz = np.nonzero(out[:, 0])[0]
+        assert nz.min() < 50 and 1500 in nz and 3000 + 10 in nz          # я…я…я по долям
+
+
+class TestTranscript:
+    def test_lines_split_on_gaps(self):
+        sr = 44100
+        words = [{"word": "перша", "start": 0, "end": sr // 2},
+                 {"word": "рядок", "start": sr // 2 + 100, "end": sr},
+                 {"word": "друга", "start": 2 * sr, "end": int(2.4 * sr)}]
+        lines = vp.transcript_lines(words, sr, bar_len=sr // 2)
+        assert len(lines) == 2 and lines[0]["text"] == "перша рядок"
+        assert lines[1]["start_bar"] == 4.0

@@ -288,24 +288,65 @@ DUCK_DB = -5.0
 STUTTER_REPEATS = 2      # hook-фраза перед дропом (P69)
 
 
+def edge_fade(seg: np.ndarray, sr: int, ms: float = 20.0) -> np.ndarray:
+    """P72: мягкие края КАЖДОЙ вставки (по прослушке: «резко, слышны края обрезки»)."""
+    n = min(int(sr * ms / 1000), len(seg) // 2)
+    if n <= 0:
+        return seg
+    out = seg.copy()
+    ramp = np.linspace(0.0, 1.0, n, dtype="float32")[:, None]
+    out[:n] *= ramp
+    out[-n:] *= ramp[::-1]
+    return out
+
+
+def apply_fx(seg: np.ndarray, sr: int, fx: str) -> np.ndarray:
+    """P72: эффекты на вставке. 'reverse' — фраза задом наперёд; 'scratch' — эмуляция
+    baby-скретча: чтение с синусоидальной скоростью (вперёд-назад). Чистая."""
+    if fx == "reverse":
+        return seg[::-1].copy()
+    if fx == "scratch":
+        n = len(seg)
+        if n < 256:
+            return seg
+        cycles = 2.0
+        ph = np.linspace(0, 2 * np.pi * cycles, n)
+        pos = (n - 1) * (0.5 - 0.5 * np.cos(ph / (2 * cycles)))     # 0→конец
+        wob = (n * 0.06) * np.sin(ph)                                # качание головки
+        idx = np.clip(pos + wob, 0, n - 1).astype(int)
+        return seg[idx]
+    return seg
+
+
 def place_phrase_layer(entries: list[dict], total: int, bar_len: int, sr: int,
                        quarter: int) -> np.ndarray:
-    """P71: ИСПОЛНЯЕМЫЙ ПЛАН ФРАЗ. Агент (LLM) решает «что куда», это — руки.
-    entries: [{audio, at_bar, repeat=1, gain_db=0}] → слой поверх арки (HPF-роль + duck
-    как у попсы). Фраза кладётся ЦЕЛИКОМ (не влезла — пропуск с логом). Чистая."""
+    """P71/P72: ИСПОЛНЯЕМЫЙ ПЛАН. Агент решает «что куда», это — руки.
+    entries: [{audio, at_bar, repeat=1, gain_db=0, spacing_beats=0, fx=None}].
+    P72: мягкие края (edge_fade), КОНТРОЛЬ ПЕРЕСЕЧЕНИЙ (занятые интервалы —
+    новая вставка поверх старой = «каша», пропуск с логом), spacing_beats
+    («я, я, я» по долям), fx (reverse/scratch). Чистая."""
     out = np.zeros((total, 2), dtype="float32")
+    busy: list[tuple[int, int]] = []
     for k, ent in enumerate(entries):
-        seg = ent["audio"]
+        seg = apply_fx(ent["audio"], sr, ent.get("fx") or "")
+        seg = edge_fade(seg, sr)
         pos = int(ent["at_bar"]) * bar_len
         reps = max(1, int(ent.get("repeat", 1)))
+        gap = int(float(ent.get("spacing_beats", 0)) * quarter)
         g = 10 ** (float(ent.get("gain_db", 0.0)) / 20.0)
+        step = len(seg) + gap
         for r in range(reps):
-            a = pos + r * len(seg)
-            if a + len(seg) > total:
-                print(f"  ⚠ план[{k}] повтор {r+1}: не влезает целиком (бар {ent['at_bar']}) — пропуск")
+            a = pos + r * step
+            b = a + len(seg)
+            if b > total:
+                print(f"  ⚠ план[{k}] повтор {r+1}: не влезает (бар {ent['at_bar']}) — пропуск")
                 break
-            out[a:a + len(seg)] += seg * g
-    return sidechain_duck(hpf(out, 44100 if sr <= 0 else sr, HPF_POP), sr, quarter, DUCK_DB)
+            if any(a < be and b > bs for bs, be in busy):
+                print(f"  ⚠ план[{k}] повтор {r+1}: пересечение с другой вставкой — пропуск (каша)")
+                continue
+            out[a:b] += seg * g
+            busy.append((a, b))
+    return sidechain_duck(hpf(out, sr, HPF_POP), sr, quarter, DUCK_DB)
 
 
 def _hook_stutter(hook: np.ndarray, bar_len: int, total: int, sr: int) -> np.ndarray:
@@ -371,12 +412,12 @@ def render_section(sec: dict, pop: dict, db: np.ndarray, groove_loops: dict,
         # P70-фикс: sweep раньше применялся ко ВСЕЙ сумме — т.е. к клубному груву
         # («зачем-то срезал частоты клубного» — Стас прав). Грув не трогаем.
         if hook_audio is not None and len(hook_audio):   # P69: hook-stutter перед дропом
-            st = _hook_stutter(hook_audio, bar_len, total, sr)
+            st = _hook_stutter(edge_fade(hook_audio, sr), bar_len, total, sr)
             layers.append(hpf(st, sr, HPF_POP))
     t_src = tease_audio if tease_audio is not None else hook_audio
     if sec["kind"] == "intro" and t_src is not None and len(t_src):
         tease = np.zeros((total, 2), dtype="float32")    # P69/P70: тизер — ЦЕЛАЯ фраза
-        piece = t_src if len(t_src) <= total else t_src[:0]   # не влезает — не режем
+        piece = edge_fade(t_src, sr) if len(t_src) <= total else t_src[:0]   # P72: мягкие края
         pos = max(0, total // 2 - len(piece) // 2)
         tease[pos:pos + len(piece)] = piece * 0.8
         layers.append(hpf(tease, sr, HPF_POP))           # P70: без лишнего среза

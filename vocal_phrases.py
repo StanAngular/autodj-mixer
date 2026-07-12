@@ -314,10 +314,56 @@ def align_lyrics(words: list[dict], lyrics: str) -> tuple[list[dict], float]:
     return out, round(matched / max(1, len(canon)), 3)
 
 
+
+# ─── P72: транскрипт для агента + слово-юниты ────────────────────────────────
+
+def transcript_lines(words: list[dict], sr: int, bar_len: int = 0,
+                     gap_ms: float = 700) -> list[dict]:
+    """Полный текст СТРОКАМИ (разрыв по паузам между словами > gap_ms) с таймингами и
+    барами. Агент ЧИТАЕТ это, понимает смысл → осмысленно строит vocal-plan. Чистая."""
+    if not words:
+        return []
+    gap = int(sr * gap_ms / 1000)
+    lines, cur = [], [words[0]]
+    for w in words[1:]:
+        if w["start"] - cur[-1]["end"] > gap:
+            lines.append(cur)
+            cur = [w]
+        else:
+            cur.append(w)
+    lines.append(cur)
+    out = []
+    for ln in lines:
+        s0, e0 = ln[0]["start"], ln[-1]["end"]
+        d = {"text": " ".join(w["word"] for w in ln),
+             "start_s": round(s0 / sr, 2), "end_s": round(e0 / sr, 2)}
+        if bar_len:
+            d["start_bar"] = round(s0 / bar_len, 1)
+        out.append(d)
+    return out
+
+
+def find_word_span(words: list[dict], word: str, occurrence: int = 1):
+    """k-е вхождение СЛОВА → (start, end) в сэмплах | None. Для слово-статтера
+    («я, я, я» — универсально для любого трека). Чистая."""
+    target = _norm_text(word)
+    if len(target) != 1:
+        return None
+    n = 0
+    for w in words:
+        if _norm_text(w["word"]) == target:
+            n += 1
+            if n == occurrence:
+                return (w["start"], w["end"])
+    return None
+
+
 def _main():
     ap = argparse.ArgumentParser(description="P69: фразы вокала + хук + (опц.) слова")
     ap.add_argument("--wav", required=True)
     ap.add_argument("--demix-dir", required=True)
+    ap.add_argument("--transcript", action="store_true",
+                    help="P72: полный текст строками (агент читает и думает) вместо phrases.json")
     ap.add_argument("--lyrics-file", default="", help="канонический текст песни (сверка ASR)")
     ap.add_argument("--asr-cmd", default="", help="CLI ASR, '{wav}' → файл фразы (напр. 'whisper-cli {wav}')")
     ap.add_argument("--sr", type=int, default=44100)
