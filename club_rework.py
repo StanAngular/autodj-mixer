@@ -288,6 +288,26 @@ DUCK_DB = -5.0
 STUTTER_REPEATS = 2      # hook-фраза перед дропом (P69)
 
 
+def place_phrase_layer(entries: list[dict], total: int, bar_len: int, sr: int,
+                       quarter: int) -> np.ndarray:
+    """P71: ИСПОЛНЯЕМЫЙ ПЛАН ФРАЗ. Агент (LLM) решает «что куда», это — руки.
+    entries: [{audio, at_bar, repeat=1, gain_db=0}] → слой поверх арки (HPF-роль + duck
+    как у попсы). Фраза кладётся ЦЕЛИКОМ (не влезла — пропуск с логом). Чистая."""
+    out = np.zeros((total, 2), dtype="float32")
+    for k, ent in enumerate(entries):
+        seg = ent["audio"]
+        pos = int(ent["at_bar"]) * bar_len
+        reps = max(1, int(ent.get("repeat", 1)))
+        g = 10 ** (float(ent.get("gain_db", 0.0)) / 20.0)
+        for r in range(reps):
+            a = pos + r * len(seg)
+            if a + len(seg) > total:
+                print(f"  ⚠ план[{k}] повтор {r+1}: не влезает целиком (бар {ent['at_bar']}) — пропуск")
+                break
+            out[a:a + len(seg)] += seg * g
+    return sidechain_duck(hpf(out, 44100 if sr <= 0 else sr, HPF_POP), sr, quarter, DUCK_DB)
+
+
 def _hook_stutter(hook: np.ndarray, bar_len: int, total: int, sr: int) -> np.ndarray:
     """Статтер ЦЕЛЫМИ фразами (P70: обрезка посреди слова = «непонятная фигня»).
     Повторов столько, сколько целых фраз влезает в хвост (≤STUTTER_REPEATS);
@@ -381,7 +401,8 @@ def _load_track(wav, demix_dir, ann_dir, sr):
 def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
                 intro_bars=16, outro_bars=16, pop_drums_db=-12.0, club_drums_db=0.0,
                 force=False, out="club_edit.wav", pop_layers="full", donor_bass=False,
-                hook_stutter=True, phrases_text=None, asr="groq"):
+                hook_stutter=True, phrases_text=None, asr="groq",
+                vocal_plan=None, lyrics_file=""):
     """v2: секционная аранжировка (см. докстринг модуля). pop_drums_db сохранён в
     сигнатуре для совместимости, но поп-drums в v2 ВЫБРОШЕНЫ (частотная роль грува)."""
     import soundfile as sf
@@ -415,19 +436,41 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
     print("Аранжировка: " + " → ".join(f"{s['kind']}({s['bars']}b)" for s in arr))
 
     hook_audio, tease_audio = None, None
-    if phrases_text:                                     # P70: фразы, ЗАДАННЫЕ ТЕКСТОМ
+    plan_entries, words_raw = [], None
+    if vocal_plan or phrases_text:                        # P71: word-ASR нужен обоим
         try:
-            from vocal_phrases import transcribe_words, find_text_span
+            from vocal_phrases import transcribe_words, find_text_span, align_lyrics
             # транскрибация ДО стретча (на исходном вокале)
-            words = transcribe_words(stems["vocals"], sr, asr=asr)
-            if not words:
-                print("  ⚠ word-ASR пуст (нет GROQ_API_KEY/CLI?) — фразы по тексту недоступны")
+            words_raw = transcribe_words(stems["vocals"], sr, asr=asr)
+            if words_raw and lyrics_file and os.path.exists(lyrics_file):
+                lyr = open(lyrics_file, encoding="utf-8").read()
+                words_raw, cover = align_lyrics(words_raw, lyr)
+                print(f"Лирика: сверено, покрытие {cover:.0%}")
+        except Exception as e:
+            print(f"  ⚠ word-ASR: {type(e).__name__}")
+    rate = tgt / pop_bpm                                   # пересчёт оригинал→стретч
+    if vocal_plan and words_raw:                           # P71: исполняемый план агента
+        import json as _json
+        plan = _json.load(open(vocal_plan, encoding="utf-8")) if isinstance(vocal_plan, str) else vocal_plan
+        from vocal_phrases import find_text_span
+        for k, ent in enumerate(plan):
+            hit = find_text_span(words_raw, ent.get("phrase", ""))
+            if hit:
+                fs, fe, ratio, matched = hit
+                plan_entries.append({"audio": pop["vocals"][int(fs / rate):int(fe / rate)],
+                                     "at_bar": ent["at_bar"],
+                                     "repeat": ent.get("repeat", 1), "gain_db": ent.get("gain_db", 0)})
+                print(f"План[{k}] «{matched[:40]}» ({ratio:.2f}) → бар {ent['at_bar']}"
+                      + (f" ×{ent.get('repeat',1)}" if ent.get("repeat", 1) > 1 else ""))
+            else:
+                print(f"  ⚠ план[{k}]: фраза не найдена «{ent.get('phrase','')[:40]}…»")
+    if phrases_text and words_raw:                         # P70: фразы, ЗАДАННЫЕ ТЕКСТОМ
+        try:
+            from vocal_phrases import find_text_span
             for i, q in enumerate(phrases_text):
-                hit = find_text_span(words, q)
+                hit = find_text_span(words_raw, q)
                 if hit:
                     fs, fe, ratio, matched = hit
-                    # пересчёт оригинальных сэмплов → стретч-позиции
-                    rate = tgt / pop_bpm
                     fs_s = int(fs / rate)
                     fe_s = int(fe / rate)
                     seg = pop["vocals"][fs_s:fe_s]
@@ -456,7 +499,11 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
                             hook_audio=hook_audio,
                             tease_audio=tease_audio if tease_audio is not None else hook_audio)
              for sec in arr]
-    mix = _limit(_xfade_concat(parts, sr, ms=25))
+    mix = _xfade_concat(parts, sr, ms=25)
+    if plan_entries:
+        layer = place_phrase_layer(plan_entries, len(mix), bar_len, sr, quarter)
+        mix = mix + layer
+    mix = _limit(mix)
     sf.write(out, mix, sr)
     g_club = 10 ** (club_drums_db / 20)                  # noqa: сохранён для CLI-совместимости
     print(f"Club edit v2: {out} ({len(mix)/sr:.1f}s @ {tgt:.0f} BPM; хук ×2, sidechain, "
@@ -575,6 +622,9 @@ def _main():
     ap.add_argument("--phrase", action="append", default=[],
                     help="P70: фраза ПО ТЕКСТУ (можно несколько): точная вырезка по словам "
                          "ASR; первая → статтер, последняя → тизер")
+    ap.add_argument("--vocal-plan", default="",
+                    help="P71: JSON-план агента [{phrase, at_bar, repeat, gain_db}] — руки для LLM")
+    ap.add_argument("--lyrics-file", default="", help="P71: канонический текст (сверка ASR)")
     ap.add_argument("--asr", default="groq",
                     help="word-ASR: 'groq' (env GROQ_API_KEY) или CLI-шаблон '{wav}'→JSON")
     ap.add_argument("--demix-dir", required=True)
@@ -608,7 +658,8 @@ def _main():
     pop_to_club(a.pop, a.drums_donor, a.demix_dir, a.ann_dir, a.target_bpm, a.sr,
                 a.intro_bars, a.outro_bars, a.pop_drums_db, a.club_drums_db, a.force, a.out,
                 pop_layers=a.pop_layers, donor_bass=a.donor_bass,
-                hook_stutter=not a.no_hook_stutter, phrases_text=a.phrase, asr=a.asr)
+                hook_stutter=not a.no_hook_stutter, phrases_text=a.phrase, asr=a.asr,
+                vocal_plan=(a.vocal_plan or None), lyrics_file=a.lyrics_file)
 
 
 if __name__ == "__main__":

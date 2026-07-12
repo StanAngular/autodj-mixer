@@ -289,10 +289,36 @@ def phrases_report(wav: str, demix_dir: str, sr: int = 44100, asr_cmd: str = "")
     return {"track": os.path.basename(wav), "phrases": items, "hook": hook}
 
 
+
+# ─── P71: сверка с каноническим текстом песни (лирикой) ─────────────────────
+
+def align_lyrics(words: list[dict], lyrics: str) -> tuple[list[dict], float]:
+    """Скорректировать ASR-слова каноническим текстом (найденным в интернете агентом):
+    выравнивание последовательностей (difflib), совпавшие/заменённые слова получают
+    КАНОНИЧЕСКОЕ написание (тайминги ASR сохраняются). → (слова', покрытие 0..1). Чистая.
+    Повышает точность find_text_span: цитаты ищутся по каноническим словам."""
+    from difflib import SequenceMatcher
+    canon = _norm_text(lyrics)
+    asr = [_norm_text(w["word"]) for w in words]
+    flat = [(t[0], i) for i, t in enumerate(asr) if t]
+    if not canon or not flat:
+        return words, 0.0
+    sm = SequenceMatcher(None, [w for w, _ in flat], canon, autojunk=False)
+    out = [dict(w) for w in words]
+    matched = 0
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag in ("equal", "replace") and (i2 - i1) == (j2 - j1):
+            for k in range(i2 - i1):
+                out[flat[i1 + k][1]]["word"] = canon[j1 + k]
+                matched += 1
+    return out, round(matched / max(1, len(canon)), 3)
+
+
 def _main():
     ap = argparse.ArgumentParser(description="P69: фразы вокала + хук + (опц.) слова")
     ap.add_argument("--wav", required=True)
     ap.add_argument("--demix-dir", required=True)
+    ap.add_argument("--lyrics-file", default="", help="канонический текст песни (сверка ASR)")
     ap.add_argument("--asr-cmd", default="", help="CLI ASR, '{wav}' → файл фразы (напр. 'whisper-cli {wav}')")
     ap.add_argument("--sr", type=int, default=44100)
     ap.add_argument("--out", default="phrases.json")

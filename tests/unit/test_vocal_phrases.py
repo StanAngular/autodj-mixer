@@ -144,3 +144,31 @@ class TestGrooveNotSwept:
         seg = slice(2048, 4 * bar)                                 # до lift-хвоста
         # P70: 80Гц грува ЖИВЫ в build (раньше hpf_sweep 120→700 их убивал)
         assert np.abs(out[seg]).mean() > 0.4
+
+
+# ═══ P71: лирика-сверка + исполняемый план фраз ═══
+
+class TestAlignLyrics:
+    WORDS = [{"word": w, "start": i * 100, "end": i * 100 + 90}
+             for i, w in enumerate("ya prihodju ya idu do tebe znovu".split())]
+    def test_canonical_spelling_applied_timings_kept(self):
+        out, cover = vp.align_lyrics(self.WORDS, "я приходжу я іду до тебе знову")
+        assert cover > 0.9
+        assert out[1]["word"] == "приходжу" and out[1]["start"] == 100   # тайминг ASR цел
+    def test_no_lyrics_zero(self):
+        out, cover = vp.align_lyrics(self.WORDS, "")
+        assert cover == 0.0 and out[0]["word"] == "ya"
+
+
+class TestPlacePhraseLayer:
+    def test_placed_at_bar_with_repeats(self):
+        sr, bar = 44100, 1000
+        seg = np.ones((800, 2), "float32")
+        out = cr.place_phrase_layer([{"audio": seg, "at_bar": 3, "repeat": 2}],
+                                    total=10000, bar_len=bar, sr=sr, quarter=250)
+        assert not out[:2900].any() and out[3100:3200].any()             # с бара 3
+    def test_overflow_skipped_whole(self):
+        seg = np.ones((5000, 2), "float32")
+        out = cr.place_phrase_layer([{"audio": seg, "at_bar": 8, "repeat": 1}],
+                                    total=10000, bar_len=1000, sr=44100, quarter=250)
+        assert not out.any()                                             # целиком не влезла — пропуск
