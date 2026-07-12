@@ -493,16 +493,37 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
     if vocal_plan and words_raw:                           # P71: исполняемый план агента
         import json as _json
         plan = _json.load(open(vocal_plan, encoding="utf-8")) if isinstance(vocal_plan, str) else vocal_plan
-        from vocal_phrases import find_text_span
+        from vocal_phrases import find_text_span, find_word_span
         for k, ent in enumerate(plan):
+            if "word" in ent:                              # P72: слово-юнит
+                hit = find_word_span(words_raw, ent["word"].lower(),
+                                     int(ent.get("occurrence", 1)))
+                if hit:
+                    fs, fe = hit
+                    plan_entries.append({"audio": pop["vocals"][int(fs / rate):int(fe / rate)],
+                                         "at_bar": ent["at_bar"],
+                                         "repeat": ent.get("repeat", 1),
+                                         "spacing_beats": ent.get("spacing_beats", 0),
+                                         "gain_db": ent.get("gain_db", 0),
+                                         "fx": ent.get("fx", "")})
+                    print(f"План[{k}] слово «{ent['word']}» #{ent.get('occurrence',1)} → бар {ent['at_bar']}"
+                          + (f" ×{ent.get('repeat',1)}" if ent.get("repeat", 1) > 1 else "")
+                          + (f" {ent['fx']}" if ent.get("fx") else ""))
+                else:
+                    print(f"  ⚠ план[{k}]: слово «{ent.get('word','')}» #{ent.get('occurrence',1)} не найдено")
+                continue
             hit = find_text_span(words_raw, ent.get("phrase", ""))
             if hit:
                 fs, fe, ratio, matched = hit
                 plan_entries.append({"audio": pop["vocals"][int(fs / rate):int(fe / rate)],
                                      "at_bar": ent["at_bar"],
-                                     "repeat": ent.get("repeat", 1), "gain_db": ent.get("gain_db", 0)})
+                                     "repeat": ent.get("repeat", 1),
+                                     "spacing_beats": ent.get("spacing_beats", 0),
+                                     "gain_db": ent.get("gain_db", 0),
+                                     "fx": ent.get("fx", "")})
                 print(f"План[{k}] «{matched[:40]}» ({ratio:.2f}) → бар {ent['at_bar']}"
-                      + (f" ×{ent.get('repeat',1)}" if ent.get("repeat", 1) > 1 else ""))
+                      + (f" ×{ent.get('repeat',1)}" if ent.get("repeat", 1) > 1 else "")
+                      + (f" {ent['fx']}" if ent.get("fx") else ""))
             else:
                 print(f"  ⚠ план[{k}]: фраза не найдена «{ent.get('phrase','')[:40]}…»")
     if phrases_text and words_raw:                         # P70: фразы, ЗАДАННЫЕ ТЕКСТОМ
