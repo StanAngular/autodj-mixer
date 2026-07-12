@@ -228,3 +228,40 @@ class TestTranscript:
         lines = vp.transcript_lines(words, sr, bar_len=sr // 2)
         assert len(lines) == 2 and lines[0]["text"] == "перша рядок"
         assert lines[1]["start_bar"] == 4.0
+
+
+# ═══ P73: lead-in stutter + loop roll ═══
+
+class TestLeadIn:
+    def test_repeats_before_downbeat_with_ramp(self):
+        seg = np.ones((3000, 2), "float32") * 0.5
+        lead = np.ones((400, 2), "float32") * 0.5
+        out = cr.place_phrase_layer(
+            [{"audio": seg, "at_bar": 4, "lead_audio": lead, "lead_repeats": 3}],
+            total=12000, bar_len=1000, sr=44100, quarter=250)
+        pre = out[3250:3500, 0]                          # повторы ПЕРЕД баром 4 (сэмпл 4000)
+        assert pre.max() > 0 and out[4100, 0] > 0        # и лид, и сама фраза
+        p1 = out[3250:3400, 0].max(); p3 = out[3750:3900, 0].max()
+        assert p3 > p1                                   # громкость НАРАСТАЕТ
+    def test_no_negative_positions(self):
+        seg = np.ones((500, 2), "float32")
+        out = cr.place_phrase_layer(
+            [{"audio": seg, "at_bar": 0, "lead_audio": seg[:200], "lead_repeats": 4}],
+            total=8000, bar_len=1000, sr=44100, quarter=250)
+        assert out.shape == (8000, 2)                    # отрицательные позиции пропущены
+
+
+class TestLoopRoll:
+    def test_shrinking_pieces(self):
+        seg = np.ones((1000, 2), "float32")
+        out = cr.place_phrase_layer(
+            [{"audio": seg, "at_bar": 0, "roll": [1, 0.5, 0.5, 0.25, 0.25]}],
+            total=8000, bar_len=1000, sr=44100, quarter=400)
+        loud = np.nonzero(np.abs(out[:, 0]) > 1e-2)[0]  # значимая энергия (не ringing HPF)
+        assert loud.size > 0 and loud.max() < 1400       # уложился компактно, длины убывают
+    def test_roll_respects_total(self):
+        seg = np.ones((1000, 2), "float32")
+        out = cr.place_phrase_layer(
+            [{"audio": seg, "at_bar": 7, "roll": [1, 1, 1, 1]}],
+            total=8000, bar_len=1000, sr=44100, quarter=400)
+        assert out.shape == (8000, 2)

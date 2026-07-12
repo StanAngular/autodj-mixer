@@ -288,6 +288,19 @@ DUCK_DB = -5.0
 STUTTER_REPEATS = 2      # hook-фраза перед дропом (P69)
 
 
+# ─── P73: КАТАЛОГ ПРИЁМОВ (агент читает → сам решает, где какой) ─────────────
+# По проф. источникам (MusicRadar stutter edits, Crossfader transitions, Vocal Market):
+#   lead_in   — «я, я, я приходжу»: первое слово фразы повторяется по долям ПЕРЕД её
+#               даунбитом с НАРАСТАНИЕМ громкости, затем фраза целиком с даунбита.
+#               Где: вход вокала после инструментальной секции, перед дропом.
+#   loop_roll — повторы слова с УМЕНЬШЕНИЕМ длины («бей, бей, б-б-б») = machine-gun
+#               билдап. Где: последние 1-2 бара build.
+#   scratch   — baby-скретч на ярком слове. Где: акцент в дропе, не чаще 1-2 раз.
+#   reverse   — фраза задом наперёд. Где: вход в breakdown («втягивание»).
+#   spacing   — «я … я … я» по долям. Где: разреженные секции (intro/breakdown).
+# Правила: повторы квантовать к долям; края всегда fade; НЕ класть приёмы поверх
+# друг друга (контроль пересечений); вариативность гейна — живее.
+
 def edge_fade(seg: np.ndarray, sr: int, ms: float = 20.0) -> np.ndarray:
     """P72: мягкие края КАЖДОЙ вставки (по прослушке: «резко, слышны края обрезки»)."""
     n = min(int(sr * ms / 1000), len(seg) // 2)
@@ -334,6 +347,33 @@ def place_phrase_layer(entries: list[dict], total: int, bar_len: int, sr: int,
         reps = max(1, int(ent.get("repeat", 1)))
         gap = int(float(ent.get("spacing_beats", 0)) * quarter)
         g = 10 ** (float(ent.get("gain_db", 0.0)) / 20.0)
+        # P73 lead_in: повторы ПЕРВОГО СЛОВА перед даунбитом фразы, громкость нарастает
+        lead = ent.get("lead_audio")
+        n_lead = int(ent.get("lead_repeats", 0))
+        if lead is not None and n_lead > 0:
+            piece = edge_fade(lead, sr, ms=10)
+            for i in range(n_lead):
+                a = pos - (n_lead - i) * quarter
+                b = a + min(len(piece), quarter)
+                if a >= 0 and not any(a < be and b > bs for bs, be in busy):
+                    ramp = 0.5 + 0.5 * (i + 1) / n_lead          # нарастание (не роботно)
+                    out[a:b] += piece[: b - a] * (g * ramp)
+                    busy.append((a, b))
+        # P73 loop_roll: повторы с уменьшением длины (machine-gun билдап)
+        roll = ent.get("roll")
+        if roll:
+            a = pos
+            for i, frac in enumerate(roll):
+                ln = max(64, int(float(frac) * quarter))
+                b = a + ln
+                if b > total:
+                    break
+                pc = edge_fade(seg[: min(len(seg), ln)], sr, ms=8)
+                if not any(a < be and b > bs for bs, be in busy):
+                    out[a:a + len(pc)] += pc * g
+                    busy.append((a, a + len(pc)))
+                a = b
+            continue
         step = len(seg) + gap
         for r in range(reps):
             a = pos + r * step
