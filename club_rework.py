@@ -145,16 +145,22 @@ def render_plan(audio: np.ndarray, downbeats: np.ndarray, plan, sr: int) -> np.n
     return _xfade_concat(parts, sr) if parts else audio
 
 
-def tile_to_length(loop: np.ndarray, total: int, sr: int, xfade_ms: int = 15) -> np.ndarray:
-    """Затайлить луп до total сэмплов (мягкие склейки). Каждый стык съедает xfade —
-    репиты считаются по эффективной длине, добивается точно до total."""
+def tile_to_length(loop: np.ndarray, total: int, sr: int, xfade_ms: int = 50,
+                   alt_loop: np.ndarray | None = None) -> np.ndarray:
+    """Затайлить луп до total сэмплов (мягкие склейки). Если alt_loop задан —
+    чередует основной и альтернативный луп (менее примитивно чем copy-paste).
+    xfade по дефолту 50мс (было 15 — слишком коротко, стыки заметны)."""
     if len(loop) == 0:
         return np.zeros((total, 2), dtype="float32")
     n_x = int(sr * xfade_ms / 1000)
-    eff = max(1, len(loop) - n_x)                    # вклад каждого следующего тайла
+    eff = max(1, len(loop) - n_x)
     reps = 1 + int(np.ceil(max(0, total - len(loop)) / eff))
-    out = _xfade_concat([loop] * reps, sr, xfade_ms)
-    if len(out) < total:                             # страховка на граничные случаи
+    if alt_loop is not None and len(alt_loop) > 0:
+        tiles = [loop if i % 2 == 0 else alt_loop for i in range(reps)]
+    else:
+        tiles = [loop] * reps
+    out = _xfade_concat(tiles, sr, xfade_ms)
+    if len(out) < total:
         out = np.concatenate([out, np.zeros((total - len(out), out.shape[1]), dtype=out.dtype)])
     return out[:total]
 
@@ -422,7 +428,8 @@ def render_section(sec: dict, pop: dict, db: np.ndarray, groove_loops: dict,
     layers: list[np.ndarray] = []
 
     if sec["groove"]:
-        g = tile_to_length(groove_loops[sec["groove"]], total, sr)
+        alt = groove_loops.get("peak_alt") if sec["groove"] == "peak" else None
+        g = tile_to_length(groove_loops[sec["groove"]], total, sr, alt_loop=alt)
         if sec["kind"] == "build":
             g = g.copy()
             lift = min(bar_len, total)                   # drum-lift: последний бар без ударных
@@ -466,6 +473,35 @@ def render_section(sec: dict, pop: dict, db: np.ndarray, groove_loops: dict,
     return out[:total]
 
 
+# ─── Вокальный блендинг ──────────────────────────────────────────────────────
+
+def _vocal_blend(seg: np.ndarray, club_ref: np.ndarray, sr: int,
+                 below_db: float = -4.0) -> np.ndarray:
+    """Вписать вокал в клубный микс: RMS match + HPF 80Гц + лёгкий reverb.
+    below_db: вокал тише club_ref на N dB (отрицательное число = тише).
+    Чистая (numpy + scipy)."""
+    if not len(seg):
+        return seg
+    import scipy.signal
+    # ── RMS match ────────────────────────────────────────────────────────────
+    ref = club_ref[:len(seg)] if len(club_ref) >= len(seg) else club_ref
+    v_rms = float(np.sqrt((seg.astype("float64") ** 2).mean())) + 1e-10
+    m_rms = float(np.sqrt((ref.astype("float64") ** 2).mean())) + 1e-10
+    gain = np.clip((m_rms / v_rms) * (10 ** (below_db / 20)), 0.05, 8.0)
+    out = (seg * gain).astype("float32")
+    # ── HPF 80Гц (убрать demucs-мусор в низах) ───────────────────────────────
+    sos = scipy.signal.butter(4, 80.0, btype="highpass", fs=float(sr), output="sos")
+    out = scipy.signal.sosfilt(sos, out.T).T.astype("float32")
+    # ── Comb reverb: delay 28мс, wet 12% (вписывает в клубное пространство) ──
+    d = int(sr * 0.028)
+    if 0 < d < len(out):
+        tail = out[:-d] * (0.12 * np.linspace(1.0, 0.0, len(out) - d,
+                                               dtype="float32").reshape(-1, 1))
+        out = out.copy()
+        out[d:] += tail
+    return out
+
+
 # ─── Сборка (I/O) ────────────────────────────────────────────────────────────
 
 def _load_track(wav, demix_dir, ann_dir, sr):
@@ -483,12 +519,17 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
                 intro_bars=16, outro_bars=16, pop_drums_db=-12.0, club_drums_db=0.0,
                 force=False, out="club_edit.wav", pop_layers="full", donor_bass=False,
                 hook_stutter=True, phrases_text=None, asr="groq",
-                vocal_plan=None, lyrics_file=""):
+                vocal_plan=None, lyrics_file="",
+                lyrics_title="", lyrics_artist="", asr_language=""):
     """v2: секционная аранжировка (см. докстринг модуля). pop_drums_db сохранён в
     сигнатуре для совместимости, но поп-drums в v2 ВЫБРОШЕНЫ (частотная роль грува)."""
     import soundfile as sf
     stems, db, pop_bpm, labels = _load_track(pop_wav, demix_dir, ann_dir, sr)
     d_stems, d_db, d_bpm, d_labels = _load_track(donor_wav, demix_dir, ann_dir, sr)
+    # A1F segments для chorus-scope ASR
+    from smart_mixer import load_a1f_track_data as _la1f
+    _a1f_pop = _la1f(pop_wav, sr)
+    pop_segments = (_a1f_pop.get("segments") or []) if _a1f_pop else []
     tgt = target_bpm or d_bpm
     ok, rate, why = club_gate(pop_bpm, tgt)
     print(f"Гейт: {why}")
@@ -499,17 +540,30 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
     pop = {k: _stretch(v, sr, rate) for k, v in stems.items() if k != "drums"}
     db_s = (np.asarray(db, dtype="float64") / rate).astype("int64")
 
-    # грув: 2 лупа донора по ЕГО A1F (peak для тела, sparse для интро), к target-темпу
+    # грув: peak + sparse лупы донора; peak_alt = второй вариант для чередования
     d_rate = (tgt / d_bpm) if d_bpm else 1.0
+    d_blocks = _blocks(d_labels)
     loops = {}
     for kind in ("peak", "sparse"):
         ls, le = pick_donor_loop_bars(d_labels, kind)
         raw = _slice_bars(d_stems["drums"], d_db, ls, le)
-        if donor_bass:                                   # бас донора в груве (нужна Camelot-совместимость!)
+        if donor_bass:
             raw = raw + _slice_bars(d_stems["bass"], d_db, ls, le)[:len(raw)]
         loops[kind] = _stretch(raw, sr, d_rate) if len(raw) else np.zeros((1, 2), "float32")
     if not len(loops["sparse"]):
         loops["sparse"] = loops["peak"]
+    # alt-луп: берём из другой peak-секции донора (менее примитивно чем copy-paste)
+    peak_ls, peak_le = pick_donor_loop_bars(d_labels, "peak")
+    alt_candidates = [(s, e) for s, e, l in d_blocks
+                      if l in ("chorus", "inst", "break") and s != peak_ls]
+    if alt_candidates:
+        a_s, a_e = alt_candidates[len(alt_candidates) // 2]  # середина списка
+        alt_raw = _slice_bars(d_stems["drums"], d_db, a_s, min(a_e, a_s + 8))
+        if donor_bass:
+            alt_raw = alt_raw + _slice_bars(d_stems["bass"], d_db, a_s, min(a_e, a_s + 8))[:len(alt_raw)]
+        loops["peak_alt"] = _stretch(alt_raw, sr, d_rate) if len(alt_raw) else None
+    else:
+        loops["peak_alt"] = None
 
     bar_len = int(round(60.0 / tgt * 4 * sr))
     quarter = max(1, bar_len // 4)
@@ -520,15 +574,26 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
     plan_entries, words_raw = [], None
     if vocal_plan or phrases_text:                        # P71: word-ASR нужен обоим
         try:
-            from vocal_phrases import transcribe_words, find_text_span, align_lyrics
-            # транскрибация ДО стретча (на исходном вокале)
-            words_raw = transcribe_words(stems["vocals"], sr, asr=asr)
+            from vocal_phrases import (transcribe_chorus_words, find_text_span,
+                                        align_lyrics, fetch_lyrics)
+            # авто-поиск лирики (если --lyrics-file не задан)
+            lyr_cache = os.path.splitext(pop_wav)[0] + ".lyrics.txt"
+            if not lyrics_file and os.path.exists(lyr_cache):
+                lyrics_file = lyr_cache  # кэш рядом с wav
+            if not lyrics_file and (lyrics_title or lyrics_artist):
+                fetched = fetch_lyrics(lyrics_title, lyrics_artist, cache_path=lyr_cache)
+                if fetched:
+                    lyrics_file = lyr_cache
+                    print(f"Лирика: найдена онлайн ({len(fetched.split())} слов)")
+            # chorus-scope ASR — только по chorus/verse/bridge сегментам из A1F
+            words_raw = transcribe_chorus_words(stems["vocals"], sr, pop_segments,
+                                                asr=asr, language=asr_language)
             if words_raw and lyrics_file and os.path.exists(lyrics_file):
                 lyr = open(lyrics_file, encoding="utf-8").read()
                 words_raw, cover = align_lyrics(words_raw, lyr)
                 print(f"Лирика: сверено, покрытие {cover:.0%}")
         except Exception as e:
-            print(f"  ⚠ word-ASR: {type(e).__name__}")
+            print(f"  ⚠ word-ASR: {type(e).__name__}: {e}")
     rate = tgt / pop_bpm                                   # пересчёт оригинал→стретч
     if vocal_plan and words_raw:                           # P71: исполняемый план агента
         import json as _json
@@ -589,11 +654,20 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
                 print(f"  ⚠ план[{k}]: фраза не найдена «{ent.get('phrase','')[:40]}…»")
     if phrases_text and words_raw:                         # P70: фразы, ЗАДАННЫЕ ТЕКСТОМ
         try:
-            from vocal_phrases import find_text_span
+            from vocal_phrases import find_text_span, trim_to_phrase_start
+            # первый хорус по A1F — типичное место основного хука
+            chorus_segs = [s for s in pop_segments if s.get("label") == "chorus"]
+            first_chorus_end_samp = int(chorus_segs[0]["end"] * sr) if chorus_segs else 0
             for i, q in enumerate(phrases_text):
-                hit = find_text_span(words_raw, q)
+                # сначала ищем только в первом хорусе, потом глобальный fallback
+                first_chorus_words = ([w for w in words_raw
+                                        if w["start"] <= first_chorus_end_samp]
+                                       if first_chorus_end_samp else words_raw)
+                hit = find_text_span(first_chorus_words, q) or find_text_span(words_raw, q)
                 if hit:
                     fs, fe, ratio, matched = hit
+                    # trim к первому слову запроса (срезаем "хвост" предыдущей строки)
+                    fs, fe = trim_to_phrase_start(words_raw, fs, fe, q)
                     fs_s = int(fs / rate)
                     fe_s = int(fe / rate)
                     seg = pop["vocals"][fs_s:fe_s]
@@ -601,7 +675,9 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
                           f"[{fs/sr:.1f}s–{fe/sr:.1f}s]")
                     if i == 0:
                         hook_audio = seg
-                    tease_audio = seg if i == len(phrases_text) - 1 else tease_audio
+                    if len(phrases_text) > 1:  # несколько фраз: последняя = тизер
+                        tease_audio = seg if i == len(phrases_text) - 1 else tease_audio
+                    # одна фраза: тизер из verse (не дублировать хук в интро)
                 else:
                     print(f"  ⚠ фраза[{i}] не найдена в словах: «{q[:40]}…»")
         except Exception as e:
@@ -618,6 +694,21 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
                       f"повторов в треке: {len(hk['repeats'])}) → stutter в build + тизер в intro")
         except Exception as e:
             print(f"  ⚠ хук не извлечён ({type(e).__name__}) — rework без статтера")
+    # тизер в интро: если хук задан, но тизер нет — берём фразу из первого verse
+    if hook_audio is not None and tease_audio is None:
+        verse_segs = [s for s in pop_segments if s.get("label") == "verse"]
+        if verse_segs:
+            vs = verse_segs[0]
+            vs_start = int(vs["start"] * sr / rate)
+            vs_end = min(int((vs["start"] + 5.0) * sr / rate), len(pop["vocals"]))
+            tease_audio = pop["vocals"][vs_start:vs_end]
+            print(f"Тизер: verse @ {vs['start']:.1f}s (вместо дубля хука в интро)")
+    # вписать вокал в клубный трек (RMS match + HPF 80Гц + reverb)
+    club_ref = loops["peak"][:sr * 4] if len(loops.get("peak", [])) > sr else np.zeros((1, 2), "float32")
+    if hook_audio is not None and len(hook_audio):
+        hook_audio = _vocal_blend(hook_audio, club_ref, sr)
+    if tease_audio is not None and len(tease_audio):
+        tease_audio = _vocal_blend(tease_audio, club_ref, sr)
     parts = [render_section(sec, pop, db_s, loops, sr, bar_len, quarter, pop_layers,
                             hook_audio=hook_audio,
                             tease_audio=tease_audio if tease_audio is not None else hook_audio)
@@ -760,6 +851,9 @@ def _main():
     ap.add_argument("--force", action="store_true", help="пройти гейт стретча (качество на твоей совести)")
     ap.add_argument("--sr", type=int, default=44100)
     ap.add_argument("--out", default="club_edit.wav")
+    ap.add_argument("--lyrics-title", default="", help="название песни для авто-поиска лирики")
+    ap.add_argument("--lyrics-artist", default="", help="исполнитель для авто-поиска лирики")
+    ap.add_argument("--asr-language", default="", help="ISO-639-1 язык ASR ('uk','en','ru'...). Без него auto-detect (хуже для неангл.)")
     a = ap.parse_args()
     if a.analyze:
         import json as _json
@@ -782,7 +876,9 @@ def _main():
                 a.intro_bars, a.outro_bars, a.pop_drums_db, a.club_drums_db, a.force, a.out,
                 pop_layers=a.pop_layers, donor_bass=a.donor_bass,
                 hook_stutter=not a.no_hook_stutter, phrases_text=a.phrase, asr=a.asr,
-                vocal_plan=(a.vocal_plan or None), lyrics_file=a.lyrics_file)
+                vocal_plan=(a.vocal_plan or None), lyrics_file=a.lyrics_file,
+                lyrics_title=a.lyrics_title, lyrics_artist=a.lyrics_artist,
+                asr_language=a.asr_language)
 
 
 if __name__ == "__main__":

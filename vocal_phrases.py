@@ -140,11 +140,112 @@ def find_hook(vocals: np.ndarray, sr: int, phrases: list[tuple[int, int]],
 
 # ─── P70: слова с таймингами + фраза ПО ТЕКСТУ ──────────────────────────────
 
-def transcribe_words(vocals: np.ndarray, sr: int, asr: str = "groq") -> list[dict]:
+def fetch_lyrics(title: str, artist: str, cache_path: str = "") -> str:
+    """Автопоиск текста песни: кэш → AZLyrics → ''.
+    cache_path: если задан, читаем кэш и пишем результат туда.
+    Без внешних зависимостей (только urllib stdlib)."""
+    if cache_path and os.path.exists(cache_path):
+        try:
+            return open(cache_path, encoding="utf-8").read().strip()
+        except Exception:
+            pass
+    import re
+    import urllib.request
+    def _az(s: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", s.lower())
+    url = f"https://www.azlyrics.com/lyrics/{_az(artist)}/{_az(title)}.html"
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+        m = re.search(
+            r'<!-- Usage of azlyrics\.com content.*?-->\s*(.*?)\s*<!-- MxM banner',
+            html, re.S)
+        if m:
+            text = re.sub(r"<[^>]+>", "", m.group(1))
+            text = re.sub(r"\r\n|\r", "\n", text)
+            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+            if len(text) >= 50:
+                if cache_path:
+                    try:
+                        with open(cache_path, "w", encoding="utf-8") as f:
+                            f.write(text)
+                    except Exception:
+                        pass
+                return text
+    except Exception:
+        pass
+    return ""
+
+
+def transcribe_chorus_words(vocals: np.ndarray, sr: int, segments: list[dict],
+                             asr: str = "groq", language: str = "",
+                             vocal_labels: tuple = ("chorus", "verse", "bridge")) -> list[dict]:
+    """ASR только по вокальным сегментам (chorus/verse/bridge из A1F).
+    Намного чище полного трека: 15с хоруса vs 200с целиком.
+    language: ISO-639-1 код -- критически важен для неангл. треков.
+    Fallback на полный transcribe_words если segments пустые."""
+    if not segments:
+        return transcribe_words(vocals, sr, asr=asr, language=language)
+    vocal_segs = [(s["start"], s["end"]) for s in segments
+                  if s.get("label", "") in vocal_labels]
+    if not vocal_segs:
+        return transcribe_words(vocals, sr, asr=asr, language=language)
+    all_words: list[dict] = []
+    for seg_start_s, seg_end_s in vocal_segs:
+        s_samp = int(seg_start_s * sr)
+        e_samp = min(int(seg_end_s * sr), len(vocals))
+        if e_samp <= s_samp + sr // 2:          # < 0.5с — пропуск
+            continue
+        chunk = vocals[s_samp:e_samp]
+        words = transcribe_words(chunk, sr, asr=asr, language=language)
+        for w in words:                          # сдвиг к абсолютным позициям
+            w["start"] += s_samp
+            w["end"] += s_samp
+        all_words.extend(words)
+    return all_words
+
+
+def trim_to_phrase_start(words: list[dict], span_start: int, span_end: int,
+                          query: str) -> tuple[int, int]:
+    """Обрезать найденный ASR-спан к границам запроса: trim и с начала, и с конца.
+    Начало -- до первого слова запроса, конец -- после последнего слова запроса.
+    Убирает "хвост" предыдущей строки и лишние слова после фразы (напр. "духмяні").
+    Универсально: fuzzy-match по нормализованным словам query."""
+    from difflib import SequenceMatcher
+    q_words = _norm_text(query)
+    if not q_words:
+        return span_start, span_end
+    span_words = [w for w in words if w["start"] >= span_start and w["end"] <= span_end]
+    if not span_words:
+        return span_start, span_end
+    # trim начала: первое слово запроса (fuzzy, т.к. ASR может слить "А липи" → "Алиби")
+    first_q = q_words[0]
+    new_start = span_start
+    for w in span_words:
+        wn = _norm_text(w["word"])
+        if wn and SequenceMatcher(None, first_q, wn[0]).ratio() >= 0.4:
+            new_start = w["start"]
+            break
+    # trim конца: последнее слово запроса
+    last_q = q_words[-1]
+    new_end = span_end
+    for w in reversed(span_words):
+        wn = _norm_text(w["word"])
+        if wn and SequenceMatcher(None, last_q, wn[0]).ratio() >= 0.5:
+            new_end = w["end"]
+            break
+    return new_start, new_end
+
+
+def transcribe_words(vocals: np.ndarray, sr: int, asr: str = "groq",
+                      language: str = "") -> list[dict]:
     """Word-level распознавание ВСЕГО вокала → [{word, start, end}] (сэмплы, абсолютные).
-    asr='groq' — Groq Whisper API (env GROQ_API_KEY, verbose_json + word timestamps,
-    тот же стек, что в ClaudeClaw; даунсемпл до 16kHz моно + чанки по 90с если файл >20MB);
-    иначе asr = CLI-шаблон '{wav}', ожидающий JSON [{word,start,end(сек)}] в stdout.
+    asr='groq' — Groq Whisper API (env GROQ_API_KEY, verbose_json + word timestamps).
+    language: ISO-639-1 ('uk', 'en', ...). Без него Whisper auto-detect, что даёт ошибки
+    для неанглийских треков (напр. украинский→русский транскрипт).
     Ошибки → [] (слова опциональны)."""
     try:
         import soundfile as sf
@@ -167,7 +268,7 @@ def transcribe_words(vocals: np.ndarray, sr: int, asr: str = "groq") -> list[dic
                     sf.write(f.name, seg, sr)
                     path = f.name
                 try:
-                    words = _groq_words(path) or []
+                    words = _groq_words(path, language=language) or []
                 except Exception:
                     words = []
                 if words:
@@ -192,8 +293,9 @@ def transcribe_words(vocals: np.ndarray, sr: int, asr: str = "groq") -> list[dic
         return []
 
 
-def _groq_words(wav_path: str) -> list[dict]:
+def _groq_words(wav_path: str, language: str = "") -> list[dict]:
     """Groq Whisper: verbose_json + word timestamps. env GROQ_API_KEY.
+    language: ISO-639-1 код ('uk', 'en', 'ru'...). Пустой = auto-detect (хуже для неангл. яз).
     Прокси socks5://127.0.0.1:40000 если доступен (VPS за блокировками)."""
     import requests
     try:
@@ -205,10 +307,13 @@ def _groq_words(wav_path: str) -> list[dict]:
     key = os.environ.get("GROQ_API_KEY", "")
     if not key:
         return []
+    data: dict = {"model": "whisper-large-v3", "response_format": "verbose_json",
+                  "timestamp_granularities[]": "word"}
+    if language:
+        data["language"] = language
     kw = {
         "headers": {"Authorization": f"Bearer {key}"},
-        "data": {"model": "whisper-large-v3", "response_format": "verbose_json",
-                 "timestamp_granularities[]": "word"},
+        "data": data,
         "timeout": 300,
     }
     # проверка доступности прокси (не блокирующая — просто пробуем)
