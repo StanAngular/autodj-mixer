@@ -205,61 +205,63 @@ def synth_fm_bass_track(f0_arr, bass: FMBass):
 # 808 DRUM MACHINE
 # ═══════════════════════════════════════════
 
-def drum_808_kick(n_samples=8820, f_start=160.0, f_end=38.0, drive=1.3):
+def drum_808_kick(n_samples=11025, f_start=110.0, f_end=28.0, drive=1.0):
     """
-    808-style kick: pitch sweep + sub sine + transient click.
-    Long sustain, heavy sub bass.
+    Soft 808-style kick: lower frequency sweep, longer tail, minimal click.
+    Sounds more like a ballad/pop kick — low and round, not punchy.
     """
     t = np.arange(n_samples) / SR
 
-    # Pitch envelope: exponential sweep
-    freq = f_start * np.exp(-t * 30) + f_end
+    # Slower pitch sweep → rounder, deeper
+    freq = f_start * np.exp(-t * 18) + f_end
     phase = 2 * np.pi * np.cumsum(freq) / SR
     body = np.sin(phase)
 
-    # Amplitude envelope: fast attack, slow decay
-    amp_env = np.exp(-t * 6) * 0.85 + np.exp(-t * 0.8) * 0.15
+    # Longer amplitude decay (0.8 instead of 6) → more sustain, less snap
+    amp_env = np.exp(-t * 4) * 0.8 + np.exp(-t * 0.5) * 0.2
 
-    # Transient click (adds "punch")
-    click_env = np.exp(-t * 300)
-    click = np.random.randn(n_samples) * click_env * 0.15
+    # Minimal transient (soft click)
+    click_env = np.exp(-t * 200)
+    click = np.random.randn(n_samples) * click_env * 0.04
 
     kick = (body + click) * amp_env
 
-    # Soft saturation for analog warmth
-    kick = soft_clip(kick * drive, 0.7)
+    # No saturation (keep it clean)
+    # Low-pass at 2500Hz → very round/soft, no high-freq content
+    kick = butter_lp(kick, 2500)
 
-    # Low-pass to remove click harshness
-    kick = butter_lp(kick, 8000)
-
-    return (kick * 0.95).astype(np.float32)
+    return (kick * 0.90).astype(np.float32)
 
 
-def drum_808_snare(n_samples=6000, body_f=185, drive=1.1):
+def drum_808_snare(n_samples=6000, body_f=150, drive=0.85):
     """
-    808 snare: tonal body (2 sines) + noise burst + transient.
+    Soft snare: lower frequency body, less noise, more tonal.
+    Sounds more like a rim/brush than a hard snare.
     """
     t = np.arange(n_samples) / SR
 
-    # Tonal body: two sine components
-    body = (0.55 * np.sin(2 * np.pi * body_f * t) +
-            0.35 * np.sin(2 * np.pi * body_f * 1.71 * t))  # ~316Hz
-    body_env = np.exp(-t * 25)
+    # Lower body frequency → softer
+    body = (0.65 * np.sin(2 * np.pi * body_f * t) +
+            0.25 * np.sin(2 * np.pi * body_f * 1.6 * t))  # ~240Hz
+    body_env = np.exp(-t * 18)
     body *= body_env
 
-    # Noise component (snare rattle)
+    # Less noise (0.30 instead of 0.65), narrower band
     noise = np.random.randn(n_samples)
-    noise = butter_bp(noise, 1500, 9000)
-    noise_env = np.exp(-t * 14)
-    noise *= noise_env * 0.65
+    noise = butter_bp(noise, 800, 4000)
+    noise_env = np.exp(-t * 10)
+    noise *= noise_env * 0.30
 
-    # Transient
-    trans = np.random.randn(n_samples) * np.exp(-t * 400) * 0.2
+    # Minimal transient
+    trans = np.random.randn(n_samples) * np.exp(-t * 300) * 0.06
 
     snare = body + noise + trans
-    snare = soft_clip(snare * drive, 0.8)
+    # No saturation → cleaner
+    mx = np.max(np.abs(snare))
+    if mx > 0:
+        snare /= mx
 
-    return (snare * 0.8).astype(np.float32)
+    return (snare * 0.65).astype(np.float32)
 
 
 def drum_808_hihat(n_samples=1600, open_hat=False, metallic=True):
@@ -287,7 +289,7 @@ def drum_808_hihat(n_samples=1600, open_hat=False, metallic=True):
     decay = 5 if open_hat else 40
     env = np.exp(-t * decay)
 
-    amp = 0.35 if open_hat else 0.3
+    amp = 0.18 if open_hat else 0.14
     return (noise * env * amp).astype(np.float32)
 
 
