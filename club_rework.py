@@ -694,15 +694,7 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
                       f"повторов в треке: {len(hk['repeats'])}) → stutter в build + тизер в intro")
         except Exception as e:
             print(f"  ⚠ хук не извлечён ({type(e).__name__}) — rework без статтера")
-    # тизер в интро: если хук задан, но тизер нет — берём фразу из первого verse
-    if hook_audio is not None and tease_audio is None:
-        verse_segs = [s for s in pop_segments if s.get("label") == "verse"]
-        if verse_segs:
-            vs = verse_segs[0]
-            vs_start = int(vs["start"] * sr / rate)
-            vs_end = min(int((vs["start"] + 5.0) * sr / rate), len(pop["vocals"]))
-            tease_audio = pop["vocals"][vs_start:vs_end]
-            print(f"Тизер: verse @ {vs['start']:.1f}s (вместо дубля хука в интро)")
+    # P74: интро без вокала (обрывки фраз хуже чем чистый грув)
     # вписать вокал в клубный трек (RMS match + HPF 80Гц + reverb)
     club_ref = loops["peak"][:sr * 4] if len(loops.get("peak", [])) > sr else np.zeros((1, 2), "float32")
     if hook_audio is not None and len(hook_audio):
@@ -711,9 +703,11 @@ def pop_to_club(pop_wav, donor_wav, demix_dir, ann_dir, target_bpm, sr=44100,
         tease_audio = _vocal_blend(tease_audio, club_ref, sr)
     parts = [render_section(sec, pop, db_s, loops, sr, bar_len, quarter, pop_layers,
                             hook_audio=hook_audio,
-                            tease_audio=tease_audio if tease_audio is not None else hook_audio)
+                            tease_audio=tease_audio)        # None = чистый интро без вокала
              for sec in arr]
-    mix = _xfade_concat(parts, sr, ms=25)
+    # section xfade: 1/16 такта (120мс@126) — сглаживает стыки грува между секциями
+    sec_xfade_ms = max(50, int(60000.0 / tgt / 4))  # ~1/16 note
+    mix = _xfade_concat(parts, sr, ms=sec_xfade_ms)
     if plan_entries:
         layer = place_phrase_layer(plan_entries, len(mix), bar_len, sr, quarter)
         mix = mix + layer

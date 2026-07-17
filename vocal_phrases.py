@@ -463,6 +463,57 @@ def find_word_span(words: list[dict], word: str, occurrence: int = 1):
     return None
 
 
+# ─── P74: аудит обрывов фраз в рендере ────────────────────────────────────────
+
+def audit_vocal_phrases(wav_path: str, lyrics: str = "", sr: int = 44100,
+                         asr: str = "groq", language: str = "",
+                         min_phrase_s: float = 0.5) -> list[dict]:
+    """Обнаружение обрывов/незаконченных фраз в рендере.
+    Запускает ASR → строит фразы по паузам → сверяет с lyrics.
+    Фразы которые обрываются посреди строки лирики = TRUNCATED.
+    Возвращает [{time_s, text, status, issue}]. Чистая (I/O через ASR)."""
+    import soundfile as sf
+    audio, file_sr = sf.read(wav_path, dtype="float32", always_2d=True)
+    if file_sr != sr:
+        sr = file_sr
+    words = transcribe_words(audio, sr, asr=asr, language=language)
+    if not words:
+        return [{"time_s": 0, "text": "", "status": "error", "issue": "ASR вернул 0 слов"}]
+    if lyrics:
+        words, _ = align_lyrics(words, lyrics)
+    # строки по паузам
+    lines = transcript_lines(words, sr, gap_ms=600)
+    # разбить lyrics на строки для сверки
+    lyr_lines = [l.strip() for l in lyrics.split("\n") if l.strip()] if lyrics else []
+    results: list[dict] = []
+    for ln in lines:
+        text = ln["text"]
+        t = ln["start_s"]
+        # проверка: есть ли эта строка целиком в lyrics?
+        status = "ok"
+        issue = ""
+        if lyr_lines:
+            # fuzzy-match к ближайшей строке лирики
+            from difflib import SequenceMatcher
+            best_ratio, best_line = 0.0, ""
+            for ll in lyr_lines:
+                r = SequenceMatcher(None, text.lower(), ll.lower()).ratio()
+                if r > best_ratio:
+                    best_ratio, best_line = r, ll
+            if best_ratio >= 0.4:
+                # проверить: текст покрывает всю строку или обрыв?
+                text_words = _norm_text(text)
+                line_words = _norm_text(best_line)
+                if len(text_words) < len(line_words) * 0.7:
+                    status = "truncated"
+                    issue = f"обрыв: {len(text_words)}/{len(line_words)} слов от «{best_line}»"
+            else:
+                status = "unmatched"
+                issue = f"не найдено в лирике (best ratio {best_ratio:.2f})"
+        results.append({"time_s": t, "text": text, "status": status, "issue": issue})
+    return results
+
+
 def _main():
     ap = argparse.ArgumentParser(description="P69: фразы вокала + хук + (опц.) слова")
     ap.add_argument("--wav", required=True)
@@ -471,9 +522,27 @@ def _main():
                     help="P72: полный текст строками (агент читает и думает) вместо phrases.json")
     ap.add_argument("--lyrics-file", default="", help="канонический текст песни (сверка ASR)")
     ap.add_argument("--asr-cmd", default="", help="CLI ASR, '{wav}' → файл фразы (напр. 'whisper-cli {wav}')")
+    ap.add_argument("--audit", default="", help="P74: аудит рендера — WAV файл для проверки обрывов фраз")
+    ap.add_argument("--asr-language", default="", help="ISO-639-1 код языка для ASR")
     ap.add_argument("--sr", type=int, default=44100)
     ap.add_argument("--out", default="phrases.json")
     a = ap.parse_args()
+    if a.audit:
+        lyr = ""
+        if a.lyrics_file and os.path.exists(a.lyrics_file):
+            lyr = open(a.lyrics_file, encoding="utf-8").read()
+        results = audit_vocal_phrases(a.audit, lyrics=lyr, sr=a.sr,
+                                       language=a.asr_language)
+        for r in results:
+            icon = {"ok": "✓", "truncated": "✂", "unmatched": "?", "error": "✗"}.get(r["status"], "?")
+            m = int(r["time_s"] // 60)
+            s = r["time_s"] % 60
+            print(f"  {icon} {m:02d}:{s:05.2f}  «{r['text'][:60]}»")
+            if r["issue"]:
+                print(f"          {r['issue']}")
+        n_trunc = sum(1 for r in results if r["status"] == "truncated")
+        print(f"\nИтого: {len(results)} фраз, {n_trunc} обрывов")
+        return
     rep = phrases_report(a.wav, a.demix_dir, a.sr, a.asr_cmd)
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(rep, f, ensure_ascii=False, indent=2)
