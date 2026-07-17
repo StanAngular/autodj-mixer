@@ -306,6 +306,23 @@ def _groq_words(wav_path: str, language: str = "") -> list[dict]:
         pass
     key = os.environ.get("GROQ_API_KEY", "")
     if not key:
+        # Fallback: parse .env manually (when dotenv not installed)
+        for env_path in [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+            os.path.join(os.path.expanduser("~"), "claudeclaw-build", ".env"),
+        ]:
+            try:
+                with open(env_path, "r") as _f:
+                    for _line in _f:
+                        _line = _line.strip()
+                        if _line.startswith("GROQ_API_KEY=") and not _line.startswith("#"):
+                            key = _line.split("=", 1)[1].strip().strip('"').strip("'")
+                            break
+                if key:
+                    break
+            except Exception:
+                pass
+    if not key:
         return []
     data: dict = {"model": "whisper-large-v3", "response_format": "verbose_json",
                   "timestamp_granularities[]": "word"}
