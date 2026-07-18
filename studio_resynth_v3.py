@@ -153,25 +153,25 @@ class DrumSampler:
             items = self.pool[label]
             if not items:
                 continue
-            # Sort samples by RMS to get a range of dynamics
-            items_sorted = sorted(items, key=lambda x: np.sqrt(np.mean(x[1]**2)))
             for idx, (pos, _original_hit) in enumerate(items):
-                # Pick from pool with slight variation (round-robin + random)
+                # Round-robin pick from pool for natural variation
                 pick_idx = (idx + np.random.randint(0, max(1, len(items)//3))) % len(items)
                 hit = items[pick_idx][1].copy()
-                # Slight velocity variation
-                hit *= np.random.uniform(0.85, 1.05)
+                hit *= np.random.uniform(0.88, 1.0)  # slight velocity variation
                 end = min(pos + len(hit), n_total)
                 n = end - pos
                 if n > 0 and pos >= 0:
-                    out[pos:end] += hit[:n]
+                    # soft clip before adding to prevent accumulation spikes
+                    chunk = np.tanh(hit[:n] * 0.8) / 0.8
+                    out[pos:end] += chunk
                     counts[label] += 1
 
         print(f"  Stamped: kick={counts['kick']} snare={counts['snare']} hat={counts['hat']}")
-        # peak normalize
+        # soft clip entire drum bus, then normalize
+        out = np.tanh(out * 0.7) / 0.7
         peak = np.abs(out).max()
         if peak > 0.01:
-            out *= 0.82 / peak
+            out *= 0.80 / peak
         return out
 
 
@@ -238,27 +238,54 @@ class BassSampler:
 
     def _shift_sample(self, src, src_f0, tgt_f0, dur_s):
         ratio = tgt_f0 / src_f0 if src_f0 > 0 else 1.0
+        # Cap shift to ±7 semitones to avoid extreme aliasing
+        ratio = np.clip(ratio, 2**(-7/12), 2**(7/12))
         n_out = int(dur_s * self.sr)
+
         if abs(ratio - 1.0) > 0.005:
-            # resample to shift pitch (changes length too)
-            new_len = int(len(src) / ratio)
+            new_len = max(64, int(len(src) / ratio))
             shifted = scipy.signal.resample(src, new_len).astype(np.float32)
+            # LP filter after resample to kill aliasing (cutoff at 0.9 * Nyquist)
+            b, a = scipy.signal.butter(4, 0.88, btype='low')
+            shifted = scipy.signal.filtfilt(b, a, shifted).astype(np.float32)
         else:
             shifted = src.copy()
-        # trim or loop
+
+        # fade in/out on the source sample before looping
+        fi = min(256, len(shifted) // 6)
+        shifted[:fi] *= np.linspace(0, 1, fi)
+        fo = min(512, len(shifted) // 4)
+        shifted[-fo:] *= np.linspace(1, 0, fo)
+
+        # trim or loop with overlap-add crossfade
         if len(shifted) >= n_out:
-            result = shifted[:n_out]
+            result = shifted[:n_out].copy()
         else:
+            xfade = min(512, len(shifted) // 3)
             result = np.zeros(n_out, dtype=np.float32)
             pos = 0
             while pos < n_out:
-                chunk = min(len(shifted), n_out - pos)
-                result[pos:pos + chunk] = shifted[:chunk]
-                pos += len(shifted)
-        # fade out
-        fade = min(int(0.04 * self.sr), len(result) // 4)
+                seg_len = min(len(shifted), n_out - pos)
+                # blend previous tail with new head
+                blend = min(xfade, pos, seg_len)
+                if blend > 0:
+                    w = np.linspace(0, 1, blend, dtype=np.float32)
+                    result[pos:pos + blend] = (
+                        result[pos:pos + blend] * (1 - w) +
+                        shifted[:blend] * w
+                    )
+                    result[pos + blend:pos + seg_len] += shifted[blend:seg_len]
+                else:
+                    result[pos:pos + seg_len] += shifted[:seg_len]
+                pos += len(shifted) - xfade
+
+        # final fade out to avoid click at note end
+        fade = min(int(0.05 * self.sr), len(result) // 3)
         if fade > 1:
             result[-fade:] *= np.linspace(1, 0, fade)
+
+        # DC block
+        result -= result.mean()
         return result.astype(np.float32)
 
     def render(self, n_total):
