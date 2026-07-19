@@ -71,6 +71,9 @@
 
     "drums": {
       "active": true,
+      "swing": 0.55,
+      "jitter_ms": 6.0,
+      "velocity_variation": 0.18,
       "pattern": {
         "kick":  [0],
         "snare": [1, 3],

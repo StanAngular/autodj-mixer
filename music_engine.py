@@ -115,6 +115,38 @@ class MusicEngine:
         end = min(pos+len(hit), len(buf)); n = end-pos
         if n > 0: buf[pos:end] += hit[:n] * gain
 
+    # ── humanization ──────────────────────────────────────────────────────────
+
+    def humanize_pos(self, pos, jitter_ms=3.0):
+        """Randomize note timing ±jitter_ms milliseconds."""
+        j = int(np.random.normal(0, jitter_ms * self.SR / 1000))
+        return max(0, int(pos) + j)
+
+    def swing_offset(self, step_idx, step_n, swing=0.0):
+        """Push every odd 16th note late (swing feel). swing=0.55 = light jazz."""
+        if swing <= 0 or step_idx % 2 == 0: return 0
+        return int(swing * step_n * 0.5)
+
+    def humanize_vel(self, gain, variation=0.15):
+        """Random velocity variation ±variation."""
+        return float(gain) * np.random.uniform(1.0 - variation, 1.0)
+
+    def load_sample(self, path, normalize=True, trim_silence=True):
+        """Load a WAV/MP3 one-shot. Returns float32 mono array at SR=44100."""
+        data, sr = sf.read(path)
+        if data.ndim > 1: data = data.mean(axis=1)
+        if sr != self.SR:
+            from scipy.signal import resample as rs
+            data = rs(data, int(len(data) * self.SR / sr)).astype(np.float32)
+        data = data.astype(np.float32)
+        if trim_silence:
+            mask = np.abs(data) > 0.002
+            if mask.any(): data = data[mask.argmax():]
+        if normalize:
+            peak = np.abs(data).max()
+            if peak > 0: data /= peak
+        return self.fade(data, fi=32, fo=512)
+
     def apply_fx(self, audio, chain):
         from pedalboard import Pedalboard
         board = Pedalboard(chain)
@@ -497,15 +529,20 @@ class MusicEngine:
         SNARE_AMP = self.get_auto('snare_amp', 1.0)
         HAT_AMP   = self.get_auto('hat_amp', 1.0)
         REV_WET   = self.get_auto('rev_wet', 0.3)
-        pat       = cfg.get('pattern', {})
+        pat         = cfg.get('pattern', {})
         kick_beats  = pat.get('kick', [0, 2])
         snare_beats = pat.get('snare', [1, 3])
-        snare_type  = pat.get('snare_type', 'snare')   # 'snare' | 'clap' | 'brush'
-        hat_mode    = pat.get('hat', 'every16')          # 'every16' | 'every8' | 'off'
+        snare_type  = pat.get('snare_type', 'snare')
+        hat_mode    = pat.get('hat', 'every16')
+        # Humanization params
+        swing     = cfg.get('swing', 0.0)          # 0.0=off, 0.5=triplet, 0.6=heavy
+        jitter_ms = cfg.get('jitter_ms', 0.0)      # timing randomness in ms
+        vel_var   = cfg.get('velocity_variation', 0.0)  # 0.0=off, 0.15=natural
         BR = self.mk_brush_snare(cfg.get('brush'))
         S_HIT = BR if snare_type == 'brush' else (CL if snare_type == 'clap' else S)
         drum_buf = np.zeros(self.N, np.float32)
         n_bars   = self.N // self.BAR
+        s16_idx  = 0  # global 16th-note counter for swing
         for bar in range(n_bars):
             for beat in range(4):
                 pb = bar*self.BAR + beat*self.SPB
@@ -514,17 +551,29 @@ class MusicEngine:
                 if hat_a > 0.005:
                     if hat_mode == 'every16':
                         for s16 in range(4):
-                            self.stamp(drum_buf, HC*0.52*hat_a, pb+s16*self.SIXTEENTH)
-                        self.stamp(drum_buf, HO*0.46*hat_a, pb+self.EIGHTH)
+                            p = pb + s16*self.SIXTEENTH
+                            p += self.swing_offset(s16_idx + s16, self.SIXTEENTH, swing)
+                            p = self.humanize_pos(p, jitter_ms)
+                            g = self.humanize_vel(0.52*hat_a, vel_var)
+                            self.stamp(drum_buf, HC*g, p)
+                        p = self.humanize_pos(pb+self.EIGHTH, jitter_ms*0.5)
+                        self.stamp(drum_buf, HO*self.humanize_vel(0.46*hat_a, vel_var), p)
+                        s16_idx += 4
                     elif hat_mode == 'every8':
-                        self.stamp(drum_buf, HC*0.52*hat_a, pb)
-                        self.stamp(drum_buf, HO*0.40*hat_a, pb+self.EIGHTH)
+                        p = self.humanize_pos(pb, jitter_ms)
+                        self.stamp(drum_buf, HC*self.humanize_vel(0.52*hat_a, vel_var), p)
+                        p = self.humanize_pos(pb+self.EIGHTH, jitter_ms*0.5)
+                        self.stamp(drum_buf, HO*self.humanize_vel(0.40*hat_a, vel_var), p)
                 if beat in kick_beats:
                     k_a = float(KICK_AMP[pb])
-                    if k_a > 0.005: self.stamp(drum_buf, K*k_a, pb)
+                    if k_a > 0.005:
+                        p = self.humanize_pos(pb, jitter_ms * 0.3)  # kick tightest
+                        self.stamp(drum_buf, K*self.humanize_vel(k_a, vel_var*0.5), p)
                 if beat in snare_beats:
                     s_a = float(SNARE_AMP[pb])
-                    if s_a > 0.005: self.stamp(drum_buf, S_HIT*0.88*s_a, pb)
+                    if s_a > 0.005:
+                        p = self.humanize_pos(pb, jitter_ms)
+                        self.stamp(drum_buf, S_HIT*self.humanize_vel(0.88*s_a, vel_var), p)
         # Chunked reverb (automated wet)
         processed = np.zeros(self.N, np.float32)
         chunk = self.BAR*4
