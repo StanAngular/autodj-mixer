@@ -41,6 +41,7 @@ class MusicEngine:
     def _build_automation(self):
         self.AUTO = {}
         for name, cfg in self.style.get('automation', {}).items():
+            if not isinstance(cfg, dict): continue  # skip _comments
             self.AUTO[name] = self.auto(cfg['keyframes'], cfg.get('sigma_s', 4.0))
 
     def auto(self, keyframes, sigma_s=4.0):
@@ -416,7 +417,7 @@ class MusicEngine:
             self._add_stereo(out_L, out_R, fx, gain=gain_out)
 
     def render_lead(self, elements, out_L, out_R):
-        """Lead melody: pluck, trumpet, or flute."""
+        """Lead melody: pluck, trumpet, or flute. Supports multi-bar patterns."""
         from pedalboard import Reverb, Delay, Compressor
         cfg      = elements.get('lead', {})
         patterns = cfg.get('patterns', [])
@@ -432,11 +433,18 @@ class MusicEngine:
             warmth     = pat_cfg.get('warmth', 0.3)
             note_decay = pat_cfg.get('decay', None)
             synth_type = pat_cfg.get('synth_type', 'pluck')   # 'pluck' | 'trumpet'
+            # Multi-bar pattern support: place notes sequentially, cycle pattern
+            steps_per_bar = max(1, self.BAR // step_n)
+            pattern_bars  = max(1, len(freqs) // steps_per_bar)
             buf = np.zeros(self.N, np.float32)
             for bar in range(n_bars):
-                for i, freq in enumerate(freqs):
-                    pos = bar*self.BAR + i*step_n
-                    if pos+dur > self.N: break
+                cycle_bar = bar % pattern_bars
+                for local_i in range(steps_per_bar):
+                    i = cycle_bar * steps_per_bar + local_i
+                    if i >= len(freqs): break
+                    freq = freqs[i]
+                    pos  = bar * self.BAR + local_i * step_n
+                    if pos + dur > self.N: break
                     amp = float(LEAD_AMP[pos])
                     if amp < 0.01 or freq < 1: continue
                     if synth_type == 'trumpet':
@@ -444,7 +452,7 @@ class MusicEngine:
                     else:
                         note = self.pluck_note(freq, dur, decay=note_decay, warmth=warmth)
                     self.stamp(buf, note, pos, gain=amp)
-            # FX chain: more reverb for trumpet, less delay
+            # FX chain
             if synth_type == 'trumpet':
                 buf_fx = self.apply_fx(buf, [
                     Reverb(0.75, 0.80, wet_level=0.42, dry_level=0.58),
