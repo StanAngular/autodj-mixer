@@ -179,12 +179,15 @@ class MusicEngine:
             filtered += scipy.signal.sosfiltfilt(sosr, body).astype(np.float32) * (resonance*0.04)
         return self.fade((filtered*self.env_n(n, 40, int(.06*self.SR), .65, int(.09*self.SR))).astype(np.float32), fi=32, fo=512)
 
-    def pluck_note(self, freq, n):
-        """Bright pluck with fast attack/decay (for lead melodies)."""
+    def pluck_note(self, freq, n, decay=None, warmth=0.3):
+        """Pluck/piano note. decay=None → auto (faster for high notes).
+        warmth=0 → bright saw, warmth=1 → sine-heavy (piano-like)."""
         t = self.t_arr(n)
-        body = self.saw(freq, n) * 0.7 + self.sine(freq*2, n) * 0.3
-        env  = np.exp(-t * (6.0 + freq/200)).astype(np.float32)
-        return self.fade(self.lp(body*env, min(freq*8, 8000)), fi=16, fo=256)
+        body = self.saw(freq, n) * (1-warmth) + self.sine(freq, n) * warmth + self.sine(freq*2, n) * 0.15
+        d = decay if decay is not None else (4.0 + freq/300)
+        env = np.exp(-t * d).astype(np.float32)
+        lp_cut = np.clip(freq * (4 + warmth*4), 400, self.SR/2-100)
+        return self.fade(self.lp(body*env, lp_cut), fi=16, fo=512)
 
     def sub_bass(self, freq, n):
         """Sub bass: sine + 2nd + 3rd harmonic."""
@@ -291,8 +294,11 @@ class MusicEngine:
             self._add_stereo(out_L, out_R, self.mono_stereo(tx_fx*lvl, 0.8), pos)
 
     def render_pad(self, elements, out_L, out_R):
-        cfg    = elements.get('pad', {})
-        chords = cfg.get('chords', [[73.42, 87.31, 110.0]])
+        cfg      = elements.get('pad', {})
+        chords   = cfg.get('chords', [[73.42, 87.31, 110.0]])
+        voices   = cfg.get('voices', 5)
+        detune   = cfg.get('detune', 13)
+        lfo_rate = cfg.get('lfo_rate', 0.14)
         LEVEL  = self.get_auto('pad_level', 0.6)
         FILTER = self.get_auto('pad_filter', 1200.0)
         WIDTH  = self.get_auto('stereo_width', 8.0)
@@ -301,7 +307,8 @@ class MusicEngine:
             n = min(self.BAR+overlap, self.N-pos)
             if n <= 0: break
             ci  = (pos // self.BAR) % len(chords)
-            pad = self.pad_chord(chords[ci], n, float(FILTER[pos]))
+            pad = self.pad_chord(chords[ci], n, float(FILTER[pos]),
+                                 voices=voices, detune=detune, lfo_rate=lfo_rate)
             pad *= self.env_n(n, int(.15*self.SR), int(.08*self.SR), .85, int(.25*self.SR))
             self._add_stereo(out_L, out_R, self.haas(pad, float(WIDTH[pos])), pos,
                              gain=float(LEVEL[pos])*0.48)
@@ -347,10 +354,12 @@ class MusicEngine:
         dur      = int(self.EIGHTH * 0.92)
         n_bars   = self.N // self.BAR
         for pi, pat_cfg in enumerate(patterns):
-            freqs   = pat_cfg['freqs']
-            step    = pat_cfg.get('step', 'eighth')
-            step_n  = self.EIGHTH if step == 'eighth' else self.SIXTEENTH
+            freqs    = pat_cfg['freqs']
+            step     = pat_cfg.get('step', 'eighth')
+            step_n   = self.EIGHTH if step == 'eighth' else self.SIXTEENTH
             gain_out = pat_cfg.get('gain', 0.50)
+            warmth   = pat_cfg.get('warmth', 0.3)
+            decay    = pat_cfg.get('decay', None)
             buf = np.zeros(self.N, np.float32)
             for bar in range(n_bars):
                 for i, freq in enumerate(freqs):
@@ -358,7 +367,7 @@ class MusicEngine:
                     if pos+dur > self.N: break
                     amp = float(LEAD_AMP[pos])
                     if amp < 0.01 or freq < 1: continue
-                    note = self.pluck_note(freq, dur)
+                    note = self.pluck_note(freq, dur, decay=decay, warmth=warmth)
                     self.stamp(buf, note, pos, gain=amp)
             buf_fx = self.apply_fx(buf, [
                 Reverb(0.65, 0.70, wet_level=0.35, dry_level=0.65),
