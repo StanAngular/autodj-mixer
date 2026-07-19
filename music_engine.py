@@ -234,6 +234,72 @@ class MusicEngine:
         am = 0.5 + 0.5*np.sin(2*np.pi*0.09*t+1.2)*np.sin(2*np.pi*0.21*t)
         return (nz * am.astype(np.float32)).astype(np.float32)
 
+    # ── acoustic / jazz synths ───────────────────────────────────────────────
+
+    def rhodes_note(self, freq, n, decay=1.8):
+        """Fender Rhodes electric piano: sine + tine (2x) + bell attack (3x)."""
+        t = self.t_arr(n)
+        fundamental = self.sine(freq, n) * 0.55
+        tine = self.sine(freq*2, n) * 0.25 * np.exp(-t*4).astype(np.float32)
+        bell = self.sine(freq*3, n) * 0.15 * np.exp(-t*14).astype(np.float32)
+        body = fundamental + tine + bell
+        env  = np.exp(-t * decay).astype(np.float32)
+        return self.fade(self.lp(body*env, np.clip(freq*6, 400, 4000)), fi=16, fo=512)
+
+    def rhodes_chord(self, freqs, n, decay=1.8):
+        """Chord of Rhodes notes."""
+        out = np.zeros(n, np.float32)
+        for f in freqs:
+            out += self.rhodes_note(f, n, decay)
+        return out / len(freqs)
+
+    def muted_trumpet(self, freq, n, vibrato_rate=5.0, vibrato_depth=0.004):
+        """Muted trumpet / jazz flute: warm harmonics + vibrato + bandpass."""
+        t = self.t_arr(n)
+        vib = vibrato_depth * np.sin(2*np.pi*vibrato_rate*t)
+        # delayed vibrato (starts after 80ms)
+        vib *= np.clip((t - 0.08) * 12, 0, 1)
+        f_mod = freq * (1 + vib)
+        ph = 2*np.pi*np.cumsum(f_mod)/self.SR
+        body = (np.sin(ph)*0.55 + np.sin(ph*2)*0.22 +
+                np.sin(ph*3)*0.12 + np.sin(ph*4)*0.06 +
+                np.sin(ph*5)*0.03).astype(np.float32)
+        body = self.bp(body, max(freq*0.7, 80), min(freq*5, 3800))
+        env = self.env_n(n, int(0.04*self.SR), int(0.08*self.SR), 0.72, int(0.12*self.SR))
+        return self.fade(body * env, fi=32, fo=512)
+
+    def upright_bass(self, freq, n):
+        """Acoustic upright bass: plucky attack + warm harmonics."""
+        t = self.t_arr(n)
+        body = (self.sine(freq, n) * 0.45 +
+                self.sine(freq*2, n) * 0.22 +
+                self.sine(freq*3, n) * 0.14 +
+                self.sine(freq*4, n) * 0.07 +
+                self.noise(n) * 0.04 * np.exp(-t*35).astype(np.float32))
+        env = self.env_n(n, 20, int(0.06*self.SR), 0.45, int(0.18*self.SR))
+        return self.hp(self.lp(body * env, 900), 28).astype(np.float32)
+
+    def vinyl_crackle(self, n, density=0.0008, click_amp=0.025, noise_level=0.006):
+        """Vinyl crackle: sparse random clicks + warm hiss."""
+        clicks = np.zeros(n, np.float32)
+        n_clicks = max(1, int(n * density))
+        positions = np.random.randint(0, max(1, n-8), n_clicks)
+        for pos in positions:
+            amp = np.random.exponential(click_amp)
+            sign = 1 if np.random.random() > 0.5 else -1
+            clicks[pos] = amp * sign
+            if pos+1 < n: clicks[pos+1] = amp * 0.3 * sign
+        nz = self.noise(n) * noise_level
+        nz = self.bp(nz, 250, 4500)
+        return (clicks + nz).astype(np.float32)
+
+    def mk_brush_snare(self, cfg=None):
+        """Jazz brush on snare: soft swish, no attack."""
+        n = int(0.16*self.SR); t = self.t_arr(n)
+        nz = self.noise(n) * np.exp(-t*12)
+        body = self.bp(nz, 350, 5500) * self.env_n(n, 30, int(.05*self.SR), .06, int(.04*self.SR))
+        return self.fade(body * 0.25, fi=8, fo=128)
+
     # ── stereo effects ────────────────────────────────────────────────────────
 
     def haas(self, mono, delay_ms):
@@ -294,11 +360,12 @@ class MusicEngine:
             self._add_stereo(out_L, out_R, self.mono_stereo(tx_fx*lvl, 0.8), pos)
 
     def render_pad(self, elements, out_L, out_R):
-        cfg      = elements.get('pad', {})
-        chords   = cfg.get('chords', [[73.42, 87.31, 110.0]])
-        voices   = cfg.get('voices', 5)
-        detune   = cfg.get('detune', 13)
-        lfo_rate = cfg.get('lfo_rate', 0.14)
+        cfg        = elements.get('pad', {})
+        chords     = cfg.get('chords', [[73.42, 87.31, 110.0]])
+        synth_type = cfg.get('synth_type', 'supersaw')   # 'supersaw' | 'rhodes'
+        voices     = cfg.get('voices', 5)
+        detune     = cfg.get('detune', 13)
+        lfo_rate   = cfg.get('lfo_rate', 0.14)
         LEVEL  = self.get_auto('pad_level', 0.6)
         FILTER = self.get_auto('pad_filter', 1200.0)
         WIDTH  = self.get_auto('stereo_width', 8.0)
@@ -307,8 +374,12 @@ class MusicEngine:
             n = min(self.BAR+overlap, self.N-pos)
             if n <= 0: break
             ci  = (pos // self.BAR) % len(chords)
-            pad = self.pad_chord(chords[ci], n, float(FILTER[pos]),
-                                 voices=voices, detune=detune, lfo_rate=lfo_rate)
+            if synth_type == 'rhodes':
+                pad = self.rhodes_chord(chords[ci], n, decay=cfg.get('decay', 1.8))
+                pad = self.lp(pad, float(FILTER[pos]))
+            else:
+                pad = self.pad_chord(chords[ci], n, float(FILTER[pos]),
+                                     voices=voices, detune=detune, lfo_rate=lfo_rate)
             pad *= self.env_n(n, int(.15*self.SR), int(.08*self.SR), .85, int(.25*self.SR))
             self._add_stereo(out_L, out_R, self.haas(pad, float(WIDTH[pos])), pos,
                              gain=float(LEVEL[pos])*0.48)
@@ -345,7 +416,7 @@ class MusicEngine:
             self._add_stereo(out_L, out_R, fx, gain=gain_out)
 
     def render_lead(self, elements, out_L, out_R):
-        """Pluck/lead melody layer."""
+        """Lead melody: pluck, trumpet, or flute."""
         from pedalboard import Reverb, Delay, Compressor
         cfg      = elements.get('lead', {})
         patterns = cfg.get('patterns', [])
@@ -354,12 +425,13 @@ class MusicEngine:
         dur      = int(self.EIGHTH * 0.92)
         n_bars   = self.N // self.BAR
         for pi, pat_cfg in enumerate(patterns):
-            freqs    = pat_cfg['freqs']
-            step     = pat_cfg.get('step', 'eighth')
-            step_n   = self.EIGHTH if step == 'eighth' else self.SIXTEENTH
-            gain_out = pat_cfg.get('gain', 0.50)
-            warmth   = pat_cfg.get('warmth', 0.3)
-            decay    = pat_cfg.get('decay', None)
+            freqs      = pat_cfg['freqs']
+            step       = pat_cfg.get('step', 'eighth')
+            step_n     = self.EIGHTH if step == 'eighth' else self.SIXTEENTH
+            gain_out   = pat_cfg.get('gain', 0.50)
+            warmth     = pat_cfg.get('warmth', 0.3)
+            note_decay = pat_cfg.get('decay', None)
+            synth_type = pat_cfg.get('synth_type', 'pluck')   # 'pluck' | 'trumpet'
             buf = np.zeros(self.N, np.float32)
             for bar in range(n_bars):
                 for i, freq in enumerate(freqs):
@@ -367,28 +439,41 @@ class MusicEngine:
                     if pos+dur > self.N: break
                     amp = float(LEAD_AMP[pos])
                     if amp < 0.01 or freq < 1: continue
-                    note = self.pluck_note(freq, dur, decay=decay, warmth=warmth)
+                    if synth_type == 'trumpet':
+                        note = self.muted_trumpet(freq, dur)
+                    else:
+                        note = self.pluck_note(freq, dur, decay=note_decay, warmth=warmth)
                     self.stamp(buf, note, pos, gain=amp)
-            buf_fx = self.apply_fx(buf, [
-                Reverb(0.65, 0.70, wet_level=0.35, dry_level=0.65),
-                Delay(delay_seconds=self.EIGHTH/self.SR, feedback=0.25, mix=0.20),
-                Compressor(-10, 3, 5, 80),
-            ])
+            # FX chain: more reverb for trumpet, less delay
+            if synth_type == 'trumpet':
+                buf_fx = self.apply_fx(buf, [
+                    Reverb(0.75, 0.80, wet_level=0.42, dry_level=0.58),
+                    Delay(delay_seconds=self.EIGHTH/self.SR, feedback=0.15, mix=0.12),
+                    Compressor(-8, 3, 5, 80),
+                ])
+            else:
+                buf_fx = self.apply_fx(buf, [
+                    Reverb(0.65, 0.70, wet_level=0.35, dry_level=0.65),
+                    Delay(delay_seconds=self.EIGHTH/self.SR, feedback=0.25, mix=0.20),
+                    Compressor(-10, 3, 5, 80),
+                ])
             pp = self.ping_pong(buf_fx[0], self.EIGHTH/self.SR*1.5, fb=0.28, mix=0.25)
             self._add_stereo(out_L, out_R, pp, gain=gain_out)
 
     def render_bass(self, elements, out_L, out_R):
         from pedalboard import Compressor
-        cfg      = elements.get('bass', {})
-        roots    = cfg.get('roots', [36.71])
-        KICK_AMP = self.get_auto('kick_amp', 1.0)
-        buf      = np.zeros(self.N, np.float32)
-        n_bars   = self.N // self.BAR
+        cfg        = elements.get('bass', {})
+        roots      = cfg.get('roots', [36.71])
+        synth_type = cfg.get('synth_type', 'sub')  # 'sub' | 'upright'
+        BASS_AMP   = self.get_auto('bass_amp', self.get_auto('kick_amp', 1.0))
+        buf        = np.zeros(self.N, np.float32)
+        n_bars     = self.N // self.BAR
+        bass_fn    = self.upright_bass if synth_type == 'upright' else self.sub_bass
         for bar in range(n_bars):
             root = roots[bar % len(roots)]
-            self.stamp(buf, self.sub_bass(root, self.BAR),      bar*self.BAR)
-            self.stamp(buf, self.sub_bass(root*1.5, self.SPB),  bar*self.BAR + self.SPB*2)
-        buf *= np.clip(KICK_AMP*1.4, 0, 1)
+            self.stamp(buf, bass_fn(root, self.BAR),      bar*self.BAR)
+            self.stamp(buf, bass_fn(root*1.5, self.SPB),  bar*self.BAR + self.SPB*2)
+        buf *= np.clip(BASS_AMP*1.4, 0, 1)
         bass_fx = self.apply_fx(buf, [Compressor(-8, 4, 5, 100)])[0]
         self._add_stereo(out_L, out_R, self.mono_stereo(bass_fx, 0.04), gain=0.60)
 
@@ -407,9 +492,10 @@ class MusicEngine:
         pat       = cfg.get('pattern', {})
         kick_beats  = pat.get('kick', [0, 2])
         snare_beats = pat.get('snare', [1, 3])
-        snare_type  = pat.get('snare_type', 'snare')   # 'snare' or 'clap'
+        snare_type  = pat.get('snare_type', 'snare')   # 'snare' | 'clap' | 'brush'
         hat_mode    = pat.get('hat', 'every16')          # 'every16' | 'every8' | 'off'
-        S_HIT = CL if snare_type == 'clap' else S
+        BR = self.mk_brush_snare(cfg.get('brush'))
+        S_HIT = BR if snare_type == 'brush' else (CL if snare_type == 'clap' else S)
         drum_buf = np.zeros(self.N, np.float32)
         n_bars   = self.N // self.BAR
         for bar in range(n_bars):
@@ -445,6 +531,19 @@ class MusicEngine:
             processed[pos:pos+n] += fx[:n]
         self._add_stereo(out_L, out_R, self.haas(processed, 4.0), gain=0.62)
 
+    def render_vinyl(self, elements, out_L, out_R):
+        """Vinyl crackle layer (full track)."""
+        cfg     = elements.get('vinyl', {})
+        density = cfg.get('density', 0.0008)
+        LEVEL   = self.get_auto('vinyl_level', 0.4)
+        CHUNK   = self.BAR * 32
+        for pos in range(0, self.N, CHUNK):
+            n = min(CHUNK, self.N-pos)
+            if n <= 0: break
+            vc  = self.vinyl_crackle(n, density=density)
+            lvl = LEVEL[pos:pos+n]
+            self._add_stereo(out_L, out_R, self.mono_stereo(vc*lvl, 0.3), pos)
+
     # ── master & export ───────────────────────────────────────────────────────
 
     def render(self):
@@ -455,7 +554,7 @@ class MusicEngine:
         out_R = np.zeros(self.N, np.float32)
         elements = self.style.get('elements', {})
         # Render order matters for CPU/memory; keep light elements first
-        for elem in ['drone', 'texture', 'pad', 'lead', 'acid', 'bass', 'drums']:
+        for elem in ['vinyl', 'drone', 'texture', 'pad', 'lead', 'acid', 'bass', 'drums']:
             if elem not in elements: continue
             if not elements[elem].get('active', True): continue
             print(f"  {elem}...")
