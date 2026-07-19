@@ -25,3 +25,4 @@ data/enrich_cache.json
 *_urls.txt
 beatport_candidates.json
 logs/
+*.sf2
