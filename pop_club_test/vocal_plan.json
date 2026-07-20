@@ -1,0 +1,14 @@
+[
+  {"word": "я", "occurrence": 1, "at_bar": 6, "repeat": 3, "spacing_beats": 1, "gain_db": -4},
+  {"phrase": "я приходжу я іду до тебе знову", "at_bar": 18, "lead_repeats": 3, "gain_db": -4},
+  {"word": "я", "occurrence": 3, "at_bar": 34, "fx": "scratch", "gain_db": -2},
+  {"word": "я", "occurrence": 4, "at_bar": 38, "roll": [1, 0.75, 0.5, 0.5, 0.25, 0.25]},
+  {"phrase": "йду до тебе знову", "at_bar": 44, "gain_db": -3},
+  {"phrase": "щоб тобі ще раз сказати що у цілім світі ти найбільше свято", "at_bar": 56, "gain_db": 0},
+  {"phrase": "я приходжу я іду до тебе знову", "at_bar": 72, "gain_db": -4},
+  {"word": "я", "occurrence": 5, "at_bar": 78, "fx": "reverse", "gain_db": -4},
+  {"word": "я", "occurrence": 5, "at_bar": 84, "repeat": 2, "spacing_beats": 1, "gain_db": -2},
+  {"word": "я", "occurrence": 6, "at_bar": 87, "roll": [1, 1, 0.5, 0.5, 0.25]},
+  {"word": "я", "occurrence": 7, "at_bar": 98, "fx": "scratch", "gain_db": 0},
+  {"phrase": "щоб залишитись назавжди назавжди", "at_bar": 100, "gain_db": 0}
+]

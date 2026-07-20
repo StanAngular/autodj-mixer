@@ -1,0 +1,248 @@
+{
+  "track": "pop_song.wav",
+  "phrases": [
+    {
+      "index": 0,
+      "start_s": 27.26,
+      "end_s": 29.24,
+      "dur_s": 1.97,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 1,
+      "start_s": 29.69,
+      "end_s": 38.08,
+      "dur_s": 8.4,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 2,
+      "start_s": 38.08,
+      "end_s": 49.3,
+      "dur_s": 11.22,
+      "text": "",
+      "is_hook": true
+    },
+    {
+      "index": 3,
+      "start_s": 49.3,
+      "end_s": 56.97,
+      "dur_s": 7.67,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 4,
+      "start_s": 56.97,
+      "end_s": 63.15,
+      "dur_s": 6.17,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 5,
+      "start_s": 63.15,
+      "end_s": 70.92,
+      "dur_s": 7.77,
+      "text": "",
+      "is_hook": true
+    },
+    {
+      "index": 6,
+      "start_s": 70.92,
+      "end_s": 80.71,
+      "dur_s": 9.8,
+      "text": "",
+      "is_hook": true
+    },
+    {
+      "index": 7,
+      "start_s": 80.71,
+      "end_s": 89.18,
+      "dur_s": 8.47,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 8,
+      "start_s": 89.18,
+      "end_s": 94.03,
+      "dur_s": 4.85,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 9,
+      "start_s": 95.13,
+      "end_s": 96.31,
+      "dur_s": 1.17,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 10,
+      "start_s": 97.71,
+      "end_s": 98.56,
+      "dur_s": 0.85,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 11,
+      "start_s": 99.16,
+      "end_s": 101.63,
+      "dur_s": 2.47,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 12,
+      "start_s": 106.38,
+      "end_s": 107.48,
+      "dur_s": 1.1,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 13,
+      "start_s": 107.93,
+      "end_s": 115.8,
+      "dur_s": 7.87,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 14,
+      "start_s": 115.8,
+      "end_s": 119.55,
+      "dur_s": 3.75,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 15,
+      "start_s": 119.55,
+      "end_s": 127.14,
+      "dur_s": 7.6,
+      "text": "",
+      "is_hook": true
+    },
+    {
+      "index": 16,
+      "start_s": 127.14,
+      "end_s": 134.71,
+      "dur_s": 7.57,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 17,
+      "start_s": 134.71,
+      "end_s": 143.41,
+      "dur_s": 8.7,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 18,
+      "start_s": 143.41,
+      "end_s": 150.86,
+      "dur_s": 7.45,
+      "text": "",
+      "is_hook": true
+    },
+    {
+      "index": 19,
+      "start_s": 150.86,
+      "end_s": 158.63,
+      "dur_s": 7.77,
+      "text": "",
+      "is_hook": true
+    },
+    {
+      "index": 20,
+      "start_s": 158.63,
+      "end_s": 166.92,
+      "dur_s": 8.3,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 21,
+      "start_s": 166.92,
+      "end_s": 173.7,
+      "dur_s": 6.77,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 22,
+      "start_s": 173.7,
+      "end_s": 181.29,
+      "dur_s": 7.6,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 23,
+      "start_s": 181.29,
+      "end_s": 188.86,
+      "dur_s": 7.57,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 24,
+      "start_s": 188.86,
+      "end_s": 194.51,
+      "dur_s": 5.65,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 25,
+      "start_s": 194.51,
+      "end_s": 197.31,
+      "dur_s": 2.8,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 26,
+      "start_s": 197.31,
+      "end_s": 203.23,
+      "dur_s": 5.92,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 27,
+      "start_s": 204.03,
+      "end_s": 207.58,
+      "dur_s": 3.55,
+      "text": "",
+      "is_hook": false
+    },
+    {
+      "index": 28,
+      "start_s": 208.36,
+      "end_s": 209.03,
+      "dur_s": 0.67,
+      "text": "",
+      "is_hook": false
+    }
+  ],
+  "hook": {
+    "hook_index": 5,
+    "repeats": [
+      2,
+      6,
+      15,
+      18,
+      19
+    ],
+    "score": 57.77
+  }
+}
