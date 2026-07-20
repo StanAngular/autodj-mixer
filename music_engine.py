@@ -147,6 +147,44 @@ class MusicEngine:
             if peak > 0: data /= peak
         return self.fade(data, fi=32, fo=512)
 
+    def build_sidechain(self, release_ms=80, depth=1.0):
+        """Build sidechain ducking envelope from kick positions.
+        Returns array len N: 1.0=full vol, near 0=ducked.  Cached."""
+        if hasattr(self, '_sc_env'):
+            return self._sc_env
+        env = np.ones(self.N, np.float32)
+        elements = self.style.get('elements', {})
+        sc_cfg = elements.get('sidechain', {})
+        if not sc_cfg.get('active', False):
+            self._sc_env = env
+            return env
+        release_ms = sc_cfg.get('release_ms', release_ms)
+        depth      = sc_cfg.get('depth', depth)
+        drums_cfg  = elements.get('drums', {})
+        pat        = drums_cfg.get('pattern', {})
+        kick_beats = pat.get('kick', [0, 2])
+        kick_16    = pat.get('kick_16', None)
+        KICK_AMP   = self.get_auto('kick_amp', 1.0)
+        n_bars     = self.N // self.BAR
+        release_n  = max(1, int(release_ms * self.SR / 1000))
+        for bar in range(n_bars):
+            if kick_16 is not None:
+                positions = [bar * self.BAR + s * self.SIXTEENTH for s in kick_16]
+            else:
+                positions = [bar * self.BAR + beat * self.SPB for beat in kick_beats]
+            for pos in positions:
+                if pos < 0 or pos >= self.N: continue
+                k_amp = float(KICK_AMP[min(pos, self.N - 1)])
+                if k_amp < 0.01: continue
+                end = min(pos + release_n, self.N)
+                nn  = end - pos
+                # half-cosine recovery: 0 -> 1 over release_n
+                curve = 0.5 - 0.5 * np.cos(np.pi * np.arange(nn, dtype=np.float32) / release_n)
+                duck  = 1.0 - depth * k_amp * (1.0 - curve)
+                env[pos:end] = np.minimum(env[pos:end], duck)
+        self._sc_env = env
+        return env
+
     def apply_fx(self, audio, chain):
         from pedalboard import Pedalboard
         board = Pedalboard(chain)
@@ -260,11 +298,12 @@ class MusicEngine:
             out += (np.sin(ph1)*0.5 + np.sin(ph2)*0.5).astype(np.float32) * gain
         return self.lp(out, 400)
 
-    def noise_texture(self, n, lp_cut=2500, hp_cut=600):
-        """Filtered noise with AM modulation."""
+    def noise_texture(self, n, lp_cut=2500, hp_cut=600, am_rate1=0.09, am_rate2=0.21):
+        """Filtered noise with AM modulation.
+        am_rate1/2=0.09/0.21 → slow waves (cafe).  Set higher (e.g. 0.8/1.3) for urban grit."""
         nz = self.lp(self.hp(self.noise(n), hp_cut), lp_cut)
         t  = self.t_arr(n)
-        am = 0.5 + 0.5*np.sin(2*np.pi*0.09*t+1.2)*np.sin(2*np.pi*0.21*t)
+        am = 0.5 + 0.5*np.sin(2*np.pi*am_rate1*t+1.2)*np.sin(2*np.pi*am_rate2*t)
         return (nz * am.astype(np.float32)).astype(np.float32)
 
     # ── acoustic / jazz synths ───────────────────────────────────────────────
@@ -286,7 +325,7 @@ class MusicEngine:
             out += self.rhodes_note(f, n, decay)
         return out / len(freqs)
 
-    def muted_trumpet(self, freq, n, vibrato_rate=5.0, vibrato_depth=0.004):
+    def muted_trumpet(self, freq, n, vibrato_rate=5.0, vibrato_depth=0.004, release_s=0.30):
         """Muted trumpet / jazz flute: warm harmonics + vibrato + bandpass."""
         t = self.t_arr(n)
         vib = vibrato_depth * np.sin(2*np.pi*vibrato_rate*t)
@@ -298,8 +337,12 @@ class MusicEngine:
                 np.sin(ph*3)*0.12 + np.sin(ph*4)*0.06 +
                 np.sin(ph*5)*0.03).astype(np.float32)
         body = self.bp(body, max(freq*0.7, 80), min(freq*5, 3800))
-        env = self.env_n(n, int(0.04*self.SR), int(0.08*self.SR), 0.72, int(0.12*self.SR))
-        return self.fade(body * env, fi=32, fo=512)
+        atk = int(0.04*self.SR); dec = int(0.08*self.SR)
+        # cap release so envelope stays valid (can't exceed remaining samples)
+        rel = min(int(release_s*self.SR), max(1, n - atk - dec))
+        fo  = min(int(release_s*0.7*self.SR), n//3)
+        env = self.env_n(n, atk, dec, 0.72, rel)
+        return self.fade(body * env, fi=32, fo=fo)
 
     def upright_bass(self, freq, n):
         """Acoustic upright bass: plucky attack + warm harmonics."""
@@ -311,6 +354,20 @@ class MusicEngine:
                 self.noise(n) * 0.04 * np.exp(-t*35).astype(np.float32))
         env = self.env_n(n, 20, int(0.06*self.SR), 0.45, int(0.18*self.SR))
         return self.hp(self.lp(body * env, 900), 28).astype(np.float32)
+
+    def reese_bass(self, freq, n, mod_rate=0.12):
+        """Reese bass: detuned saws + slow filter mod.  HP > 100 Hz for mid-bass layer."""
+        t = self.t_arr(n)
+        body = self.saw(freq, n)*0.4 + self.saw(freq*1.008, n)*0.3 + self.saw(freq*0.993, n)*0.3
+        mod  = 300 + 500 * (0.5 + 0.5*np.sin(2*np.pi*mod_rate*t))
+        chunk = self.SR // 2
+        out = np.zeros(n, np.float32)
+        for i in range(0, n, chunk):
+            end = min(i+chunk, n)
+            out[i:end] = self.lp(body[i:end], float(np.mean(mod[i:end])))
+        out = self.hp(out, 100)
+        out = np.tanh(out*1.8) / 1.8
+        return (out * self.env_n(n, 30, int(0.06*self.SR), 0.65, int(0.15*self.SR))).astype(np.float32)
 
     def vinyl_crackle(self, n, density=0.0008, click_amp=0.025, noise_level=0.006):
         """Vinyl crackle: sparse random clicks + warm hiss."""
@@ -381,13 +438,15 @@ class MusicEngine:
     def render_texture(self, elements, out_L, out_R):
         from pedalboard import Reverb
         cfg    = elements.get('texture', {})
-        lp_cut = cfg.get('lp_cut', 3000); hp_cut = cfg.get('hp_cut', 400)
-        LEVEL  = self.get_auto('texture_level', 0.3)
-        CHUNK  = self.BAR * 32
+        lp_cut  = cfg.get('lp_cut', 3000); hp_cut = cfg.get('hp_cut', 400)
+        am_r1   = cfg.get('am_rate1', 0.09)   # default: slow waves (cafe vibe)
+        am_r2   = cfg.get('am_rate2', 0.21)
+        LEVEL   = self.get_auto('texture_level', 0.3)
+        CHUNK   = self.BAR * 32
         for pos in range(0, self.N, CHUNK):
             n = min(CHUNK, self.N-pos)
             if n <= 0: break
-            tx    = self.noise_texture(n, lp_cut=lp_cut, hp_cut=hp_cut)
+            tx    = self.noise_texture(n, lp_cut=lp_cut, hp_cut=hp_cut, am_rate1=am_r1, am_rate2=am_r2)
             lvl   = LEVEL[pos:pos+n]
             tx_fx = self.apply_fx(tx, [Reverb(0.88, 0.90, wet_level=0.80, dry_level=0.20)])[0]
             self._add_stereo(out_L, out_R, self.mono_stereo(tx_fx*lvl, 0.8), pos)
@@ -414,6 +473,10 @@ class MusicEngine:
                 pad = self.pad_chord(chords[ci], n, float(FILTER[pos]),
                                      voices=voices, detune=detune, lfo_rate=lfo_rate)
             pad *= self.env_n(n, int(.15*self.SR), int(.08*self.SR), .85, int(.25*self.SR))
+            # sidechain duck (pump under kick)
+            SC = self.build_sidechain()
+            end_sc = min(pos + len(pad), self.N)
+            pad[:end_sc - pos] *= SC[pos:end_sc]
             self._add_stereo(out_L, out_R, self.haas(pad, float(WIDTH[pos])), pos,
                              gain=float(LEVEL[pos])*0.48)
 
@@ -436,7 +499,7 @@ class MusicEngine:
                     pos = bar*self.BAR + i*self.SIXTEENTH
                     if pos+dur > self.N: break
                     amp = float(amp_auto[pos])
-                    if amp < 0.01: continue
+                    if amp < 0.01 or freq < 1: continue
                     note = self.acid_note(freq, dur, float(ACID_CUT[pos])*cut_scale)
                     self.stamp(buf, note, pos, gain=amp)
             d_s   = self.EIGHTH/self.SR * (0.618 if pi>0 else 1.0)
@@ -480,7 +543,8 @@ class MusicEngine:
                     amp = float(LEAD_AMP[pos])
                     if amp < 0.01 or freq < 1: continue
                     if synth_type == 'trumpet':
-                        note = self.muted_trumpet(freq, dur)
+                        rel_s = note_decay if note_decay else 0.30
+                        note = self.muted_trumpet(freq, dur, release_s=rel_s)
                     else:
                         note = self.pluck_note(freq, dur, decay=note_decay, warmth=warmth)
                     self.stamp(buf, note, pos, gain=amp)
@@ -504,18 +568,39 @@ class MusicEngine:
         from pedalboard import Compressor
         cfg        = elements.get('bass', {})
         roots      = cfg.get('roots', [36.71])
-        synth_type = cfg.get('synth_type', 'sub')  # 'sub' | 'upright'
+        synth_type = cfg.get('synth_type', 'sub')  # 'sub' | 'upright' | 'split'
         BASS_AMP   = self.get_auto('bass_amp', self.get_auto('kick_amp', 1.0))
-        buf        = np.zeros(self.N, np.float32)
+        SC         = self.build_sidechain()
         n_bars     = self.N // self.BAR
-        bass_fn    = self.upright_bass if synth_type == 'upright' else self.sub_bass
-        for bar in range(n_bars):
-            root = roots[bar % len(roots)]
-            self.stamp(buf, bass_fn(root, self.BAR),      bar*self.BAR)
-            self.stamp(buf, bass_fn(root*1.5, self.SPB),  bar*self.BAR + self.SPB*2)
-        buf *= np.clip(BASS_AMP*1.4, 0, 1)
-        bass_fx = self.apply_fx(buf, [Compressor(-8, 4, 5, 100)])[0]
-        self._add_stereo(out_L, out_R, self.mono_stereo(bass_fx, 0.04), gain=0.60)
+        if synth_type == 'split':
+            # ── Sub layer: pure sine, mono center, dry, no FX ──
+            sub_buf = np.zeros(self.N, np.float32)
+            for bar in range(n_bars):
+                root = roots[bar % len(roots)]
+                self.stamp(sub_buf, self.sub_bass(root, self.BAR), bar*self.BAR)
+                self.stamp(sub_buf, self.sub_bass(root*1.5, self.SPB), bar*self.BAR+self.SPB*2)
+            sub_buf *= np.clip(BASS_AMP*1.4, 0, 1) * SC
+            sub_fx = self.apply_fx(sub_buf, [Compressor(-6, 4, 5, 100)])[0]
+            self._add_stereo(out_L, out_R, self.mono_stereo(sub_fx, 0.0), gain=0.55)
+            # ── Mid layer: reese, slight stereo, saturated ──
+            mid_buf = np.zeros(self.N, np.float32)
+            for bar in range(n_bars):
+                root = roots[bar % len(roots)]
+                self.stamp(mid_buf, self.reese_bass(root, self.BAR), bar*self.BAR)
+                self.stamp(mid_buf, self.reese_bass(root*1.5, self.SPB), bar*self.BAR+self.SPB*2)
+            mid_buf *= np.clip(BASS_AMP*1.2, 0, 1) * SC
+            mid_fx = self.apply_fx(mid_buf, [Compressor(-10, 3, 5, 80)])[0]
+            self._add_stereo(out_L, out_R, self.haas(mid_fx, 3.0), gain=0.35)
+        else:
+            bass_fn = self.upright_bass if synth_type == 'upright' else self.sub_bass
+            buf = np.zeros(self.N, np.float32)
+            for bar in range(n_bars):
+                root = roots[bar % len(roots)]
+                self.stamp(buf, bass_fn(root, self.BAR), bar*self.BAR)
+                self.stamp(buf, bass_fn(root*1.5, self.SPB), bar*self.BAR+self.SPB*2)
+            buf *= np.clip(BASS_AMP*1.4, 0, 1) * SC
+            bass_fx = self.apply_fx(buf, [Compressor(-8, 4, 5, 100)])[0]
+            self._add_stereo(out_L, out_R, self.mono_stereo(bass_fx, 0.04), gain=0.60)
 
     def render_drums(self, elements, out_L, out_R):
         from pedalboard import Reverb, Compressor, Gain
@@ -531,62 +616,100 @@ class MusicEngine:
         REV_WET   = self.get_auto('rev_wet', 0.3)
         pat         = cfg.get('pattern', {})
         kick_beats  = pat.get('kick', [0, 2])
+        kick_16     = pat.get('kick_16', None)           # breakbeat: 16th-note positions
         snare_beats = pat.get('snare', [1, 3])
+        snare_16    = pat.get('snare_16', None)           # breakbeat: 16th-note positions
         snare_type  = pat.get('snare_type', 'snare')
         hat_mode    = pat.get('hat', 'every16')
-        # Humanization params
-        swing     = cfg.get('swing', 0.0)          # 0.0=off, 0.5=triplet, 0.6=heavy
-        jitter_ms = cfg.get('jitter_ms', 0.0)      # timing randomness in ms
-        vel_var   = cfg.get('velocity_variation', 0.0)  # 0.0=off, 0.15=natural
+        hat_ghost   = pat.get('hat_ghost', False)         # even 16ths -25%
+        # Humanization
+        swing     = cfg.get('swing', 0.0)
+        jitter_ms = cfg.get('jitter_ms', 0.0)
+        vel_var   = cfg.get('velocity_variation', 0.0)
         BR = self.mk_brush_snare(cfg.get('brush'))
         S_HIT = BR if snare_type == 'brush' else (CL if snare_type == 'clap' else S)
-        drum_buf = np.zeros(self.N, np.float32)
+        # Split buffers: kick=dry/mono, perc=wet/stereo
+        kick_buf = np.zeros(self.N, np.float32)
+        perc_buf = np.zeros(self.N, np.float32)
         n_bars   = self.N // self.BAR
-        s16_idx  = 0  # global 16th-note counter for swing
+        s16_idx  = 0
         for bar in range(n_bars):
+            bar_start = bar * self.BAR
+            # ── Hats ──
             for beat in range(4):
-                pb = bar*self.BAR + beat*self.SPB
+                pb = bar_start + beat * self.SPB
                 if pb >= self.N: break
                 hat_a = float(HAT_AMP[pb])
                 if hat_a > 0.005:
                     if hat_mode == 'every16':
                         for s16 in range(4):
-                            p = pb + s16*self.SIXTEENTH
+                            p = pb + s16 * self.SIXTEENTH
                             p += self.swing_offset(s16_idx + s16, self.SIXTEENTH, swing)
                             p = self.humanize_pos(p, jitter_ms)
-                            g = self.humanize_vel(0.52*hat_a, vel_var)
-                            self.stamp(drum_buf, HC*g, p)
-                        p = self.humanize_pos(pb+self.EIGHTH, jitter_ms*0.5)
-                        self.stamp(drum_buf, HO*self.humanize_vel(0.46*hat_a, vel_var), p)
+                            g = 0.52 * hat_a
+                            if hat_ghost and s16 % 2 == 1:
+                                g *= 0.75
+                            g = self.humanize_vel(g, vel_var)
+                            self.stamp(perc_buf, HC * g, p)
+                        p = self.humanize_pos(pb + self.EIGHTH, jitter_ms * 0.5)
+                        self.stamp(perc_buf, HO * self.humanize_vel(0.46 * hat_a, vel_var), p)
                         s16_idx += 4
                     elif hat_mode == 'every8':
                         p = self.humanize_pos(pb, jitter_ms)
-                        self.stamp(drum_buf, HC*self.humanize_vel(0.52*hat_a, vel_var), p)
-                        p = self.humanize_pos(pb+self.EIGHTH, jitter_ms*0.5)
-                        self.stamp(drum_buf, HO*self.humanize_vel(0.40*hat_a, vel_var), p)
-                if beat in kick_beats:
-                    k_a = float(KICK_AMP[pb])
-                    if k_a > 0.005:
-                        p = self.humanize_pos(pb, jitter_ms * 0.3)  # kick tightest
-                        self.stamp(drum_buf, K*self.humanize_vel(k_a, vel_var*0.5), p)
-                if beat in snare_beats:
-                    s_a = float(SNARE_AMP[pb])
-                    if s_a > 0.005:
-                        p = self.humanize_pos(pb, jitter_ms)
-                        self.stamp(drum_buf, S_HIT*self.humanize_vel(0.88*s_a, vel_var), p)
-        # Chunked reverb (automated wet)
+                        self.stamp(perc_buf, HC * self.humanize_vel(0.52 * hat_a, vel_var), p)
+                        p = self.humanize_pos(pb + self.EIGHTH, jitter_ms * 0.5)
+                        self.stamp(perc_buf, HO * self.humanize_vel(0.40 * hat_a, vel_var), p)
+            # ── Kick (16th-note or beat-level) ──
+            if kick_16 is not None:
+                for s16 in kick_16:
+                    pos = bar_start + s16 * self.SIXTEENTH
+                    if pos >= self.N: continue
+                    k_a = float(KICK_AMP[min(pos, self.N - 1)])
+                    if k_a < 0.005: continue
+                    p = self.humanize_pos(pos, jitter_ms * 0.3)
+                    self.stamp(kick_buf, K * self.humanize_vel(k_a, vel_var * 0.5), p)
+            else:
+                for beat in kick_beats:
+                    pos = bar_start + beat * self.SPB
+                    if pos >= self.N: continue
+                    k_a = float(KICK_AMP[pos])
+                    if k_a < 0.005: continue
+                    p = self.humanize_pos(pos, jitter_ms * 0.3)
+                    self.stamp(kick_buf, K * self.humanize_vel(k_a, vel_var * 0.5), p)
+            # ── Snare (16th-note or beat-level) ──
+            if snare_16 is not None:
+                for s16 in snare_16:
+                    pos = bar_start + s16 * self.SIXTEENTH
+                    if pos >= self.N: continue
+                    s_a = float(SNARE_AMP[min(pos, self.N - 1)])
+                    if s_a < 0.005: continue
+                    p = self.humanize_pos(pos, jitter_ms)
+                    p += int(0.004 * self.SR)      # snare micro-shift +4ms
+                    self.stamp(perc_buf, S_HIT * self.humanize_vel(0.88 * s_a, vel_var), p)
+            else:
+                for beat in snare_beats:
+                    pos = bar_start + beat * self.SPB
+                    if pos >= self.N: continue
+                    s_a = float(SNARE_AMP[pos])
+                    if s_a < 0.005: continue
+                    p = self.humanize_pos(pos, jitter_ms)
+                    self.stamp(perc_buf, S_HIT * self.humanize_vel(0.88 * s_a, vel_var), p)
+        # ── Kick bus: dry, mono center, compressed ──
+        kick_fx = self.apply_fx(kick_buf, [Compressor(-8, 4, 3, 80)])[0]
+        self._add_stereo(out_L, out_R, self.mono_stereo(kick_fx, 0.0), gain=0.62)
+        # ── Perc bus: chunked reverb, stereo ──
         processed = np.zeros(self.N, np.float32)
-        chunk = self.BAR*4
+        chunk = self.BAR * 4
         for pos in range(0, self.N, chunk):
-            n = min(chunk, self.N-pos)
+            n = min(chunk, self.N - pos)
             if n <= 0: break
             wet = float(REV_WET[pos])
-            fx  = self.apply_fx(drum_buf[pos:pos+n], [
+            fx = self.apply_fx(perc_buf[pos:pos+n], [
                 Compressor(-10, 4, 3, 70), Gain(2.0),
-                Reverb(0.55, 0.65, wet_level=wet*0.5, dry_level=1.0-wet*0.6),
+                Reverb(0.55, 0.65, wet_level=wet * 0.5, dry_level=1.0 - wet * 0.6),
             ])[0]
             processed[pos:pos+n] += fx[:n]
-        self._add_stereo(out_L, out_R, self.haas(processed, 4.0), gain=0.62)
+        self._add_stereo(out_L, out_R, self.haas(processed, 6.0), gain=0.62)
 
     def render_vinyl(self, elements, out_L, out_R):
         """Vinyl crackle layer (full track)."""
