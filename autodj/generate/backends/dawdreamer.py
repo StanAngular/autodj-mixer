@@ -171,6 +171,7 @@ def program_to_faust(gm_program: int) -> str:
 # ---------------------------------------------------------------------------
 
 VST3_SEARCH_PATHS = [
+    "/opt/autodj-mixer/shared/vst3",
     "/usr/local/lib/vst3",
     "/usr/lib/vst3",
     "/home/hermes/.vst3",
@@ -306,11 +307,12 @@ class DawDreamerBackend:
                     ch_events[ch] = []
                 ch_events[ch].append(ev)
 
-        # Render each channel
+        # Render each channel (VST3 if configured, else Faust)
         for ch, ch_evs in ch_events.items():
             if ch == 9:
-                # Drums: simple Faust percussion
                 ch_buf = self._render_drums_faust(ch_evs, duration_s)
+            elif ch in self.vst3_plugins:
+                ch_buf = self._render_channel_vst3(ch_evs, duration_s, self.vst3_plugins[ch])
             else:
                 preset = self._resolve_channel_preset(ch)
                 ch_buf = self._render_channel_faust(ch_evs, duration_s, preset)
@@ -413,6 +415,60 @@ class DawDreamerBackend:
                 log.error(f"Note render error (note={midi_note} preset={preset}): {e}")
 
         return output
+
+    def _render_channel_vst3(
+        self, events: list, duration_s: float, vst3_path: str
+    ) -> np.ndarray:
+        """
+        Render one MIDI channel via VST3 plugin (PluginProcessor).
+        Uses add_midi_note which works natively with PluginProcessor.
+        """
+        SR = self.sample_rate
+        total_samples = int(duration_s * SR)
+
+        try:
+            eng = self._daw.RenderEngine(SR, self.block_size)
+            plugin = eng.make_plugin_processor("vst3", vst3_path)
+
+            # Convert note_on/off pairs to add_midi_note calls
+            note_ons = {}
+            for ev in sorted(events, key=lambda e: e[0]):
+                t, etype, ch, note, vel = ev
+                if etype == "note_on" and vel > 0:
+                    note_ons[note] = (t, vel)
+                elif etype == "note_off" or (etype == "note_on" and vel == 0):
+                    if note in note_ons:
+                        t_on, velocity = note_ons.pop(note)
+                        dur_s = max(0.01, t - t_on)
+                        plugin.add_midi_note(note, velocity, t_on, dur_s)
+
+            # Flush open notes
+            for note, (t_on, vel) in note_ons.items():
+                dur_s = max(0.01, duration_s - t_on)
+                plugin.add_midi_note(note, vel, t_on, dur_s)
+
+            eng.load_graph([(plugin, [])])
+            eng.render(duration_s)
+            audio = plugin.get_audio()
+
+            if audio.ndim == 1:
+                stereo = np.stack([audio, audio], axis=1).astype(np.float32)
+            elif audio.shape[0] == 2:
+                stereo = audio.T.astype(np.float32)
+            else:
+                stereo = np.stack([audio[0], audio[0]], axis=1).astype(np.float32)
+
+            if len(stereo) < total_samples:
+                stereo = np.pad(stereo, ((0, total_samples - len(stereo)), (0, 0)))
+            else:
+                stereo = stereo[:total_samples]
+
+            return stereo
+
+        except Exception as e:
+            log.error(f"VST3 render error ({vst3_path}): {e}")
+            # Fallback to Faust
+            return self._render_channel_faust(events, duration_s, self.default_preset)
 
     def _render_drums_faust(self, events: list, duration_s: float) -> np.ndarray:
         """
