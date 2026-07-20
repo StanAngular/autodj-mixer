@@ -156,8 +156,8 @@ class FluidSynthBackend:
         """
         SR = self.sample_rate
         total_samples = int(duration_s * SR)
-        # FluidSynth renders in chunks; we'll use 64-sample blocks
-        CHUNK = 64
+        # FluidSynth renders in chunks; 512 samples = ~11.6ms at 44100
+        CHUNK = 512
 
         output = np.zeros((total_samples, 2), dtype=np.float32)
 
@@ -186,6 +186,12 @@ class FluidSynthBackend:
             arr_f = arr.astype(np.float32) / 32768.0
             output[sample_pos:chunk_end] = arr_f[:n]
             sample_pos = chunk_end
+
+        # Normalize to -0.5 dB
+        peak = np.abs(output).max()
+        if peak > 1e-6:
+            target = 10 ** (-0.5 / 20)  # ~0.944
+            output *= target / peak
 
         return output
 
