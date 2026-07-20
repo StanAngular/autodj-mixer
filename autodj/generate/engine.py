@@ -96,7 +96,7 @@ def doctor_status() -> dict:
     Return availability dict for all backends.
     Called by /doctor health check.
     """
-    from backends.fluidsynth import SF2_SEARCH_PATHS, find_sf2
+    from autodj.generate.backends.fluidsynth import SF2_SEARCH_PATHS, find_sf2
 
     sf2_found = None
     try:
@@ -104,11 +104,17 @@ def doctor_status() -> dict:
     except FileNotFoundError:
         pass
 
+    from autodj.generate.backends.dawdreamer import find_vst3
+    vst3_found = find_vst3()
+
     return {
         "fluidsynth_python": _check_fluidsynth(),
         "fluidsynth_binary": _binary_available("fluidsynth"),
         "dawdreamer": _check_dawdreamer(),
+        "dawdreamer_faust": _check_dawdreamer(),  # Faust always available with dawdreamer
+        "dawdreamer_vst3": vst3_found,
         "basic_pitch": _module_available("basic_pitch"),
+        "librosa": _module_available("librosa"),
         "mido": _module_available("mido"),
         "synth_fallback": _check_synth(),
         "sf2_banks": sf2_found,
@@ -133,23 +139,39 @@ def print_doctor():
     def fmt(v): return OK if v else NO
 
     print("=== Generate Backend Doctor ===")
-    print(f"  {fmt(status['fluidsynth_python'])} pyfluidsynth (Python binding)")
-    print(f"  {fmt(status['fluidsynth_binary'])} fluidsynth (system binary)")
-    print(f"  {fmt(status['dawdreamer'])}         dawdreamer (VST3)")
-    print(f"  {fmt(status['basic_pitch'])}         basic-pitch (hum2midi)")
-    print(f"  {fmt(status['mido'])}         mido (MIDI I/O)")
-    print(f"  {fmt(status['synth_fallback'])} music_engine (synth fallback)")
+    print(f"\n  FluidSynth (SF2 real samples):")
+    print(f"    {fmt(status['fluidsynth_python'])} pyfluidsynth (Python binding)")
+    print(f"    {fmt(status['fluidsynth_binary'])} fluidsynth (system binary)")
     sf2 = status["sf2_banks"]
     if sf2:
-        print(f"  {OK} SF2 bank: {sf2}")
+        print(f"    {OK} SF2 bank: {sf2}")
     else:
-        print(f"  {NO} SF2 bank not found")
-        print("     Install: download MuseScore_General.sf2 → /opt/autodj-mixer/shared/")
+        print(f"    {NO} SF2 bank not found → download MuseScore_General.sf2 → shared/")
+
+    print(f"\n  DawDreamer (Faust DSP + VST3):")
+    print(f"    {fmt(status['dawdreamer'])} dawdreamer installed")
+    print(f"    {fmt(status['dawdreamer_faust'])} Faust DSP synths (built-in, no plugins)")
+    vst3 = status.get("dawdreamer_vst3", [])
+    if vst3:
+        print(f"    {OK} VST3 plugins ({len(vst3)} found):")
+        for p in vst3[:3]:
+            print(f"       {p}")
+    else:
+        print(f"    {NO} VST3 plugins not found")
+        print("       Install: Surge XT / Vital / Dexed → /usr/local/lib/vst3/")
+
+    print(f"\n  hum2midi (voice → melody):")
+    print(f"    {fmt(status['librosa'])} librosa (pitch tracking, pyin)")
+    print(f"    {fmt(status['basic_pitch'])} basic-pitch (incompatible w/ numpy 2.x, skip)")
+    print(f"    {fmt(status['mido'])} mido (MIDI I/O)")
+
+    print(f"\n  Fallback:")
+    print(f"    {fmt(status['synth_fallback'])} music_engine (parametric DSP synth)")
+
     print()
     if not status["fluidsynth_python"]:
         print("  To enable FluidSynth:")
-        print("    apt install fluidsynth libfluidsynth-dev")
-        print("    pip install pyfluidsynth")
+        print("    apt install fluidsynth libfluidsynth-dev && pip install pyfluidsynth")
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +271,7 @@ class GenerateEngine:
         return wav, self.sr
 
     def _render_fluidsynth(self) -> np.ndarray:
-        from backends.fluidsynth import (
+        from autodj.generate.backends.fluidsynth import (
             FluidSynthBackend, find_sf2,
             build_melody_events, build_chord_events,
             build_drum_events, build_bass_events,
@@ -321,11 +343,72 @@ class GenerateEngine:
         return wav
 
     def _render_dawdreamer(self) -> np.ndarray:
-        # G4 — not yet implemented
-        raise NotImplementedError(
-            "DawDreamer backend is planned for G4. "
-            "Use backend='fluidsynth' or backend='synth'."
+        """Render via DawDreamer + Faust DSP synths (no VST3 required)."""
+        from autodj.generate.backends.dawdreamer import DawDreamerBackend
+        from autodj.generate.backends.fluidsynth import (
+            build_melody_events, build_chord_events,
+            build_drum_events, build_bass_events,
         )
+
+        elements = self.style.get("elements", {})
+        bar_s = 60.0 / self.bpm * 4
+        n_bars = int(self.duration_s / bar_s) + 1
+
+        # Faust preset overrides from instrument_mapping program numbers
+        vst3_plugins = self.style.get("generate", {}).get("vst3_plugins", {})
+        backend = DawDreamerBackend(
+            sample_rate=self.sr,
+            vst3_plugins=vst3_plugins,
+        )
+
+        all_events = []
+
+        # Program changes drive preset selection (GM → Faust preset mapping)
+        for elem_name, mapping in self.instrument_mapping.items():
+            ch = mapping.get("channel", 0)
+            bank = mapping.get("bank", 0)
+            prog = mapping.get("program", 0)
+            all_events.append((0.0, "program", ch, bank, prog))
+
+        # Reuse same MIDI event builders as FluidSynth backend
+        if elements.get("lead", {}).get("active"):
+            ch_cfg = self.instrument_mapping.get("lead", {"channel": 0})
+            ch = ch_cfg["channel"]
+            for pattern in elements["lead"].get("patterns", []):
+                freqs = pattern.get("freqs", [])
+                step_type = pattern.get("step", "eighth")
+                step_s = bar_s / (8 if step_type == "eighth" else 16)
+                gain = pattern.get("gain", 0.7)
+                velocity = min(127, int(gain * 127))
+                total_steps = int(self.duration_s / step_s) + 1
+                repeated = (freqs * ((total_steps // max(1, len(freqs))) + 1))[:total_steps]
+                evs = build_melody_events(repeated, step_s, channel=ch, velocity=velocity)
+                all_events.extend(evs)
+
+        if elements.get("pad", {}).get("active"):
+            ch_cfg = self.instrument_mapping.get("pad", {"channel": 1})
+            ch = ch_cfg["channel"]
+            chords = elements["pad"].get("chords", [])
+            if chords:
+                n_chord_bars = int(self.duration_s / bar_s) + 1
+                repeated = (chords * ((n_chord_bars // max(1, len(chords))) + 1))[:n_chord_bars]
+                evs = build_chord_events(repeated, bar_s, channel=ch)
+                all_events.extend(evs)
+
+        if elements.get("bass", {}).get("active"):
+            ch_cfg = self.instrument_mapping.get("bass", {"channel": 2})
+            ch = ch_cfg["channel"]
+            roots = elements["bass"].get("roots", [])
+            if roots:
+                evs = build_bass_events(roots, bar_s, n_bars=n_bars, channel=ch)
+                all_events.extend(evs)
+
+        if elements.get("drums", {}).get("active"):
+            pattern = elements["drums"].get("pattern", {})
+            evs = build_drum_events(pattern, bar_s, n_bars=n_bars)
+            all_events.extend(evs)
+
+        return backend.render(all_events, self.duration_s)
 
     def _render_synth(self) -> np.ndarray:
         """Fall back to original music_engine (parametric DSP)."""
