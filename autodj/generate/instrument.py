@@ -81,18 +81,18 @@ _CATEGORIES = {
         "instruments": {"violin", "viola", "cello", "string_ensemble", "slow_strings",
                          "synth_strings", "tremolo_strings", "pizzicato_strings"},
         "note_release": 0.92,
-        "modulation": 50,      # CC1 vibrato depth (starts after attack)
-        "mod_delay": 0.25,     # seconds before vibrato kicks in
+        "modulation": 22,      # CC1 vibrato depth -- 50 was too eerie on GM strings
+        "mod_delay": 0.35,     # longer delay so attack is clean
         "expression": 108,     # CC11
-        "reverb_send": 52,     # CC91
+        "reverb_send": 48,     # CC91
         "sustain": False,
     },
     "lead_wind": {
         "instruments": {"flute", "pan_flute", "shakuhachi", "ocarina", "clarinet",
                          "oboe", "english_horn", "bassoon", "piccolo", "recorder", "whistle"},
         "note_release": 0.88,
-        "modulation": 38,      # lighter vibrato for flute/winds
-        "mod_delay": 0.30,
+        "modulation": 28,      # gentle vibrato for winds
+        "mod_delay": 0.35,     # clean attack, vibrato enters after
         "expression": 105,
         "reverb_send": 45,
         "sustain": False,

@@ -82,6 +82,9 @@ class GenreConfig:
     inst_accent: str = "kalimba"
     inst_counter: Optional[str] = None
 
+    # Chord pad: how many bars per chord (8 = ambient drone, 4 = techno punchy)
+    pad_bars: int = 8
+
     # Drum style
     drum_pattern: str = "four_on_floor"
     # Section structure (seconds)
@@ -150,6 +153,7 @@ GENRES: Dict[str, GenreConfig] = {
         inst_pad="synth_pad_warm", inst_lead="electric_piano",
         inst_arp="synth_lead_square", inst_bass="synth_bass_1", inst_accent="glockenspiel",
         inst_counter="synth_lead_sawtooth",
+        pad_bars=4,
         drum_pattern="four_on_floor",
         gain_drums=0.65, gain_lead=0.55, gain_arp=0.50, gain_bass=0.60,
         fx_drums=(0.12, 0.07, 0.72), delay_arp=True, delay_lead=True,
@@ -160,9 +164,10 @@ GENRES: Dict[str, GenreConfig] = {
         name="Dark Matter Techno", bpm=138, key="Dm", dur=720,
         progression="dark_techno", scale_mode="phrygian", swing=0.0,
         melodic_style="staccato",
-        inst_pad="synth_pad_choir", inst_lead="synth_lead_sawtooth",
+        inst_pad="synth_pad_warm", inst_lead="synth_lead_sawtooth",
         inst_arp="synth_lead_square", inst_bass="synth_bass_1", inst_accent="tubular_bells",
         inst_counter="electric_piano",
+        pad_bars=4,
         drum_pattern="four_on_floor",
         gain_drums=0.70, gain_pad=0.42, gain_lead=0.55, gain_arp=0.48, gain_bass=0.65,
         fx_pad=(0.88, 0.38, 0.42), fx_drums=(0.10, 0.06, 0.78),
@@ -174,8 +179,9 @@ GENRES: Dict[str, GenreConfig] = {
         name="Dark Cosmic", bpm=133, key="Dm", dur=600,
         progression="dark_techno", scale_mode="phrygian", swing=0.0,
         melodic_style="staccato",
-        inst_pad="synth_pad_metallic", inst_lead="synth_lead_sawtooth",
+        inst_pad="synth_pad_warm", inst_lead="synth_lead_sawtooth",
         inst_arp="synth_lead_square", inst_bass="synth_bass_1", inst_accent="tubular_bells",
+        pad_bars=4,
         drum_pattern="four_on_floor",
         gain_drums=0.65, gain_pad=0.45, gain_lead=0.52, gain_arp=0.50, gain_bass=0.62,
         fx_pad=(0.92, 0.42, 0.35), delay_arp=True,
@@ -218,9 +224,10 @@ GENRES: Dict[str, GenreConfig] = {
         name="Liquid DnB", bpm=174, key="Am", dur=480,
         progression="neo_soul", scale_mode="melodic_minor", swing=0.08,
         melodic_style="flowing",
-        inst_pad="string_ensemble", inst_lead="electric_piano",
+        inst_pad="synth_pad_warm", inst_lead="electric_piano",
         inst_arp="vibraphone", inst_bass="electric_bass_finger",
-        inst_accent="celesta", inst_counter="violin",
+        inst_accent="celesta", inst_counter="harp",
+        pad_bars=4,
         drum_pattern="dnb_halftime",
         gain_drums=0.65, gain_pad=0.48, gain_lead=0.55, gain_arp=0.50,
         gain_bass=0.62, gain_counter=0.42,
@@ -238,6 +245,7 @@ GENRES: Dict[str, GenreConfig] = {
         inst_pad="synth_pad_warm", inst_lead="shakuhachi",
         inst_arp="kalimba", inst_bass="electric_bass_finger",
         inst_accent="steel_drums", inst_counter="marimba",
+        pad_bars=4,
         drum_pattern="afro",
         gain_drums=0.65, gain_pad=0.45, gain_lead=0.50, gain_arp=0.58,
         gain_bass=0.60, gain_counter=0.48, gain_accent=0.48,
@@ -252,8 +260,9 @@ GENRES: Dict[str, GenreConfig] = {
         name="Berlin Minimal", bpm=128, key="Dm", dur=600,
         progression="industrial", scale_mode="phrygian", swing=0.0,
         melodic_style="staccato",
-        inst_pad="synth_pad_metallic", inst_lead="synth_lead_square",
+        inst_pad="synth_pad_warm", inst_lead="synth_lead_square",
         inst_arp="music_box", inst_bass="synth_bass_1", inst_accent="tubular_bells",
+        pad_bars=4,
         drum_pattern="minimal",
         gain_drums=0.72, gain_pad=0.40, gain_lead=0.48, gain_arp=0.42, gain_bass=0.65,
         fx_pad=(0.88, 0.40, 0.38), fx_drums=(0.08, 0.05, 0.80),
@@ -399,9 +408,11 @@ def _snap_to_pool(target_idx: int, pool: List[int]) -> int:
 
 
 def build_pad_events(cfg, chords, dur):
-    """Chord pad with 3s overlap and chord strum (notes slightly offset)."""
+    """Chord pad with overlap and chord strum (notes slightly offset).
+    pad_bars controls chord hold time: 8 = ambient drone, 4 = techno/house.
+    """
     bar = _bar(cfg.bpm)
-    chord_bars = 8
+    chord_bars = cfg.pad_bars
     chord_dur = bar * chord_bars
     overlap = 3.0
     events, t, ci = [], 0.0, 0
