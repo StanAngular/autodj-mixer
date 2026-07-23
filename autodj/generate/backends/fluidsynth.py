@@ -129,6 +129,18 @@ class FluidSynthBackend:
             self.synth.bank_select(ch, 0)
             self.synth.program_change(ch, 0)
 
+        # ── Enable built-in reverb (small room acoustics) ──────────────────
+        # Level is intentionally low (0.10) — just adds natural room acoustics.
+        # Artistic reverb is handled by Pedalboard in render_track.py.
+        # CC91 (reverb send) per-channel controls actual contribution.
+        try:
+            self.synth.set_reverb_roomsize(0.35)   # small/medium room
+            self.synth.set_reverb_damp(0.5)        # moderate HF damping
+            self.synth.set_reverb_width(0.8)       # good stereo width
+            self.synth.set_reverb_level(0.10)      # subtle level
+        except Exception as e:
+            log.warning(f"FluidSynth reverb setup failed (non-fatal): {e}")
+
         log.info(f"FluidSynth ready: SR={sample_rate} sf2={os.path.basename(self.sf2_path)}")
 
     def close(self):
@@ -187,11 +199,13 @@ class FluidSynthBackend:
             output[sample_pos:chunk_end] = arr_f[:n]
             sample_pos = chunk_end
 
-        # Normalize to -0.5 dB
+        # Soft normalize to -3 dB ceiling (preserves relative dynamics between layers).
+        # render_track.py handles final master normalization.
         peak = np.abs(output).max()
         if peak > 1e-6:
-            target = 10 ** (-0.5 / 20)  # ~0.944
-            output *= target / peak
+            target = 10 ** (-3.0 / 20)  # ~0.708
+            if peak > target:            # only reduce, never boost
+                output *= target / peak
 
         return output
 
