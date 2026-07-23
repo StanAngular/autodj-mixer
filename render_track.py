@@ -319,6 +319,12 @@ def apply_env(buf, env):
 def _bar(bpm): return 4 * 60.0 / bpm
 def _beat(bpm): return 60.0 / bpm
 
+def _jitter(rng, ms: float) -> float:
+    """Random timing offset in seconds (±ms milliseconds).
+    Makes notes fall slightly off the mathematical grid, like a real musician.
+    """
+    return rng.uniform(-ms, ms) / 1000.0
+
 def _swung(bar_start, step_16, bar, swing):
     step_dur = bar / 16
     t = bar_start + step_16 * step_dur
@@ -393,7 +399,7 @@ def _snap_to_pool(target_idx: int, pool: List[int]) -> int:
 
 
 def build_pad_events(cfg, chords, dur):
-    """Chord pad with 3s overlap between changes for seamless transitions."""
+    """Chord pad with 3s overlap and chord strum (notes slightly offset)."""
     bar = _bar(cfg.bpm)
     chord_bars = 8
     chord_dur = bar * chord_bars
@@ -402,7 +408,12 @@ def build_pad_events(cfg, chords, dur):
     while t < dur - 1:
         chord = chords[ci % len(chords)]
         d = min(chord_dur + overlap, dur - t)
-        events.append((t, chord, 58, d))
+        # Strum: each chord note offset by 8-14ms so chord "strums" instead of slamming
+        strum_ms = 0.011  # 11ms between each chord note
+        strum_t  = t
+        for ni, note in enumerate(chord):
+            events.append((strum_t, [note], 58, d))
+            strum_t += strum_ms
         ci += 1
         t += chord_dur
     return events
@@ -512,7 +523,9 @@ def build_lead_events(cfg, chords, scale, dur, seed=None):
             gate = 0.92 if dur_b >= 1.0 else 0.78
             ndur = dur_b * beat * gate * rng.uniform(0.96, 1.02)
 
-            events.append((t, int(midi), vel, ndur))
+            # Timing humanization: ±12ms (lead player is expressive but loose)
+            t_human = max(0.0, t + _jitter(rng, 12.0))
+            events.append((t_human, int(midi), vel, ndur))
             t += dur_b * beat
 
         phrase_count += 1
@@ -597,7 +610,8 @@ def build_counter_events(cfg, chords, scale, dur, seed=None):
 
             vel = int(np.clip(42 + rng.randint(0, 25), 32, 80))
             ndur = dur_b * beat * rng.uniform(0.85, 0.97)
-            events.append((t, int(midi), vel, ndur))
+            t_human = max(0.0, t + _jitter(rng, 10.0))
+            events.append((t_human, int(midi), vel, ndur))
             t += dur_b * beat
 
         # Long rest so counter doesn't crowd the lead
@@ -662,7 +676,9 @@ def build_arp_events(cfg, chords, scale, dur, seed=None):
                     35, 115
                 ))
                 ndur = step_dur * rng.uniform(0.7, 1.1)
-                events.append((t, midi, vel, ndur))
+                # Arp jitter: ±5ms (tighter than lead, arp players are more mechanical)
+                t_human = max(0.0, t + _jitter(rng, 5.0))
+                events.append((t_human, midi, vel, ndur))
                 t += step_dur
 
         t += bar * rng.uniform(0.5, 2.0 / max(0.2, cfg.arp_density))
@@ -720,7 +736,9 @@ def build_bass_events(cfg, chords, scale, dur, seed=None):
 
         vel  = rng.randint(78, 108)
         ndur = beat * rng.uniform(0.65, 0.85)
-        events.append((t, root, vel, ndur))
+        # Bass jitter: ±8ms (bass player "lays back" or "pushes" the beat)
+        t_human = max(0.0, t + _jitter(rng, 8.0))
+        events.append((t_human, root, vel, ndur))
 
         n_fills    = int(rng.uniform(0, 4 * cfg.bass_syncopation))
         fill_times = sorted(rng.uniform(beat * 0.8, bar * 0.9, n_fills))
@@ -796,6 +814,26 @@ def _swt(bs, step, bar, sw):
     if step % 2 == 1:
         t += s * sw
     return t
+
+def _humanize_drums(hits: list, rng) -> list:
+    """Post-process drum hit list with per-instrument timing jitter.
+    Kick is tightest (real drummers lock kick to click), hats are loosest.
+      kick/tom: ±2ms
+      snare/clap: ±4ms
+      hats/ride/crash: ±7ms
+    """
+    JITTER_MS = {
+        "kick": 2.0, "tom_mid": 3.0, "tom_low": 3.0,
+        "snare": 4.0, "clap": 4.0,
+        "closed_hat": 7.0, "open_hat": 7.0,
+        "ride": 6.0, "crash": 5.0,
+    }
+    result = []
+    for t, drum, vel in hits:
+        ms = JITTER_MS.get(drum, 5.0)
+        t_h = max(0.0, t + rng.uniform(-ms, ms) / 1000.0)
+        result.append((t_h, drum, vel))
+    return result
 
 def _four_on_floor(hits, t, bar, v, rng, sw):
     for b in range(2):
@@ -907,6 +945,10 @@ def render(cfg: GenreConfig) -> str:
     accent_ev  = build_accent_events(cfg, chords, scale, dur, seed=render_seed + 3)
     bass_ev    = build_bass_events(cfg, chords, scale, dur,   seed=render_seed + 4)
     drum_ev    = build_drum_events(cfg, dur,                  seed=render_seed + 5)
+
+    # Apply drum timing humanization (post-process with same seed for reproducibility)
+    _drum_rng  = np.random.RandomState(render_seed + 6)
+    drum_ev    = _humanize_drums(drum_ev, _drum_rng)
 
     print(f"  events: pad={len(pad_ev)} lead={len(lead_ev)} counter={len(counter_ev)} "
           f"arp={len(arp_ev)} accent={len(accent_ev)} bass={len(bass_ev)} drums={len(drum_ev)}")
