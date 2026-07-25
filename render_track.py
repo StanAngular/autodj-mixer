@@ -1067,6 +1067,56 @@ def render(cfg: GenreConfig) -> str:
                              duck_db=getattr(cfg, "duck_db", -4.5))
     print("    mixbus gains: " + ", ".join(f"{k}={v}" for k, v in _gains.items()))
 
+    # 4b. Filter automation (THE signature of electronic music)
+    # LPF sweep during intro: track opens dark, gradually reveals full spectrum
+    # HPF rise at very end: graceful exit without hard cut
+    def _lpf_sweep_stereo(buf, start_hz, end_hz, segments=64):
+        """Apply exponential LPF sweep to stereo buffer."""
+        from scipy.signal import butter, sosfilt
+        n = len(buf)
+        out = buf.copy()
+        seg_len = max(1, n // segments)
+        for i in range(segments):
+            t = i / segments
+            cutoff = float(start_hz * (end_hz / start_hz) ** t)
+            cutoff = max(20.0, min(cutoff, SR / 2 - 100))
+            sos = butter(2, cutoff / (SR / 2), btype='low', output='sos')
+            s = i * seg_len
+            e = s + seg_len if i < segments - 1 else n
+            for ch in range(out.shape[1]):
+                out[s:e, ch] = sosfilt(sos, buf[s:e, ch]).astype(np.float32)
+        return out
+
+    def _hpf_sweep_stereo(buf, start_hz, end_hz, segments=32):
+        """Apply exponential HPF sweep to stereo buffer (low-end exit)."""
+        from scipy.signal import butter, sosfilt
+        n = len(buf)
+        out = buf.copy()
+        seg_len = max(1, n // segments)
+        for i in range(segments):
+            t = i / segments
+            cutoff = float(start_hz * (end_hz / start_hz) ** t)
+            cutoff = max(20.0, min(cutoff, SR / 2 - 100))
+            sos = butter(2, cutoff / (SR / 2), btype='high', output='sos')
+            s = i * seg_len
+            e = s + seg_len if i < segments - 1 else n
+            for ch in range(out.shape[1]):
+                out[s:e, ch] = sosfilt(sos, buf[s:e, ch]).astype(np.float32)
+        return out
+
+    # Apply LPF sweep over the first intro_s * 0.8 seconds
+    # (starts muffled, fully opens at 80% of intro = at the drop)
+    buildup_end = int(min(intro * 0.80, dur * 0.35) * SR)
+    if buildup_end > SR * 8:  # only if buildup > 8s
+        mix[:buildup_end] = _lpf_sweep_stereo(
+            mix[:buildup_end], start_hz=220, end_hz=16000)
+
+    # HPF sweep on the last 20s (bass fades out gracefully)
+    outro_start = int(max(dur - 20, dur * 0.88) * SR)
+    if outro_start < total and (total - outro_start) > SR * 5:
+        mix[outro_start:] = _hpf_sweep_stereo(
+            mix[outro_start:], start_hz=30, end_hz=400)
+
     # Global fades
     fi = int(10 * SR)
     fo = int(22 * SR)
