@@ -269,6 +269,75 @@ def _sustain_events(channel: int, cat: dict, notes: list) -> list:
     return events
 
 
+def _expression_curve(channel: int, cat: dict, notes: list) -> list:
+    """
+    Dynamic CC11 expression automation per note.
+    Simulates bow pressure (strings), breath (winds), or finger dynamics (pads).
+
+    Instead of one static CC11 at the start, each note gets a swell:
+    - Attack: rise from base to peak over first 25% of note
+    - Sustain: hold near peak with slight drift
+    - Release: gentle dip in last 20% of note
+
+    Keys/percussion skip this (they have natural attack/decay).
+    """
+    cat_name = None
+    for cn, cd in _CATEGORIES.items():
+        if cat is cd:
+            cat_name = cn
+            break
+
+    # Skip dynamic expression for keys, bass, guitar (natural percussive attack)
+    if cat_name in ("keys", "bass", "guitar", None):
+        return []
+
+    events = []
+    base_expr = cat["expression"]
+
+    for t, note, vel, dur in notes:
+        if dur < 0.3:
+            continue  # too short for expression curve
+
+        # Scale: expression dips to ~75% of base at attack, swells to 105%
+        lo  = max(1, int(base_expr * 0.72))
+        hi  = min(127, int(base_expr * 1.06))
+        mid = int(base_expr * 0.95)
+
+        # Attack phase: 4 steps over first 25%
+        att_dur = dur * 0.25
+        step_a  = att_dur / 4
+        for i in range(5):
+            val = int(lo + (hi - lo) * (i / 4))
+            events.append((t + i * step_a, "control", channel, 11, val))
+
+        # Sustain phase: gentle drift (2 points)
+        sus_start = t + att_dur
+        sus_dur   = dur * 0.55
+        events.append((sus_start,               "control", channel, 11, hi))
+        events.append((sus_start + sus_dur * 0.5, "control", channel, 11, int(hi * 0.97)))
+
+        # Release phase: dip down
+        rel_start = t + dur * 0.80
+        events.append((rel_start,        "control", channel, 11, mid))
+        events.append((t + dur * 0.95,   "control", channel, 11, lo))
+
+    return events
+
+
+def _velocity_humanize(notes: list, spread: int = 8) -> list:
+    """
+    Add slight random velocity variation to break machine-gun effect.
+    Uses note pitch as pseudo-random seed for reproducibility.
+    """
+    result = []
+    for t, note, vel, dur in notes:
+        # Simple hash-based deterministic jitter from note + time
+        jitter = ((int(t * 1000) * 7 + note * 13) % (spread * 2 + 1)) - spread
+        new_vel = max(20, min(127, vel + jitter))
+        result.append((t, note, new_vel, dur))
+    return result
+
+
 # ── Core render functions ───────────────────────────────────────────────────
 
 def render_notes(instrument: str, notes: list, duration: float,
@@ -292,10 +361,14 @@ def render_notes(instrument: str, notes: list, duration: float,
     cat     = _get_cat(instrument)
     nr      = note_release if note_release is not None else cat["note_release"]
 
+    # Humanize velocities
+    notes = _velocity_humanize(notes)
+
     events  = [(0.0, "program", channel, 0, program)]
     events += _cc_init(channel, cat)
     events += _vibrato_events(channel, cat, notes)
-    events += _sustain_events(channel, cat, [(t, n, v, d) for t, n, v, d in notes])
+    events += _sustain_events(channel, cat, notes)
+    events += _expression_curve(channel, cat, notes)
 
     for t, note, vel, dur in notes:
         events.append((t,          "note_on",  channel, int(note), int(vel)))
@@ -321,7 +394,7 @@ def render_chords(instrument: str, chords: list, duration: float,
     cat     = _get_cat(instrument)
     nr      = note_release if note_release is not None else cat["note_release"]
 
-    # Build flat note list for vibrato/sustain helpers
+    # Build flat note list for vibrato/sustain/expression helpers
     flat_notes = [(t, notes[0] if notes else 60, vel, dur)
                   for t, notes, vel, dur in chords]
 
@@ -329,6 +402,7 @@ def render_chords(instrument: str, chords: list, duration: float,
     events += _cc_init(channel, cat)
     events += _vibrato_events(channel, cat, flat_notes)
     events += _sustain_events(channel, cat, flat_notes)
+    events += _expression_curve(channel, cat, flat_notes)
 
     for t, midi_notes, vel, dur in chords:
         for note in midi_notes:
@@ -398,10 +472,13 @@ def render_multi(layers: list, duration: float,
             nr        = cat["note_release"]
             flat_notes = layer.get("notes", [])
 
+            flat_notes = _velocity_humanize(flat_notes)
+
             events.append((0.0, "program", ch, 0, program))
             events += _cc_init(ch, cat)
             events += _vibrato_events(ch, cat, flat_notes)
             events += _sustain_events(ch, cat, flat_notes)
+            events += _expression_curve(ch, cat, flat_notes)
 
             for t, note, vel, dur in flat_notes:
                 events.append((t,          "note_on",  ch, int(note), int(vel)))

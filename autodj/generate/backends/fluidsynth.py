@@ -8,8 +8,9 @@ Dependencies:
     pip install pyfluidsynth mido
 
 SF2 banks (place in /opt/autodj-mixer/shared/):
-    MuseScore_General.sf2   -- full GM orchestra (206 MB)
-    TimGM6mb.sf2            -- compact GM bank (5.7 MB, good fallback)
+    Timbres of Heaven (XGM) 4.00(G).sf2  -- high-quality GM (419 MB, preferred)
+    MuseScore_General.sf2                 -- full GM orchestra (206 MB, fallback)
+    TimGM6mb.sf2                          -- compact GM bank (5.7 MB, fallback)
 
 Instrument mapping (in style JSON, per channel):
     "instrument_mapping": {
@@ -38,6 +39,8 @@ log = logging.getLogger(__name__)
 
 # Default SF2 search paths
 SF2_SEARCH_PATHS = [
+    "/opt/autodj-mixer/shared/Timbres of Heaven (XGM) 4.00(G).sf2",
+    "/opt/autodj-mixer/shared/Nice-Keys-Ultimate-V2.3.sf2",  # keys-only, not full GM
     "/opt/autodj-mixer/shared/MuseScore_General.sf2",
     "/opt/autodj-mixer/shared/TimGM6mb.sf2",
     "/usr/share/sounds/sf2/FluidR3_GM.sf2",
@@ -88,6 +91,15 @@ def find_sf2(preferred: str = None) -> str:
         "  /opt/autodj-mixer/shared/TimGM6mb.sf2\n"
         "Or: apt install fluid-soundfont-gm"
     )
+
+
+def peak_guard(buf, ceiling: float = 0.99):
+    """Только защита от клиппинга (НЕ нормализация к цели): понижаем, если пик выше
+    потолка, иначе не трогаем -- относительная громкость слоёв сохраняется."""
+    peak = float(np.abs(buf).max()) if buf.size else 0.0
+    if peak > ceiling:
+        buf = buf * (ceiling / peak)
+    return buf
 
 
 class FluidSynthBackend:
@@ -199,15 +211,10 @@ class FluidSynthBackend:
             output[sample_pos:chunk_end] = arr_f[:n]
             sample_pos = chunk_end
 
-        # Soft normalize to -3 dB ceiling (preserves relative dynamics between layers).
-        # render_track.py handles final master normalization.
-        peak = np.abs(output).max()
-        if peak > 1e-6:
-            target = 10 ** (-3.0 / 20)  # ~0.708
-            if peak > target:            # only reduce, never boost
-                output *= target / peak
-
-        return output
+        # Q1-ФИКС: раньше КАЖДЫЙ слой отдельно нормализовался до -3 dB -- это
+        # стирало динамику (pad/lead/bass все одинаково громкие). Теперь -- только
+        # защита от клиппинга; баланс ставит mixbus.mix_layers по RMS ролевых целей.
+        return peak_guard(output)
 
     def _dispatch(self, ev):
         t, etype, *rest = ev

@@ -102,6 +102,7 @@ class GenreConfig:
     gain_bass:  float = 0.55
     gain_accent:float = 0.45
     gain_counter:float = 0.42
+    duck_db:    float = -4.5   # Q1: глубина сайдчейн-пампинга
 
     # Reverb presets per layer: (room, wet, damp)
     fx_pad:    Tuple = (0.82, 0.32, 0.48)
@@ -298,6 +299,28 @@ GENRES: Dict[str, GenreConfig] = {
         lead_density=0.32, arp_density=0.40, bass_syncopation=0.35,
         target_db=-3.5, intro_s=50,
     ),
+
+    # ── COSMIC DOWNTEMPO ────────────────────────────────────────────────
+    "cosmic_downtempo": GenreConfig(
+        name="Cosmic Downtempo", bpm=84, key="Dm", dur=300,
+        progression="ambient", scale_mode="phrygian", swing=0.12,
+        melodic_style="legato",
+        inst_pad="synth_pad_halo", inst_lead="pan_flute",
+        inst_arp="celesta", inst_bass="fretless_bass", inst_accent="tubular_bells",
+        inst_counter="synth_pad_choir",
+        pad_bars=8,
+        drum_pattern="halftime",
+        gain_drums=0.42, gain_pad=0.62, gain_lead=0.58,
+        gain_arp=0.48, gain_bass=0.70, gain_accent=0.38, gain_counter=0.45,
+        fx_pad=(0.88, 0.38, 0.35), fx_lead=(0.85, 0.35, 0.38),
+        fx_arp=(0.80, 0.30, 0.42), fx_bass=(0.35, 0.10, 0.68),
+        fx_drums=(0.30, 0.10, 0.65), fx_accent=(0.85, 0.38, 0.38),
+        fx_counter=(0.90, 0.42, 0.32),
+        delay_arp=True, chorus_pad=True, chorus_lead=True,
+        lead_density=0.40, arp_density=0.45, accent_density=0.22,
+        bass_syncopation=0.3, lead_register="high",
+        target_db=-1.5, intro_s=45,
+    ),
 }
 
 
@@ -305,7 +328,7 @@ GENRES: Dict[str, GenreConfig] = {
 
 def rcos_env(on, peak, off, out, total):
     env = np.zeros(total, dtype=np.float32)
-    i0, i1, i2, i3 = (min(int(x * SR), total) for x in (on, peak, off, out))
+    i0, i1, i2, i3 = (max(0, min(int(x * SR), total)) for x in (on, peak, off, out))
     if i1 > i0:
         n = i1 - i0
         env[i0:i1] = (0.5 - 0.5 * np.cos(np.pi * np.arange(n) / n)).astype(np.float32)
@@ -1028,14 +1051,21 @@ def render(cfg: GenreConfig) -> str:
     bass_env    = rcos_env(18,         intro*0.55, outro + 12, outro + 52, total)
     drum_env    = rcos_env(5,          intro*0.35, outro + 15, dur - 3,    total)
 
-    mix  = np.zeros((total, 2), dtype=np.float32)
-    mix += apply_env(trim(pad_buf),     pad_env)    * cfg.gain_pad
-    mix += apply_env(trim(lead_buf),    lead_env)   * cfg.gain_lead
-    mix += apply_env(trim(counter_buf), counter_env)* cfg.gain_counter
-    mix += apply_env(trim(arp_buf),     arp_env)    * cfg.gain_arp
-    mix += apply_env(trim(accent_buf),  accent_env) * cfg.gain_accent
-    mix += apply_env(trim(bass_buf),    bass_env)   * cfg.gain_bass
-    mix += apply_env(trim(drum_buf),    drum_env)   * cfg.gain_drums
+    # Q1: слои идут в МИКС-ШИНУ (частотные роли -> гейн по RMS -> сайдчейн), а не
+    # складываются вслепую. gain_* из GenreConfig остаются ручной подстройкой поверх.
+    from autodj.generate.mixbus import mix_layers
+    layers = {
+        "pad":     apply_env(trim(pad_buf),     pad_env)     * cfg.gain_pad,
+        "lead":    apply_env(trim(lead_buf),    lead_env)    * cfg.gain_lead,
+        "counter": apply_env(trim(counter_buf), counter_env) * cfg.gain_counter,
+        "arp":     apply_env(trim(arp_buf),     arp_env)     * cfg.gain_arp,
+        "accent":  apply_env(trim(accent_buf),  accent_env)  * cfg.gain_accent,
+        "bass":    apply_env(trim(bass_buf),    bass_env)    * cfg.gain_bass,
+        "drums":   apply_env(trim(drum_buf),    drum_env)    * cfg.gain_drums,
+    }
+    mix, _gains = mix_layers(layers, SR, int(_beat(cfg.bpm) * SR),
+                             duck_db=getattr(cfg, "duck_db", -4.5))
+    print("    mixbus gains: " + ", ".join(f"{k}={v}" for k, v in _gains.items()))
 
     # Global fades
     fi = int(10 * SR)
