@@ -32,6 +32,32 @@
 Нет sf2/VST → честный отказ с подсказкой установки; шумный напев → доверительный
 порог pitch-трекинга, отчёт «не распознал»; полифонический напев → берём верхний голос.
 
+
+## S — уроки live-coding (Strudel/TidalCycles, dj_dave), P80
+Разбор её кода: `s("~ oh").bank("akailinn, alesissr16")`, `.bank("RolandTR808")`,
+`.struct("x - - x - - x - - - x - x - x -")`, `<d#3 g#2>`, `!4`, `.fast(4)`,
+`.begin(0.1).end(0.3)`, `.chop(4)`, `.room(sine.range(0.2,0.75))`, `supersaw.detune(1)
+.distort(1)`. Почему у неё «нормальный звук», а у нас примитив:
+1. **Сэмплы вместо математики.** У неё барабаны — записи живых драм-машин (TR-808,
+   AkaiLinn, AlesisSR16, DMX). У нас `synth909.py` прямо пишет: «All sounds synthesized
+   from first principles (no samples needed)». 808-ю формулами не заменить. → S1.
+2. **Вариативность встроена в ЗАПИСЬ паттерна**: `<a b>` меняет звук по циклам, `?` —
+   вероятность, `!n`/`*n` — повторы/дробление. Музыка «дышит» без ручной аранжировки
+   каждой секции — это лечит наше «статичные паттерны, сочиняет средне». → S2.
+3. **Обработка на уровне события**: begin/end/chop/speed/clip + модуляция параметров
+   (`sine.range`), а не один эффект на весь слой. → S3.
+
+- [x] **S1 сэмплер** (P80): `autodj/generate/sampler.py` — банки драм-машин
+      (`git clone ritchse/tidal-drum-machines` или `tidalcycles/Dirt-Samples`, путь в
+      env SAMPLE_BANKS), псевдонимы Strudel (bd/sd/hh/oh/cp…), round-robin вариаций
+      (два одинаковых удара подряд не звучат), begin/end/speed/gain/pan.
+- [x] **S2 мини-нотация** (P80): `autodj/generate/mininotation.py` — `"bd*2 <sd cp> hh?"`,
+      `!n`, `[a b]`, struct-строки; развёртка на циклы даёт РАЗНЫЙ результат каждый цикл.
+- [ ] **S3 событийная обработка**: chop/clip + модуляция параметров (sine.range) на
+      уровне события, не слоя.
+- [ ] **S4 замена синт-барабанов на сэмплы** в рендерах (synth909 → SampleBank) — после
+      установки банков на сервере; synth909 остаётся fallback без банков.
+
 ## Tasks (после Approve)
 - [ ] G1: autodj/generate/ каркас + fluidsynth-бэкенд + 1 sf2 + рендер style.json
 - [ ] G2: uborka resynth_v* → archive; styles-формат v2 (instrument_mapping)
