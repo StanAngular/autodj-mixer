@@ -103,6 +103,7 @@ class GenreConfig:
     gain_accent:float = 0.45
     gain_counter:float = 0.42
     duck_db:    float = -4.5   # Q1: глубина сайдчейн-пампинга
+    arrange:    bool = True    # Q2: секционная аранжировка (филлы/плотность/ghosts)
     drum_bank:  str = ""       # S4: банк драм-машины (RolandTR909/TR808/AkaiLinn…); '' = env/дефолт
 
     # Reverb presets per layer: (room, wet, damp)
@@ -1003,6 +1004,17 @@ def render(cfg: GenreConfig) -> str:
     arp_buf     = rn(cfg.inst_arp, arp_ev, ch=1)
     accent_buf  = rn(cfg.inst_accent, accent_ev, ch=4)
     bass_buf    = rn(cfg.inst_bass, bass_ev, ch=2)
+
+    # Q2 (P82): секционная аранжировка барабанов — секции отличаются СОДЕРЖИМЫМ
+    # (не громкостью), на стыках филлы, в дропе ghost-удары. Отключается arrange=False.
+    if drum_ev and getattr(cfg, "arrange", True):
+        from autodj.generate.arrangement import default_plan, apply_sections
+        _bar_sec = 60.0 / cfg.bpm * 4
+        _plan = default_plan(max(1, int(dur / _bar_sec)))
+        _before = len(drum_ev)
+        drum_ev = apply_sections(drum_ev, _bar_sec, _plan, seed=getattr(cfg, "seed", 0) or 0)
+        print("    аранжировка: " + " → ".join(f"{k}({b-a}b)" for a, b, k in _plan)
+              + f" | ударов {_before}→{len(drum_ev)}")
 
     t1       = time.time()
     drum_buf = (render_drums(drum_ev, dur, SR, bank=(cfg.drum_bank or None))

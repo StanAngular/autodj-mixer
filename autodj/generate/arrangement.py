@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""
+arrangement.py — Q2: секционная аранжировка вместо кроссфейда слоёв.
+
+Диагноз (спека 008): слои плавно вводились огибающими по всей длине, паттерны между
+секциями не менялись, филлов не было, «дроп» = просто громче. Живая электроника
+устроена иначе: секции отличаются СОДЕРЖИМЫМ (что играет, а не насколько громко),
+а на стыках стоят филлы и сбросы.
+
+Модель: трек = последовательность секций (intro / build / drop / breakdown / outro).
+Для барабанов это значит:
+  intro      — только кик и редкий хэт, без снейра;
+  build      — плотность растёт, хэты дробятся, в последнем такте ФИЛЛ по томам;
+  drop       — полный паттерн, акценты сильнее;
+  breakdown  — барабаны почти уходят (остаются акценты), возвращаются в дропе;
+  outro      — разрежение обратно к кику.
+Плюс ghost-удары (тихие) в дропе — «дыхание» грува.
+
+Чистые функции над hit-листом [(время_сек, имя, velocity)] — тестируются офлайн,
+на аудио не завязаны.
+"""
+from __future__ import annotations
+
+import random
+
+# доля событий, которые остаются в секции, по ролям
+DENSITY = {
+    "intro":     {"kick": 1.0, "snare": 0.0, "closed_hat": 0.35, "open_hat": 0.2,
+                  "clap": 0.0, "ride": 0.0, "perc": 0.3},
+    "build":     {"kick": 1.0, "snare": 0.7, "closed_hat": 1.0, "open_hat": 0.6,
+                  "clap": 0.6, "ride": 0.5, "perc": 0.8},
+    "drop":      {"kick": 1.0, "snare": 1.0, "closed_hat": 1.0, "open_hat": 1.0,
+                  "clap": 1.0, "ride": 1.0, "perc": 1.0},
+    "breakdown": {"kick": 0.0, "snare": 0.15, "closed_hat": 0.2, "open_hat": 0.1,
+                  "clap": 0.2, "ride": 0.3, "perc": 0.4},
+    "outro":     {"kick": 0.8, "snare": 0.3, "closed_hat": 0.4, "open_hat": 0.2,
+                  "clap": 0.2, "ride": 0.2, "perc": 0.3},
+}
+
+# множители громкости по секциям (дроп не просто «громче» — он ПЛОТНЕЕ)
+VEL_SCALE = {"intro": 0.85, "build": 0.95, "drop": 1.0, "breakdown": 0.7, "outro": 0.8}
+
+FILL_DRUMS = ("tom_high", "tom_mid", "tom_low", "snare")
+
+
+def default_plan(total_bars: int) -> list[tuple[int, int, str]]:
+    """Каркас аранжировки по длине трека: [(бар_от, бар_до, вид)]. Чистая.
+    Пропорции — типовые для клубного трека; короткие треки получают меньше секций."""
+    if total_bars < 16:
+        return [(0, total_bars, "drop")]
+    if total_bars < 48:
+        i = max(4, total_bars // 8)
+        o = max(4, total_bars // 8)
+        b = max(4, total_bars // 6)
+        return [(0, i, "intro"), (i, i + b, "build"),
+                (i + b, total_bars - o, "drop"), (total_bars - o, total_bars, "outro")]
+    i = total_bars // 8
+    o = total_bars // 8
+    b1 = total_bars // 12
+    d1 = total_bars // 4
+    bd = total_bars // 10
+    b2 = total_bars // 16
+    marks = [(0, i, "intro"), (i, i + b1, "build"), (i + b1, i + b1 + d1, "drop")]
+    cur = i + b1 + d1
+    marks.append((cur, cur + bd, "breakdown")); cur += bd
+    marks.append((cur, cur + b2, "build")); cur += b2
+    marks.append((cur, total_bars - o, "drop"))
+    marks.append((total_bars - o, total_bars, "outro"))
+    return [(a, b, k) for a, b, k in marks if b > a]
+
+
+def section_at(plan: list[tuple[int, int, str]], bar: float) -> str:
+    for a, b, kind in plan:
+        if a <= bar < b:
+            return kind
+    return plan[-1][2] if plan else "drop"
+
+
+def make_fill(bar_start_sec: float, bar_sec: float, seed: int = 0,
+              steps: int = 8) -> list[tuple[float, str, int]]:
+    """Филл на последний такт перед сменой секции: спуск по томам + снейр-раскат.
+    Чистая (при фиксированном seed)."""
+    rng = random.Random(seed)
+    out = []
+    for k in range(steps):
+        t = bar_start_sec + bar_sec * k / steps
+        drum = FILL_DRUMS[min(len(FILL_DRUMS) - 1, k * len(FILL_DRUMS) // steps)]
+        vel = int(70 + 50 * (k + 1) / steps + rng.randint(-6, 6))
+        out.append((t, drum, max(30, min(127, vel))))
+    return out
+
+
+def apply_sections(hits: list, bar_sec: float, plan: list[tuple[int, int, str]],
+                   seed: int = 0, fills: bool = True,
+                   ghosts: bool = True) -> list[tuple[float, str, int]]:
+    """Главная функция Q2: hit-лист → аранжированный hit-лист. Чистая.
+      • прореживание по DENSITY (секции отличаются СОДЕРЖИМЫМ);
+      • VEL_SCALE (дроп плотнее, брейкдаун тише);
+      • ФИЛЛ в последнем такте перед сменой секции;
+      • ghost-снейры в дропе (тихие, между долями) — «дыхание» грува."""
+    rng = random.Random(seed)
+    out: list[tuple[float, str, int]] = []
+    for t, name, vel in hits:
+        bar = t / bar_sec if bar_sec else 0
+        kind = section_at(plan, bar)
+        keep = DENSITY.get(kind, DENSITY["drop"]).get(str(name).lower(), 0.8)
+        if keep <= 0.0 or rng.random() > keep:
+            continue
+        out.append((t, name, int(max(1, min(127, vel * VEL_SCALE.get(kind, 1.0))))))
+
+    if fills:
+        for a, b, _kind in plan[:-1]:                       # перед каждой сменой, кроме конца
+            fill_bar = b - 1
+            if fill_bar <= a:
+                continue
+            start = fill_bar * bar_sec
+            out = [h for h in out if not (start <= h[0] < start + bar_sec
+                                          and str(h[1]).lower() in ("closed_hat", "open_hat"))]
+            out.extend(make_fill(start, bar_sec, seed + b))
+
+    if ghosts:
+        for a, b, kind in plan:
+            if kind != "drop":
+                continue
+            for bar in range(a, b):
+                if rng.random() < 0.35:                     # не в каждом такте
+                    t = (bar + rng.choice([0.375, 0.875])) * bar_sec
+                    out.append((t, "snare", rng.randint(18, 32)))   # тихий ghost
+
+    return sorted(out, key=lambda h: h[0])
+
+
+def layer_section_gain(role: str, kind: str) -> float:
+    """Множитель слоя по секции — чтобы мелодические партии тоже жили по структуре
+    (в брейкдауне пад/лид на первый план, в интро лида нет). Чистая."""
+    table = {
+        "intro":     {"pad": 0.9, "lead": 0.0, "arp": 0.3, "bass": 0.5, "counter": 0.0},
+        "build":     {"pad": 0.9, "lead": 0.5, "arp": 0.8, "bass": 0.9, "counter": 0.4},
+        "drop":      {"pad": 0.8, "lead": 1.0, "arp": 1.0, "bass": 1.0, "counter": 0.9},
+        "breakdown": {"pad": 1.0, "lead": 0.8, "arp": 0.4, "bass": 0.3, "counter": 0.6},
+        "outro":     {"pad": 0.9, "lead": 0.3, "arp": 0.4, "bass": 0.6, "counter": 0.2},
+    }
+    return table.get(kind, table["drop"]).get(role, 1.0)

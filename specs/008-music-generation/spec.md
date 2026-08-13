@@ -63,6 +63,14 @@
       В логе видно, каким путём пошло: «drums: сэмплы банка RolandTR909».
 
 ## Tasks (после Approve)
+- [x] **Q2 секционная аранжировка** (P82): `autodj/generate/arrangement.py` — трек =
+      последовательность секций (intro→build→drop→breakdown→build→drop→outro,
+      `default_plan` по длине трека). Секции отличаются СОДЕРЖИМЫМ, не громкостью:
+      в интро нет снейра, в брейкдауне УХОДИТ КИК, в дропе полная плотность + ghost-удары
+      (тихие снейры между долями); ФИЛЛ по томам в последнем такте перед каждой сменой.
+      Врезано в `render_track` одной точкой — аранжируется hit-лист ДО озвучки; в логе
+      печатается план. `GenreConfig.arrange=False` отключает.
+      Открыто: `layer_section_gain` пока не применён к мелодическим слоям (только барабаны).
 - [ ] G1: autodj/generate/ каркас + fluidsynth-бэкенд + 1 sf2 + рендер style.json
 - [ ] G2: uborka resynth_v* → archive; styles-формат v2 (instrument_mapping)
 - [ ] G3: hum2midi (basic-pitch) + квантование + e2e напев→трек
