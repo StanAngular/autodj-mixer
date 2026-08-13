@@ -83,3 +83,41 @@ class TestLayerGain:
         assert layer_section_gain("lead", "drop") == 1.0
     def test_pad_leads_breakdown(self):
         assert layer_section_gain("pad", "breakdown") > layer_section_gain("bass", "breakdown")
+
+
+class TestSectionEnvelope:
+    def _plan(self):
+        return [(0, 8, "intro"), (8, 16, "drop"), (16, 24, "breakdown"), (24, 32, "drop")]
+
+    def test_lead_silent_in_intro_full_in_drop(self):
+        from autodj.generate.arrangement import section_gain_envelope
+        import numpy as np
+        sr, bar_sec = 100, 1.0                        # компактно: 1 бар = 100 сэмплов
+        env = section_gain_envelope("lead", self._plan(), bar_sec, 3200, sr)
+        assert env[300] < 0.15                        # интро — лида нет
+        assert env[1200] > 0.9                        # дроп — лид на месте
+
+    def test_bass_dips_in_breakdown(self):
+        from autodj.generate.arrangement import section_gain_envelope
+        sr = 100
+        env = section_gain_envelope("bass", self._plan(), 1.0, 3200, sr)
+        assert env[2000] < env[1200]                  # брейкдаун тише дропа
+
+    def test_pad_leads_breakdown(self):
+        from autodj.generate.arrangement import section_gain_envelope
+        sr = 100
+        pad = section_gain_envelope("pad", self._plan(), 1.0, 3200, sr)
+        bass = section_gain_envelope("bass", self._plan(), 1.0, 3200, sr)
+        assert pad[2000] > bass[2000]                 # в брейкдауне пад впереди
+
+    def test_smooth_no_clicks(self):
+        from autodj.generate.arrangement import section_gain_envelope
+        import numpy as np
+        env = section_gain_envelope("lead", self._plan(), 1.0, 3200, 100, smooth_ms=200)
+        assert np.abs(np.diff(env)).max() < 0.25      # стыки сглажены
+
+    def test_length_and_no_plan(self):
+        from autodj.generate.arrangement import section_gain_envelope
+        import numpy as np
+        assert len(section_gain_envelope("lead", self._plan(), 1.0, 500, 100)) == 500
+        assert np.all(section_gain_envelope("lead", [], 1.0, 500, 100) == 1.0)

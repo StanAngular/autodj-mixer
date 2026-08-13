@@ -1068,13 +1068,28 @@ def render(cfg: GenreConfig) -> str:
     # Q1: слои идут в МИКС-ШИНУ (частотные роли -> гейн по RMS -> сайдчейн), а не
     # складываются вслепую. gain_* из GenreConfig остаются ручной подстройкой поверх.
     from autodj.generate.mixbus import mix_layers
+    # Q2 (P83): структура и для МЕЛОДИЧЕСКИХ слоёв — лид молчит в интро, пад ведёт
+    # брейкдаун, бас проваливается. Умножается на rcos_env (тот — общий вход/выход).
+    if getattr(cfg, "arrange", True):
+        from autodj.generate.arrangement import default_plan, section_gain_envelope
+        _bs = 60.0 / cfg.bpm * 4
+        _pl = default_plan(max(1, int(dur / _bs)))
+        _senv = {r: section_gain_envelope(r, _pl, _bs, total, SR)
+                 for r in ("pad", "lead", "counter", "arp", "accent", "bass")}
+    else:
+        _senv = {}
+
+    def _sec(role, env):
+        e = _senv.get(role)
+        return env if e is None else env * e[:len(env)]
+
     layers = {
-        "pad":     apply_env(trim(pad_buf),     pad_env)     * cfg.gain_pad,
-        "lead":    apply_env(trim(lead_buf),    lead_env)    * cfg.gain_lead,
-        "counter": apply_env(trim(counter_buf), counter_env) * cfg.gain_counter,
-        "arp":     apply_env(trim(arp_buf),     arp_env)     * cfg.gain_arp,
-        "accent":  apply_env(trim(accent_buf),  accent_env)  * cfg.gain_accent,
-        "bass":    apply_env(trim(bass_buf),    bass_env)    * cfg.gain_bass,
+        "pad":     apply_env(trim(pad_buf),     _sec('pad', pad_env))     * cfg.gain_pad,
+        "lead":    apply_env(trim(lead_buf),    _sec('lead', lead_env))    * cfg.gain_lead,
+        "counter": apply_env(trim(counter_buf), _sec('counter', counter_env)) * cfg.gain_counter,
+        "arp":     apply_env(trim(arp_buf),     _sec('arp', arp_env))     * cfg.gain_arp,
+        "accent":  apply_env(trim(accent_buf),  _sec('accent', accent_env))  * cfg.gain_accent,
+        "bass":    apply_env(trim(bass_buf),    _sec('bass', bass_env))    * cfg.gain_bass,
         "drums":   apply_env(trim(drum_buf),    drum_env)    * cfg.gain_drums,
     }
     mix, _gains = mix_layers(layers, SR, int(_beat(cfg.bpm) * SR),

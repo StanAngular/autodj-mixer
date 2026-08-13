@@ -141,3 +141,25 @@ def layer_section_gain(role: str, kind: str) -> float:
         "outro":     {"pad": 0.9, "lead": 0.3, "arp": 0.4, "bass": 0.6, "counter": 0.2},
     }
     return table.get(kind, table["drop"]).get(role, 1.0)
+
+def section_gain_envelope(role: str, plan: list, bar_sec: float, total: int,
+                          sr: int, smooth_ms: float = 150.0):
+    """Огибающая слоя ПО СЕКЦИЯМ (Q2 для мелодических партий): лид молчит в интро,
+    пад выходит вперёд в брейкдауне, бас проваливается и т.д. Переходы сглажены
+    (без щелчков). numpy in → numpy out, чистая.
+    Умножается НА существующий rcos_env — тот отвечает за общие вход/выход трека,
+    эта — за структуру внутри."""
+    import numpy as np
+    env = np.ones(total, dtype="float32")
+    if not plan or bar_sec <= 0:
+        return env
+    for a, b, kind in plan:
+        i0 = max(0, min(total, int(a * bar_sec * sr)))
+        i1 = max(0, min(total, int(b * bar_sec * sr)))
+        if i1 > i0:
+            env[i0:i1] = layer_section_gain(role, kind)
+    n = max(1, int(sr * smooth_ms / 1000))
+    if n > 1 and total > n:                       # сглаживание стыков скользящим средним
+        k = np.ones(n, dtype="float32") / n
+        env = np.convolve(env, k, mode="same").astype("float32")
+    return env
