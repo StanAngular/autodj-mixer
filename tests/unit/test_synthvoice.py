@@ -68,3 +68,51 @@ class TestRenderNotesSynth:
         assert np.abs(render_notes_synth("supersaw", many, 3.0)).max() <= 0.995
     def test_empty_events(self):
         assert np.abs(render_notes_synth("pad", [], 1.0)).max() == 0
+
+
+# ═══ P85: аккорды своим синтом, анти-«баян» ═══
+
+class TestSpreadVoicing:
+    def test_tight_triad_gets_spread(self):
+        from autodj.generate.synthvoice import spread_voicing
+        # A3-C4-E4 в одном регистре = звук гармошки → бас вниз, верх вверх
+        assert spread_voicing([57, 60, 64]) == [45, 60, 76]
+    def test_spread_zero_unchanged(self):
+        from autodj.generate.synthvoice import spread_voicing
+        assert spread_voicing([57, 60, 64], spread=0) == [57, 60, 64]
+    def test_two_note_chord(self):
+        from autodj.generate.synthvoice import spread_voicing
+        assert spread_voicing([60, 64]) == [48, 64]          # верх не трогаем у двузвучия
+    def test_empty(self):
+        from autodj.generate.synthvoice import spread_voicing
+        assert spread_voicing([]) == []
+
+
+class TestLfoFilter:
+    def test_movement_changes_spectrum_over_time(self):
+        from autodj.generate.synthvoice import lfo_filter
+        sr = 44100
+        t = np.arange(sr * 4) / sr
+        x = (np.sin(2 * np.pi * 220 * t) + 0.5 * np.sin(2 * np.pi * 3000 * t)).astype("float32")
+        y = lfo_filter(x, sr, base_hz=1200, depth=0.8, rate_hz=0.25)
+        a = centroid(y[:sr]); b = centroid(y[sr * 2:sr * 3])
+        assert abs(a - b) > 50                                # тембр ДВИЖЕТСЯ, не статичен
+    def test_depth_zero_passthrough(self):
+        from autodj.generate.synthvoice import lfo_filter
+        x = np.ones(1000, dtype="float32")
+        assert np.array_equal(lfo_filter(x, 44100, depth=0), x)
+
+
+class TestRenderChordsSynth:
+    def test_stereo_width_and_length(self):
+        from autodj.generate.synthvoice import render_chords_synth
+        out = render_chords_synth("pad", [(0.0, [57, 60, 64], 90, 2.0)], 2.5)
+        assert out.shape[1] == 2 and len(out) == int(2.5 * 44100) + 1
+        assert np.abs(out[:, 0] - out[:, 1]).mean() > 0.001   # реальная ширина, не моно
+    def test_no_clipping_dense_chords(self):
+        from autodj.generate.synthvoice import render_chords_synth
+        ch = [(i * 0.25, [57, 60, 64, 67], 120, 1.0) for i in range(12)]
+        assert np.abs(render_chords_synth("pad", ch, 4.0)).max() <= 0.995
+    def test_empty_silent(self):
+        from autodj.generate.synthvoice import render_chords_synth
+        assert np.abs(render_chords_synth("pad", [], 1.0)).max() == 0

@@ -324,14 +324,14 @@ GENRES: Dict[str, GenreConfig] = {
         target_db=-1.5, intro_s=45,
     ),
 
-    # ── NEW AGE TECHNO ──────────────────────────────────────────────────────
+    # ── NEW AGE TECHNO (synth voices P84) ───────────────────────────────────
     "new_age_techno": GenreConfig(
         name="New Age Techno", bpm=125, key="Am", dur=360,
         progression="dark_techno", scale_mode="dorian", swing=0.0,
         melodic_style="staccato",
-        inst_pad="synth_pad_warm", inst_lead="synth_lead_sawtooth",
-        inst_arp="synth_lead_square", inst_bass="synth_bass_1", inst_accent="tubular_bells",
-        inst_counter="electric_piano",
+        inst_pad="synth_pad_warm", inst_lead="synth:supersaw",
+        inst_arp="synth:pluck", inst_bass="synth:acid?drive=0.5&detune=20",
+        inst_accent="tubular_bells", inst_counter="electric_piano",
         pad_bars=4,
         drum_pattern="four_on_floor",
         gain_drums=0.72, gain_pad=0.52, gain_lead=0.60,
@@ -1033,7 +1033,16 @@ def render(cfg: GenreConfig) -> str:
         print(f"    {inst}: {time.time()-t1:.1f}s ({len(evs)} notes)")
         return buf
 
-    pad_buf     = render_chords(cfg.inst_pad, pad_ev, dur, SR)
+    # P85: пад тоже может идти своим синтом (разнос голосов + дышащий фильтр).
+    # GM-пад тесным трезвучием в среднем регистре = звук «баяна/гармошки».
+    from autodj.generate.synthvoice import parse_instrument as _pi, render_chords_synth
+    _pv, _pp = _pi(cfg.inst_pad)
+    pad_buf     = (render_chords_synth(_pv, pad_ev, dur, SR,
+                                       detune=_pp.get("detune", 18.0),
+                                       drive=_pp.get("drive", 0.12),
+                                       cutoff_base=_pp.get("cutoff", 1100.0),
+                                       spread=_pp.get("spread", 1.0))
+                   if _pv else render_chords(cfg.inst_pad, pad_ev, dur, SR))
     lead_buf    = rn(cfg.inst_lead, lead_ev, ch=0)
     counter_buf = rn(cfg.inst_counter or cfg.inst_accent, counter_ev, ch=3) if counter_ev else np.zeros((total,2), np.float32)
     arp_buf     = rn(cfg.inst_arp, arp_ev, ch=1)

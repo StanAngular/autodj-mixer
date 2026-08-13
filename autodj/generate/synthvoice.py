@@ -133,3 +133,76 @@ def parse_instrument(name: str) -> tuple[str | None, dict]:
             except ValueError:
                 continue
     return (voice.strip() or "supersaw"), params
+
+# ─── P85: аккорды своим синтом + анти-«баян» ────────────────────────────────
+# Почему пад звучал «высокочастотной гармошкой»: тесное трезвучие (A3-C4-E4) в одном
+# среднем регистре, длинное legato, статичный тембр без движения — это ровно
+# акустический профиль баяна/органа. Лечится тремя вещами:
+#   1) РАЗНОС голосов по октавам (бас вниз, верх вверх) — вместо кластера;
+#   2) ДВИЖЕНИЕ фильтра (медленный LFO) — пад «дышит», а не тянет;
+#   3) СТЕРЕО-разброс голосов — ширина вместо моно-пятна.
+
+def spread_voicing(notes: list[int], spread: float = 1.0) -> list[int]:
+    """Тесное трезвучие → разнесённое: нижний голос на октаву вниз, верхний вверх.
+    spread 0 = как было, 1 = полный разнос. Чистая."""
+    if not notes or spread <= 0:
+        return list(notes)
+    ns = sorted(int(n) for n in notes)
+    out = list(ns)
+    out[0] = ns[0] - int(round(12 * spread))
+    if len(ns) > 2:
+        out[-1] = ns[-1] + int(round(12 * spread))
+    return out
+
+
+def lfo_filter(x: np.ndarray, sr: int, base_hz: float = 1200.0, depth: float = 0.5,
+               rate_hz: float = 0.08, blocks: int = 24) -> np.ndarray:
+    """Медленное движение фильтра (пад дышит). Блочная реализация — дёшево. Чистая."""
+    if len(x) == 0 or depth <= 0:
+        return x
+    out = np.empty_like(x)
+    step = max(1, len(x) // blocks)
+    for i in range(blocks):
+        a = i * step
+        b = len(x) if i == blocks - 1 else min(len(x), (i + 1) * step)
+        if b <= a:
+            break
+        phase = 2 * np.pi * rate_hz * (a / sr)
+        cut = base_hz * (1.0 + depth * np.sin(phase))
+        out[a:b] = lpf(x[a:b], max(120.0, cut), q=0.7, sr=sr)
+    return out
+
+
+def render_chords_synth(voice: str, chords: list, duration: float, sr: int = SR_DEFAULT,
+                        detune: float = 18.0, drive: float = 0.12,
+                        cutoff_base: float = 1100.0, spread: float = 1.0,
+                        lfo_depth: float = 0.45, lfo_rate: float = 0.07,
+                        width: float = 0.6) -> np.ndarray:
+    """Аккорды [(t, [midi…], vel, dur)] → стерео своим синтом, с разносом голосов,
+    стерео-шириной и дышащим фильтром. Замена GM-пада."""
+    total = int(duration * sr) + sr
+    left = np.zeros(total, dtype=np.float32)
+    right = np.zeros(total, dtype=np.float32)
+    for ev in chords:
+        t, notes, vel, cdur = ev[0], list(ev[1]), int(ev[2]), float(ev[3])
+        voiced = spread_voicing(notes, spread)
+        k = max(1, len(voiced) - 1)
+        for i, note in enumerate(voiced):
+            seg = render_voice_note(voice, note, max(0.05, cdur), vel, sr,
+                                    detune=detune, drive=drive, cutoff_base=cutoff_base)
+            pan = width * (-1.0 + 2.0 * (i / k))          # голоса по стерео-полю
+            gl = np.sqrt(max(0.0, (1 - pan) / 2)) * np.sqrt(2)
+            gr = np.sqrt(max(0.0, (1 + pan) / 2)) * np.sqrt(2)
+            pos = int(t * sr)
+            m = min(len(seg), total - pos)
+            if m > 0:
+                left[pos:pos + m] += seg[:m] * gl
+                right[pos:pos + m] += seg[:m] * gr
+    left = lfo_filter(left, sr, cutoff_base * 1.3, lfo_depth, lfo_rate)
+    right = lfo_filter(right, sr, cutoff_base * 1.3, lfo_depth, lfo_rate * 0.87)  # расфазировка
+    out = np.stack([left, right], axis=1)[:int(duration * sr) + 1]
+    peak = float(np.max(np.abs(out))) or 1.0
+    if peak > 0.99:
+        out = out * (0.99 / peak)
+    return out.astype(np.float32)
+
