@@ -78,5 +78,15 @@
 - [ ] G1: autodj/generate/ каркас + fluidsynth-бэкенд + 1 sf2 + рендер style.json
 - [ ] G2: uborka resynth_v* → archive; styles-формат v2 (instrument_mapping)
 - [ ] G3: hum2midi (basic-pitch) + квантование + e2e напев→трек
+- [x] **G4a собственные синт-голоса** (P84): корень «сопілок» — ВСЕ мелодические партии
+      шли GM-пресетами (`pan_flute #76`, `synth_pad_choir #92`, `sawtooth_lead #81`,
+      `synth_bass_1 #38`) — стандарт 1991 года, одна зацикленная волна без движения.
+      `autodj/generate/synthvoice.py`: голоса supersaw/acid/sub/pad/pluck/square на нашем
+      synthcore (расстройка, драйв, фильтр-огибающая). **velocity управляет ЯРКОСТЬЮ**
+      (тихая нота темнее — как на железе; замерено: 813→1645 Гц у supersaw).
+      Маршрутизация: `inst_lead="synth:supersaw"`, `inst_bass="synth:acid?drive=0.5&detune=20"`;
+      строки без префикса `synth:` по-прежнему идут в GM (обратная совместимость).
+      Наблюдение: у dj_dave лид — тоже НЕ VST, а встроенный синт
+      (`.sound("supersaw").detune(1).distort(1).lpf(...)`) — путь тот же.
 - [ ] G4: dawdreamer-бэкенд + Vital/Surge пресеты
 - [ ] G5: doctor-проверки + доки установки банков/VST

@@ -323,6 +323,29 @@ GENRES: Dict[str, GenreConfig] = {
         bass_syncopation=0.3, lead_register="high",
         target_db=-1.5, intro_s=45,
     ),
+
+    # ── NEW AGE TECHNO ──────────────────────────────────────────────────────
+    "new_age_techno": GenreConfig(
+        name="New Age Techno", bpm=125, key="Am", dur=360,
+        progression="dark_techno", scale_mode="dorian", swing=0.0,
+        melodic_style="staccato",
+        inst_pad="synth_pad_warm", inst_lead="synth_lead_sawtooth",
+        inst_arp="synth_lead_square", inst_bass="synth_bass_1", inst_accent="tubular_bells",
+        inst_counter="electric_piano",
+        pad_bars=4,
+        drum_pattern="four_on_floor",
+        gain_drums=0.72, gain_pad=0.52, gain_lead=0.60,
+        gain_arp=0.45, gain_bass=0.75, gain_accent=0.35, gain_counter=0.38,
+        fx_pad=(0.88, 0.38, 0.40), fx_lead=(0.72, 0.28, 0.55),
+        fx_arp=(0.80, 0.30, 0.50), fx_bass=(0.22, 0.06, 0.78),
+        fx_drums=(0.15, 0.06, 0.82),
+        fx_accent=(0.85, 0.35, 0.40), fx_counter=(0.80, 0.32, 0.45),
+        delay_arp=True, chorus_pad=True, chorus_lead=False,
+        lead_density=0.45, arp_density=0.65, accent_density=0.18,
+        bass_syncopation=0.25, lead_register="high",
+        target_db=-1.0, intro_s=48,
+        duck_db=-4.5, arrange=True,
+    ),
 }
 
 
@@ -994,7 +1017,19 @@ def render(cfg: GenreConfig) -> str:
 
     def rn(inst, evs, ch=0):
         t1  = time.time()
-        buf = render_notes(inst, evs, dur, SR, channel=ch) if evs else np.zeros((total, 2), np.float32)
+        if not evs:
+            return np.zeros((total, 2), np.float32)
+        # G4a (P84): "synth:supersaw" / "synth:acid?drive=0.5" → СОБСТВЕННЫЙ синт
+        # (движущийся фильтр, расстройка, драйв). Иначе — GM-патч FluidSynth.
+        from autodj.generate.synthvoice import parse_instrument, render_notes_synth
+        voice, prm = parse_instrument(inst)
+        if voice:
+            buf = render_notes_synth(voice, evs, dur, SR,
+                                     detune=prm.get("detune", 14.0),
+                                     drive=prm.get("drive", 0.25),
+                                     cutoff_base=prm.get("cutoff", 900.0))
+        else:
+            buf = render_notes(inst, evs, dur, SR, channel=ch)
         print(f"    {inst}: {time.time()-t1:.1f}s ({len(evs)} notes)")
         return buf
 
