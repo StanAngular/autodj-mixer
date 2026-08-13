@@ -24,6 +24,7 @@ All return np.ndarray shape (N, 2) float32 stereo.
 """
 
 import logging
+import os
 import numpy as np
 
 from autodj.generate.backends.fluidsynth import (
@@ -414,7 +415,7 @@ def render_chords(instrument: str, chords: list, duration: float,
 
 
 def render_drums(hits: list, duration: float,
-                 sr: int = 44100) -> np.ndarray:
+                 sr: int = 44100, bank: str | None = None) -> np.ndarray:
     """
     Render drum hits using GM drum kit (channel 9).
 
@@ -423,6 +424,21 @@ def render_drums(hits: list, duration: float,
                   drum_name: "kick", "snare", "clap", "closed_hat", "open_hat",
                              "ride", "crash", "tom_mid", "tom_low"
     """
+    # S4: если стоят банки живых драм-машин — играем СЭМПЛЫ (TR-909/808/LinnDrum…).
+    # GM-кит FluidSynth остаётся fallback'ом: он и даёт тот самый «midi»-призвук.
+    try:
+        from .sampler import SampleBank, banks_available, render_hits, DEFAULT_BANK
+        if banks_available():
+            name = bank or os.environ.get("DRUM_BANK", DEFAULT_BANK)
+            sb = SampleBank(name, sr)
+            buf = render_hits(sb, hits, duration, sr)
+            if np.abs(buf).max() > 0:
+                print(f"    drums: сэмплы банка {name}")
+                return buf[:int(duration * sr) + 1]
+            print(f"    drums: банк {name} не дал звука — GM fallback")
+    except Exception as e:
+        print(f"    drums: сэмплы недоступны ({type(e).__name__}) — GM fallback")
+
     # Drum CC setup: expression = 110, reverb = 20 (minimal)
     events = [
         (0.001, "control", 9, 7,  120),

@@ -61,3 +61,31 @@ class TestRenderPattern:
         bank = sp.SampleBank("RolandTR808", banks_dir=fake_banks)
         out = sp.render_pattern(bank, "zzz zzz", cycles=1, cycle_sec=1.0)
         assert np.abs(out).max() == 0                       # нет сэмпла — тишина, не падение
+
+
+class TestRenderHits:
+    def test_hits_played_with_velocity(self, fake_banks):
+        bank = sp.SampleBank("RolandTR808", banks_dir=fake_banks)
+        hits = [(0.0, "kick", 127), (1.0, "kick", 40), (2.0, "snare", 100)]
+        out = sp.render_hits(bank, hits, duration=3.0, sr=44100)
+        loud = np.abs(out[:500]).max()
+        quiet = np.abs(out[44100:44600]).max()
+        assert loud > quiet * 1.5                       # velocity реально слышна
+        assert np.abs(out[88200:88700]).max() > 0       # snare на 2.0s
+
+    def test_gm_names_mapped(self, fake_banks):
+        bank = sp.SampleBank("RolandTR808", banks_dir=fake_banks)
+        # closed_hat отсутствует в фейк-банке → тишина, но kick/snare играют
+        out = sp.render_hits(bank, [(0.0, "closed_hat", 100), (0.5, "kick", 100)],
+                             duration=1.0, sr=44100)
+        assert np.abs(out[:100]).max() == 0
+        assert np.abs(out[22050:22150]).max() > 0
+
+    def test_unknown_name_no_crash(self, fake_banks):
+        bank = sp.SampleBank("RolandTR808", banks_dir=fake_banks)
+        out = sp.render_hits(bank, [(0.0, "zzz", 100)], duration=1.0)
+        assert np.abs(out).max() == 0
+
+    def test_banks_available(self, fake_banks, tmp_path):
+        assert sp.banks_available(fake_banks) is True
+        assert sp.banks_available(str(tmp_path / "nope")) is False

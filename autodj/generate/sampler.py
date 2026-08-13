@@ -161,3 +161,49 @@ def render_pattern(bank: SampleBank, pattern: str, cycles: int, cycle_sec: float
         if n > 0:
             out[pos:pos + n] += seg[:n]
     return out
+
+# ─── S4: воспроизведение hit-листа сэмплами (drop-in вместо GM-барабанов) ────
+# Имена, которыми оперируют рендеры → канонические имена сэмплов Strudel-банков.
+HIT_NAMES = {
+    "kick": "bd", "snare": "sd", "clap": "cp", "rim": "rim",
+    "closed_hat": "hh", "open_hat": "oh", "hat": "hh",
+    "ride": "rd", "crash": "cr",
+    "tom_low": "lt", "tom_mid": "mt", "tom_high": "ht",
+    "perc": "perc", "cowbell": "cb",
+}
+
+DEFAULT_BANK = "RolandTR909"
+
+
+def banks_available(banks_dir: str | None = None) -> bool:
+    root = banks_root(banks_dir)
+    return os.path.isdir(root) and any(True for _ in os.scandir(root))
+
+
+def render_hits(bank: "SampleBank", hits: list, duration: float, sr: int = 44100,
+                vel_gamma: float = 1.2, round_robin: bool = True) -> np.ndarray:
+    """[(время_сек, имя, velocity 0..127)] → аудио сэмплами банка. Чистая по данным.
+    velocity → gain нелинейно (vel_gamma) — как у живых драм-машин: тихие удары
+    заметно тише, а не «чуть тише»."""
+    total = int(duration * sr) + sr
+    out = np.zeros((total, 2), dtype="float32")
+    counters: dict[str, int] = {}
+    rng = random.Random(0)
+    for t, name, vel in hits:
+        canon = HIT_NAMES.get(str(name).lower(), str(name).lower())
+        variants = bank.get(canon)
+        if not variants:
+            continue
+        if round_robin:
+            i = counters.get(canon, 0) % len(variants)
+            counters[canon] = i + 1
+        else:
+            i = rng.randrange(len(variants))
+        g = (max(0, min(127, int(vel))) / 127.0) ** vel_gamma
+        seg = variants[i] * np.float32(g)
+        pos = int(t * sr)
+        n = min(len(seg), total - pos)
+        if n > 0:
+            out[pos:pos + n] += seg[:n]
+    return out
+

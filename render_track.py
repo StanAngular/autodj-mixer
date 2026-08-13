@@ -103,6 +103,7 @@ class GenreConfig:
     gain_accent:float = 0.45
     gain_counter:float = 0.42
     duck_db:    float = -4.5   # Q1: глубина сайдчейн-пампинга
+    drum_bank:  str = ""       # S4: банк драм-машины (RolandTR909/TR808/AkaiLinn…); '' = env/дефолт
 
     # Reverb presets per layer: (room, wet, damp)
     fx_pad:    Tuple = (0.82, 0.32, 0.48)
@@ -1004,7 +1005,8 @@ def render(cfg: GenreConfig) -> str:
     bass_buf    = rn(cfg.inst_bass, bass_ev, ch=2)
 
     t1       = time.time()
-    drum_buf = render_drums(drum_ev, dur, SR) if drum_ev else np.zeros((total, 2), np.float32)
+    drum_buf = (render_drums(drum_ev, dur, SR, bank=(cfg.drum_bank or None))
+                if drum_ev else np.zeros((total, 2), np.float32))
     print(f"    drums: {time.time()-t1:.1f}s")
 
     # 3. Pedalboard effects
