@@ -1290,6 +1290,13 @@ def render(cfg: GenreConfig) -> str:
 
     import soundfile as sf
     sf.write(wav, mix, SR)
+    # P87: паспорт рендера рядом с треком — каким КОДОМ и с какими параметрами сделано.
+    # Ловит «работает только у меня»: незакоммиченные модули видны прямо в логе.
+    try:
+        from autodj.generate.manifest import write_manifest
+        write_manifest(wav, cfg, _ident, {"duration_s": round(len(mix) / SR, 1)})
+    except Exception as _e:
+        print(f"    манифест пропущен: {type(_e).__name__}")
     os.system(f'ffmpeg -y -i "{wav}" -b:a 320k "{mp3}" 2>/dev/null')
     if os.path.exists(wav):
         os.remove(wav)
