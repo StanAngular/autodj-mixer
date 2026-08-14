@@ -445,12 +445,49 @@ def normalize_master(x: np.ndarray, target_db: float = -0.5) -> np.ndarray:
     return (x * (target / peak)).astype(np.float32)
 
 
-def master_chain(x: np.ndarray, sr: int = SR_DEFAULT) -> np.ndarray:
+def _eq_shelf(x: np.ndarray, sr: int, freq: float, gain_db: float, shelf: str = "high") -> np.ndarray:
     """
-    Master bus: soft clip → compressor → normalize.
+    Simple first-order high or low shelf EQ.
+    shelf: "high" boosts/cuts above freq, "low" boosts/cuts below freq.
+    gain_db: positive = boost, negative = cut.
+    """
+    from scipy.signal import bilinear
+    A   = 10 ** (gain_db / 40.0)
+    w0  = 2 * np.pi * freq / sr
+    if shelf == "high":
+        # High shelf: boost highs
+        b_s = [A,  np.sqrt(A), 1]
+        a_s = [1,  np.sqrt(A), A]
+    else:
+        # Low shelf: boost lows
+        b_s = [A * A, A * np.sqrt(A), 1]
+        a_s = [1,     np.sqrt(A),     A * A]
+    # Bilinear transform
+    b, a = bilinear([b_s[0] * w0**2, b_s[1] * w0, b_s[2]],
+                    [a_s[0] * w0**2, a_s[1] * w0, a_s[2]], fs=sr)
+    from scipy.signal import lfilter
+    out = np.zeros_like(x)
+    out[:, 0] = lfilter(b, a, x[:, 0])
+    out[:, 1] = lfilter(b, a, x[:, 1])
+    return out.astype(np.float32)
+
+
+def master_chain(x: np.ndarray, sr: int = SR_DEFAULT,
+                 air_db: float = 2.5, bass_db: float = 1.5) -> np.ndarray:
+    """
+    Master bus: soft clip → EQ (air + bass) → compressor → normalize.
+
+    air_db:  high-shelf boost above 8kHz (adds sparkle, cosmic feel)
+    bass_db: low-shelf boost below 120Hz (adds sub warmth)
     """
     # Soft saturation
     x = np.tanh(x * 1.05) / 1.05
+
+    # Master EQ: gentle air and bass enhancement
+    if air_db != 0:
+        x = _eq_shelf(x, sr, freq=8000, gain_db=air_db, shelf="high")
+    if bass_db != 0:
+        x = _eq_shelf(x, sr, freq=120,  gain_db=bass_db, shelf="low")
 
     # Compressor
     x = apply_compressor(x, sr, threshold_db=-6, ratio=2.5,

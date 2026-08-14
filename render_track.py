@@ -348,6 +348,65 @@ GENRES: Dict[str, GenreConfig] = {
         target_db=-1.0, intro_s=48,
         duck_db=-4.5, arrange=True,
     ),
+
+    # ── DEEP JANGLE ──────────────────────────────────────────────────────────
+    # Dark melodic techno с jangly arpeggios — Moderat / Stephan Bodzin style.
+    # Глубокий кислотный бас, звенящий арп на высоком регистре, плотный грув.
+    "deep_jangle": GenreConfig(
+        # Jangle = звонкий металлический arp в высоком регистре (вибрафон),
+        # лёгкий бас, swing, много реверба на arpе — не acid/dark.
+        name="Deep Jangle", bpm=118, key="Am", dur=360,
+        progression="indie", scale_mode="minor", swing=0.12,
+        melodic_style="staccato",
+        inst_pad="synth:pad?spread=1&detune=18",
+        inst_lead="synth:square",       # яркий тонкий лид
+        inst_arp="vibraphone",           # GM вибрафон = THE jangle звук, звенит
+        inst_bass="synth:acid?drive=0.2&detune=8",  # лёгкий бас, не агрессивный
+        inst_accent="celesta",           # звонкие акценты
+        inst_counter="electric_piano",   # тёплый Rhodes для глубины
+        pad_bars=8,
+        drum_pattern="four_on_floor",
+        gain_drums=0.62, gain_pad=0.38, gain_lead=0.48,
+        gain_arp=0.78, gain_bass=0.58, gain_accent=0.32, gain_counter=0.28,
+        fx_pad=(0.88, 0.38, 0.35), fx_lead=(0.75, 0.28, 0.50),
+        fx_arp=(0.92, 0.45, 0.42),   # много реверба — вибрафон пусть звенит
+        fx_bass=(0.15, 0.05, 0.85),
+        fx_drums=(0.15, 0.06, 0.82),
+        fx_accent=(0.90, 0.40, 0.38), fx_counter=(0.82, 0.35, 0.48),
+        delay_arp=True, chorus_pad=True, chorus_lead=False,
+        lead_density=0.38, arp_density=0.82, accent_density=0.20,
+        bass_syncopation=0.18, lead_register="high",
+        target_db=-1.0, intro_s=48,
+        duck_db=-3.0, arrange=True,
+    ),
+
+    # ── NU-DISCO / ELECTROPOP ─────────────────────────────────────────────────
+    # Warm punchy Nu-Disco: 909 kick, disco syncopated bass, Rhodes, modular arp.
+    # Am7-Dm7-G7-Cmaj7 (neo_soul = i7-iv7-VII7-III7). No vocals, no foley.
+    "nu_disco": GenreConfig(
+        name="Nu-Disco", bpm=122, key="Am", dur=270,
+        progression="neo_soul", scale_mode="minor", swing=0.08,
+        melodic_style="flowing",
+        inst_pad="synth:pad?spread=1&detune=15",    # lush 80s analog pad
+        inst_lead="synth:supersaw",                  # brassy synth hooks
+        inst_arp="synth:square",                     # bright modular synth arp
+        inst_bass="synth:acid?drive=0.25&detune=10", # warm disco bass, not harsh
+        inst_accent="electric_piano",                # Rhodes accents
+        inst_counter="synth:pluck",                  # counter melody
+        pad_bars=4,
+        drum_pattern="four_on_floor",
+        gain_drums=0.72, gain_pad=0.45, gain_lead=0.55,
+        gain_arp=0.52, gain_bass=0.75, gain_accent=0.40, gain_counter=0.28,
+        fx_pad=(0.85, 0.35, 0.40), fx_lead=(0.70, 0.30, 0.55),
+        fx_arp=(0.80, 0.35, 0.48), fx_bass=(0.18, 0.05, 0.82),
+        fx_drums=(0.15, 0.06, 0.80),
+        fx_accent=(0.82, 0.32, 0.45), fx_counter=(0.78, 0.30, 0.50),
+        delay_arp=True, chorus_pad=True, chorus_lead=False,
+        lead_density=0.42, arp_density=0.75, accent_density=0.18,
+        bass_syncopation=0.35, lead_register="mid",
+        target_db=-1.0, intro_s=45,
+        duck_db=-4.0, arrange=True,
+    ),
 }
 
 
