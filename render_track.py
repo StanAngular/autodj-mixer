@@ -1044,8 +1044,15 @@ def render(cfg: GenreConfig) -> str:
     print(f"\nrender_track.py -- {cfg.name}")
     print(f"  {dur // 60:.0f}:{dur % 60:02.0f} / {cfg.bpm} BPM / {cfg.key} / {cfg.melodic_style}")
 
-    # P88: гармония тоже уникальна на трек — раньше прогрессия была ЗАШИТА в жанр,
-    # поэтому все треки жанра имели одну и ту же последовательность аккордов.
+    if cfg.outro_s <= 0:
+        cfg.outro_s = dur - 65
+
+    # P86: КАЖДЫЙ РЕНДЕР — НОВЫЙ ТРЕК. P88: + гармония/регистры/свинг/синкопа.
+    from autodj.generate.motif import (track_identity, pick_progression,
+                                       apply_octave, apply_swing, syncopate)
+    _ident = track_identity(getattr(cfg, "seed", None) or None)
+
+    # P88: гармония уникальна на трек — раньше прогрессия была ЗАШИТА в жанр.
     import random as _r88
     _rng88 = _r88.Random(_ident["seed"])
     _prog, _sevenths = pick_progression(cfg.progression, _rng88)
@@ -1058,16 +1065,6 @@ def render(cfg: GenreConfig) -> str:
             chords = voice_lead_sequence(resolve_progression(root, "lounge"))
     print(f"  гармония: {_prog}{' + септаккорды' if _sevenths else ''} "
           f"(база жанра: {cfg.progression})")
-
-    if cfg.outro_s <= 0:
-        cfg.outro_s = dur - 65
-
-    # Single time-based seed → all generators produce new material each render
-    # P86: КАЖДЫЙ РЕНДЕР — НОВЫЙ ТРЕК (требование: никакого наследования/шаблонов).
-    # Явный cfg.seed = режим «дорабатываем уже созданный» (точное воспроизведение).
-    from autodj.generate.motif import (track_identity, pick_progression,
-                                       apply_octave, apply_swing, syncopate)
-    _ident = track_identity(getattr(cfg, "seed", None) or None)
     render_seed = _ident["seed"] % 2**31
     print(f"  seed={render_seed}  отпечаток={_ident['fingerprint']}  "
           f"мотив={len(_ident['motif'])} нот, регистр лида {_ident['lead_octave']:+d}, "
