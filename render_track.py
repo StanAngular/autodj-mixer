@@ -1091,12 +1091,12 @@ def render(cfg: GenreConfig) -> str:
 
     # P88: применяем ОСТАЛЬНЫЕ параметры личности трека (раньше генерировались,
     # но нигде не использовались — отсюда «одно и то же с мелкими отличиями»).
-    _beat = 60.0 / cfg.bpm
+    _beat_sec = 60.0 / cfg.bpm
     pad_ev = apply_octave(pad_ev, _ident["pad_octave"])
     arp_ev = apply_octave(arp_ev, _ident["arp_octave"])
-    arp_ev = apply_swing(arp_ev, _ident["swing"], _beat)
-    lead_ev = syncopate(lead_ev, _ident["syncopation"], _beat, _rng88)
-    counter_ev = apply_swing(counter_ev, _ident["swing"] * 0.6, _beat)
+    arp_ev = apply_swing(arp_ev, _ident["swing"], _beat_sec)
+    lead_ev = syncopate(lead_ev, _ident["syncopation"], _beat_sec, _rng88)
+    counter_ev = apply_swing(counter_ev, _ident["swing"] * 0.6, _beat_sec)
     print(f"    личность: пад {_ident['pad_octave']:+d} полутонов, арп {_ident['arp_octave']:+d}, "
           f"свинг {_ident['swing']}, синкопа {_ident['syncopation']}")
     accent_ev  = build_accent_events(cfg, chords, scale, dur, seed=render_seed + 3)
