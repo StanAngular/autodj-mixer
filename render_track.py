@@ -1044,10 +1044,20 @@ def render(cfg: GenreConfig) -> str:
     print(f"\nrender_track.py -- {cfg.name}")
     print(f"  {dur // 60:.0f}:{dur % 60:02.0f} / {cfg.bpm} BPM / {cfg.key} / {cfg.melodic_style}")
 
+    # P88: гармония тоже уникальна на трек — раньше прогрессия была ЗАШИТА в жанр,
+    # поэтому все треки жанра имели одну и ту же последовательность аккордов.
+    import random as _r88
+    _rng88 = _r88.Random(_ident["seed"])
+    _prog, _sevenths = pick_progression(cfg.progression, _rng88)
     try:
-        chords = voice_lead_sequence(resolve_progression(root, cfg.progression))
+        chords = voice_lead_sequence(resolve_progression(root, _prog, use_7ths=_sevenths))
     except Exception:
-        chords = voice_lead_sequence(resolve_progression(root, "lounge"))
+        try:
+            chords = voice_lead_sequence(resolve_progression(root, cfg.progression))
+        except Exception:
+            chords = voice_lead_sequence(resolve_progression(root, "lounge"))
+    print(f"  гармония: {_prog}{' + септаккорды' if _sevenths else ''} "
+          f"(база жанра: {cfg.progression})")
 
     if cfg.outro_s <= 0:
         cfg.outro_s = dur - 65
@@ -1055,7 +1065,8 @@ def render(cfg: GenreConfig) -> str:
     # Single time-based seed → all generators produce new material each render
     # P86: КАЖДЫЙ РЕНДЕР — НОВЫЙ ТРЕК (требование: никакого наследования/шаблонов).
     # Явный cfg.seed = режим «дорабатываем уже созданный» (точное воспроизведение).
-    from autodj.generate.motif import track_identity
+    from autodj.generate.motif import (track_identity, pick_progression,
+                                       apply_octave, apply_swing, syncopate)
     _ident = track_identity(getattr(cfg, "seed", None) or None)
     render_seed = _ident["seed"] % 2**31
     print(f"  seed={render_seed}  отпечаток={_ident['fingerprint']}  "
@@ -1080,6 +1091,17 @@ def render(cfg: GenreConfig) -> str:
         lead_ev = build_lead_events(cfg, chords, scale, dur, seed=render_seed)
     counter_ev = build_counter_events(cfg, chords, scale, dur, seed=render_seed + 1)
     arp_ev     = build_arp_events(cfg, chords, scale, dur,   seed=render_seed + 2)
+
+    # P88: применяем ОСТАЛЬНЫЕ параметры личности трека (раньше генерировались,
+    # но нигде не использовались — отсюда «одно и то же с мелкими отличиями»).
+    _beat = 60.0 / cfg.bpm
+    pad_ev = apply_octave(pad_ev, _ident["pad_octave"])
+    arp_ev = apply_octave(arp_ev, _ident["arp_octave"])
+    arp_ev = apply_swing(arp_ev, _ident["swing"], _beat)
+    lead_ev = syncopate(lead_ev, _ident["syncopation"], _beat, _rng88)
+    counter_ev = apply_swing(counter_ev, _ident["swing"] * 0.6, _beat)
+    print(f"    личность: пад {_ident['pad_octave']:+d} полутонов, арп {_ident['arp_octave']:+d}, "
+          f"свинг {_ident['swing']}, синкопа {_ident['syncopation']}")
     accent_ev  = build_accent_events(cfg, chords, scale, dur, seed=render_seed + 3)
     bass_ev    = build_bass_events(cfg, chords, scale, dur,   seed=render_seed + 4)
     drum_ev    = build_drum_events(cfg, dur,                  seed=render_seed + 5)
@@ -1147,7 +1169,11 @@ def render(cfg: GenreConfig) -> str:
     # 3. Pedalboard effects
     print("  effects...")
 
-    def fx(buf, r, w, d): return apply_reverb(buf, SR, room_size=r, wet=w, damping=d)
+    # P88: у каждого трека своё «пространство» и баланс (было одинаковым во всех)
+    _rj, _gj = _ident["reverb_jitter"], _ident["gain_jitter"]
+    def fx(buf, r, w, d):
+        return apply_reverb(buf, SR, room_size=max(0.05, min(0.95, r + _rj)),
+                            wet=max(0.0, min(0.9, w + _rj * 0.5)), damping=d)
 
     pad_buf     = fx(pad_buf,     *cfg.fx_pad)
     lead_buf    = fx(lead_buf,    *cfg.fx_lead)
@@ -1206,13 +1232,14 @@ def render(cfg: GenreConfig) -> str:
         e = _senv.get(role)
         return env if e is None else env * e[:len(env)]
 
+    _gm = 1.0 + _gj                               # P88: свой баланс у каждого трека
     layers = {
-        "pad":     apply_env(trim(pad_buf),     _sec('pad', pad_env))     * cfg.gain_pad,
-        "lead":    apply_env(trim(lead_buf),    _sec('lead', lead_env))    * cfg.gain_lead,
-        "counter": apply_env(trim(counter_buf), _sec('counter', counter_env)) * cfg.gain_counter,
-        "arp":     apply_env(trim(arp_buf),     _sec('arp', arp_env))     * cfg.gain_arp,
-        "accent":  apply_env(trim(accent_buf),  _sec('accent', accent_env))  * cfg.gain_accent,
-        "bass":    apply_env(trim(bass_buf),    _sec('bass', bass_env))    * cfg.gain_bass,
+        "pad":     apply_env(trim(pad_buf),     _sec('pad', pad_env))     * cfg.gain_pad * _gm,
+        "lead":    apply_env(trim(lead_buf),    _sec('lead', lead_env))    * cfg.gain_lead * _gm,
+        "counter": apply_env(trim(counter_buf), _sec('counter', counter_env)) * cfg.gain_counter * _gm,
+        "arp":     apply_env(trim(arp_buf),     _sec('arp', arp_env))     * cfg.gain_arp * _gm,
+        "accent":  apply_env(trim(accent_buf),  _sec('accent', accent_env))  * cfg.gain_accent * _gm,
+        "bass":    apply_env(trim(bass_buf),    _sec('bass', bass_env))    * cfg.gain_bass * _gm,
         "drums":   apply_env(trim(drum_buf),    drum_env)    * cfg.gain_drums,
     }
     mix, _gains = mix_layers(layers, SR, int(_beat(cfg.bpm) * SR),

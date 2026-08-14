@@ -90,3 +90,66 @@ class TestMelodyBuild:
         ev = melody_for_sections(self._plan(), [[57, 60, 64]], [0, 2, 3, 5, 7, 9, 10],
                                  57, 125, idt, random.Random(13))
         assert all(24 <= e[1] <= 100 for e in ev)                 # без ультразвука и инфра
+
+
+# ═══ P88: гармония и параметры слоёв уникальны на трек ═══
+
+class TestProgressionVariety:
+    def test_genre_pool_varies_between_tracks(self):
+        import random
+        from autodj.generate.motif import pick_progression
+        progs = {pick_progression("dark_techno", random.Random(i))[0] for i in range(8)}
+        assert len(progs) >= 3                       # не одна и та же гармония
+
+    def test_base_progression_stays_in_pool(self):
+        import random
+        from autodj.generate.motif import pick_progression, PROGRESSION_POOLS
+        assert "dark_techno" in PROGRESSION_POOLS["dark_techno"]
+        for i in range(20):                          # всё из совместимого пула
+            p, _ = pick_progression("dark_techno", random.Random(i))
+            assert p in PROGRESSION_POOLS["dark_techno"]
+
+    def test_unknown_genre_has_fallback(self):
+        import random
+        from autodj.generate.motif import pick_progression
+        p, _ = pick_progression("небывалый_жанр", random.Random(1))
+        assert isinstance(p, str) and p
+
+    def test_sevenths_flag_varies(self):
+        import random
+        from autodj.generate.motif import pick_progression
+        flags = {pick_progression("lounge", random.Random(i))[1] for i in range(10)}
+        assert flags == {True, False}
+
+
+class TestLayerParams:
+    def test_apply_octave_notes_and_chords(self):
+        from autodj.generate.motif import apply_octave
+        assert apply_octave([(0.0, 60, 100, 1.0)], 12) == [(0.0, 72, 100, 1.0)]
+        out = apply_octave([(0.0, [57, 60], 90, 2.0)], -12)
+        assert out[0][1] == [45, 48]
+    def test_apply_octave_zero_noop(self):
+        from autodj.generate.motif import apply_octave
+        ev = [(0.0, 60, 100, 1.0)]
+        assert apply_octave(ev, 0) is ev
+
+    def test_swing_delays_offbeats_only(self):
+        from autodj.generate.motif import apply_swing
+        beat = 0.5
+        ev = [(0.0, 60, 100, 0.25), (0.25, 62, 100, 0.25)]      # доля и «и»
+        out = apply_swing(ev, 0.3, beat)
+        assert out[0][0] == 0.0                                  # доля не двигается
+        assert out[1][0] > 0.25                                  # офбит позже
+
+    def test_syncopate_moves_some_onbeats(self):
+        import random
+        from autodj.generate.motif import syncopate
+        ev = [(i * 0.5, 60, 100, 0.25) for i in range(20)]
+        out = syncopate(ev, 0.6, 0.5, random.Random(3))
+        moved = [o for o, e in zip(out, ev) if abs(o[0] - e[0]) > 1e-6]
+        assert moved and len(moved) < len(ev)                    # часть, не все
+    def test_syncopate_zero_noop(self):
+        import random
+        from autodj.generate.motif import syncopate
+        ev = [(0.0, 60, 100, 0.5)]
+        assert syncopate(ev, 0.0, 0.5, random.Random(1)) == ev

@@ -221,3 +221,75 @@ def melody_for_sections(plan, chords, scale, root_midi, bpm, ident: dict,
             if rng.random() < 0.3:                            # вариация внутри секции
                 phrase = develop(motif, kind, rng)
     return sorted(events, key=lambda e: e[0])
+
+# ─── P88: гармония и параметры слоёв — тоже уникальные на трек ──────────────
+# Диагноз: прогрессия была ЗАШИТА в жанр (`progression="dark_techno"`), поэтому у всех
+# треков жанра одна и та же гармония; из 10 параметров track_identity применялись 2.
+# Совместимость по настроению: техно не должно вдруг зазвучать как neo-soul.
+
+PROGRESSION_POOLS = {
+    "dark_techno":  ("dark_techno", "industrial", "psychedelic", "plagal", "modal_interchange"),
+    "industrial":   ("industrial", "dark_techno", "psychedelic", "plagal"),
+    "psychedelic":  ("psychedelic", "dark_techno", "trance", "modal_interchange"),
+    "trance":       ("trance", "psychedelic", "plagal", "modal_interchange"),
+    "deep_house":   ("deep_house", "lounge", "deep_lounge", "neo_soul", "plagal"),
+    "lounge":       ("lounge", "deep_lounge", "neo_soul", "deep_house"),
+    "deep_lounge":  ("deep_lounge", "lounge", "neo_soul", "ambient"),
+    "neo_soul":     ("neo_soul", "deep_lounge", "lounge", "secondary_dom"),
+    "ambient":      ("ambient", "deep_lounge", "plagal", "modal_interchange"),
+    "indie":        ("indie", "modal_interchange", "plagal", "secondary_dom"),
+    "breakbeat":    ("breakbeat", "indie", "dark_techno", "psychedelic"),
+}
+
+
+def pick_progression(base: str, rng: random.Random) -> tuple[str, bool]:
+    """Прогрессия ЭТОГО трека из пула, совместимого с жанром + шанс септаккордов.
+    Чистая (при rng). Базовая остаётся в пуле — жанр узнаваем, но не повторяется."""
+    pool = PROGRESSION_POOLS.get(base, (base, "plagal", "modal_interchange"))
+    return rng.choice(pool), rng.random() < 0.35
+
+
+def apply_octave(events: list, semitones: int) -> list:
+    """Сдвиг слоя по регистру (разведение полос). Поддерживает ноты (t, midi, vel, dur)
+    и аккорды (t, [midi…], vel, dur). Чистая."""
+    if not semitones:
+        return events
+    out = []
+    for ev in events:
+        t, notes, vel, dur = ev[0], ev[1], ev[2], ev[3]
+        if isinstance(notes, (list, tuple)):
+            out.append((t, [int(n) + semitones for n in notes], vel, dur))
+        else:
+            out.append((t, int(notes) + semitones, vel, dur))
+    return out
+
+
+def apply_swing(events: list, swing: float, beat_sec: float) -> list:
+    """Свинг: каждая вторая восьмая сдвигается позже (грув вместо машинной сетки).
+    Чистая."""
+    if swing <= 0 or beat_sec <= 0:
+        return events
+    half = beat_sec / 2
+    out = []
+    for ev in events:
+        t = ev[0]
+        pos = (t % beat_sec) / beat_sec
+        shift = swing * half if 0.4 < pos < 0.6 else 0.0
+        out.append((t + shift,) + tuple(ev[1:]))
+    return sorted(out, key=lambda e: e[0])
+
+
+def syncopate(events: list, amount: float, beat_sec: float,
+              rng: random.Random) -> list:
+    """Синкопа: часть нот смещается с доли на слабую позицию. Чистая (при rng)."""
+    if amount <= 0:
+        return events
+    out = []
+    for ev in events:
+        t = ev[0]
+        on_beat = abs((t % beat_sec)) < beat_sec * 0.08
+        if on_beat and rng.random() < amount:
+            t = t + beat_sec * rng.choice([0.25, 0.5, 0.75])
+        out.append((t,) + tuple(ev[1:]))
+    return sorted(out, key=lambda e: e[0])
+

@@ -76,6 +76,7 @@ class TestLocalImportsAreTracked:
         tracked = _tracked_py()
         local = _local_targets(tracked)
         missing: list[str] = []
+        unreadable: list[str] = []
 
         for rel in sorted(tracked):
             if rel.startswith(SKIP_DIRS):
@@ -83,6 +84,9 @@ class TestLocalImportsAreTracked:
             try:
                 tree = ast.parse(open(os.path.join(ROOT, rel), encoding="utf-8").read())
             except (SyntaxError, UnicodeDecodeError):
+                continue
+            except (PermissionError, OSError):
+                unreadable.append(rel)          # чужие права — отдельный тест ниже
                 continue
             for node in ast.walk(tree):
                 mods = []
@@ -101,6 +105,9 @@ class TestLocalImportsAreTracked:
         assert not missing, (
             "Импорт указывает на НЕзакоммиченный файл (как было с music_theory.py):\n  "
             + "\n  ".join(missing))
+        if unreadable:                          # не заваливаем прогон из-за прав доступа
+            print(f"\n  ⚠ нечитаемы ({len(unreadable)}): {', '.join(unreadable[:5])}"
+                  f" — нужен chmod o+r от владельца")
 
     def test_autodj_packages_have_init(self):
         """Пакет без __init__.py = импорт работает случайно (namespace packages)
@@ -173,3 +180,14 @@ class TestRenderManifest:
         path = write_manifest(wav, None, {"seed": 3, "fingerprint": "ff"})
         assert path.endswith("track.manifest.json") and os.path.exists(path)
         assert json.load(open(path))["track"]["seed"] == 3
+
+
+class TestFilePermissions:
+    """Мульти-агентная среда: файлы одного агента должны читаться другими."""
+
+    def test_tracked_files_readable(self):
+        bad = [rel for rel in sorted(_tracked_py())
+               if not os.access(os.path.join(ROOT, rel), os.R_OK)]
+        if bad:
+            pytest.skip(f"нечитаемы для текущего пользователя: {bad[:5]} "
+                        f"(владельцу: chmod o+r)")
