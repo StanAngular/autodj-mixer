@@ -28,6 +28,27 @@ Sections (smooth, 4-bar crossfades):
   Drop B       6:00 - 7:30   peak energy, +1 semitone
   Outro        7:30 - 8:00   dissolve
 """
+# ═══════════════════════════════════════════════════════════════════════════
+# ⚠️  УСТАРЕВШИЙ СКРИПТ-ФОРК — НЕ ИСПОЛЬЗОВАТЬ ДЛЯ НОВЫХ ТРЕКОВ (P89)
+#
+# Этот файл содержит СОБСТВЕННУЮ копию композиции (мелодия/гармония/структура),
+# написанную до P82-P88. Он НЕ использует:
+#   • мотивную мелодию с развитием (P86)      • секционную аранжировку (P82/P83)
+#   • уникальную гармонию на трек (P88)       • личность трека: свинг/синкопа/регистры
+# Поэтому треки из него звучат одинаково от рендера к рендеру — что бы мы ни улучшали.
+#
+# ПРАВИЛЬНО:  python3 render_track.py <жанр>      (жанры см. GENRES в render_track.py)
+# Запустить всё-таки:  AUTODJ_ALLOW_LEGACY=1 python3 render_dark_cosmic.py
+# ═══════════════════════════════════════════════════════════════════════════
+import os as _os, sys as _sys
+if __name__ == "__main__" and not _os.environ.get("AUTODJ_ALLOW_LEGACY"):
+    print(__doc__ or "")
+    print("\n⚠️  УСТАРЕЛО: render_dark_cosmic.py не использует улучшения P82-P88 "
+          "(мотив, аранжировка, уникальная гармония).")
+    print("   Рендерь через:  python3 render_track.py <жанр>")
+    print("   Форс:           AUTODJ_ALLOW_LEGACY=1 python3 render_dark_cosmic.py\n")
+    _sys.exit(3)
+
 
 import sys, os, logging, numpy as np, soundfile as sf
 from scipy.signal import butter, sosfilt
@@ -601,9 +622,6 @@ def main():
     log.info("Building lead arp...")
     arp_buf = build_lead_arp()
 
-    log.info("Building cosmic texture...")
-    tex_buf = build_cosmic_texture()
-
     log.info("Building risers...")
     riser_buf = build_risers()
 
@@ -624,7 +642,6 @@ def main():
     mix += trim(acid_buf) * 0.55        # acid: midrange punch
     mix += trim(pad_buf)  * 0.50        # pad: atmospheric
     mix += trim(arp_buf)  * 0.45        # arp: melodic hook
-    mix += trim(tex_buf)  * 0.18        # texture: subliminal, quieter
     mix += trim(riser_buf) * 0.60       # risers: transitions
 
     # Global fade-in (2s) and fade-out (4s)

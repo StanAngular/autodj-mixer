@@ -191,3 +191,38 @@ class TestFilePermissions:
         if bad:
             pytest.skip(f"нечитаемы для текущего пользователя: {bad[:5]} "
                         f"(владельцу: chmod o+r)")
+
+
+class TestNoForkedRenderers:
+    """ADR (P79/P89): новые жанры — КОНФИГ в render_track.GENRES, а не новый скрипт-форк.
+
+    История: 9 скриптов render_*.py содержали собственные копии композиции и не получали
+    ни одного улучшения (мотив P86, аранжировка P82/83, гармония P88) — треки звучали
+    одинаково независимо от того, что мы чиним в общем движке.
+    """
+
+    def _forks(self):
+        import glob
+        return [os.path.basename(f) for f in glob.glob(os.path.join(ROOT, "render_*.py"))
+                if os.path.basename(f) not in ("render_track.py", "render.py")]
+
+    def test_legacy_renderers_are_guarded(self):
+        unguarded = []
+        for f in self._forks():
+            try:
+                src = open(os.path.join(ROOT, f), encoding="utf-8").read()
+            except (PermissionError, OSError):
+                continue
+            if "AUTODJ_ALLOW_LEGACY" not in src:
+                unguarded.append(f)
+        assert not unguarded, (
+            "Скрипт-форк без защиты — он НЕ получает улучшений общего движка "
+            f"и будет рендерить старый звук: {unguarded}. "
+            "Добавь жанр в render_track.GENRES вместо отдельного скрипта.")
+
+    def test_genres_registry_covers_styles(self):
+        """Жанры форков должны существовать как конфиги общего движка."""
+        src = open(os.path.join(ROOT, "render_track.py"), encoding="utf-8").read()
+        for key in ("dark_matter", "dark_cosmic", "indie_techno", "tribal_psychedelic",
+                    "cosmic_massage", "ambient_meditation", "deep_trance"):
+            assert f'"{key}"' in src, f"жанр {key} отсутствует в GENRES общего движка"

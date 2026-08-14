@@ -17,6 +17,27 @@ Sections:
   [Dissolve]   5:15-6:15   Elements fade one by one
   [Outro]      6:15-7:00   Pad tail + crackle → silence
 """
+# ═══════════════════════════════════════════════════════════════════════════
+# ⚠️  УСТАРЕВШИЙ СКРИПТ-ФОРК — НЕ ИСПОЛЬЗОВАТЬ ДЛЯ НОВЫХ ТРЕКОВ (P89)
+#
+# Этот файл содержит СОБСТВЕННУЮ копию композиции (мелодия/гармония/структура),
+# написанную до P82-P88. Он НЕ использует:
+#   • мотивную мелодию с развитием (P86)      • секционную аранжировку (P82/P83)
+#   • уникальную гармонию на трек (P88)       • личность трека: свинг/синкопа/регистры
+# Поэтому треки из него звучат одинаково от рендера к рендеру — что бы мы ни улучшали.
+#
+# ПРАВИЛЬНО:  python3 render_track.py <жанр>      (жанры см. GENRES в render_track.py)
+# Запустить всё-таки:  AUTODJ_ALLOW_LEGACY=1 python3 render_cosmic_massage.py
+# ═══════════════════════════════════════════════════════════════════════════
+import os as _os, sys as _sys
+if __name__ == "__main__" and not _os.environ.get("AUTODJ_ALLOW_LEGACY"):
+    print(__doc__ or "")
+    print("\n⚠️  УСТАРЕЛО: render_cosmic_massage.py не использует улучшения P82-P88 "
+          "(мотив, аранжировка, уникальная гармония).")
+    print("   Рендерь через:  python3 render_track.py <жанр>")
+    print("   Форс:           AUTODJ_ALLOW_LEGACY=1 python3 render_cosmic_massage.py\n")
+    _sys.exit(3)
+
 
 import sys, os, logging, numpy as np, soundfile as sf
 sys.path.insert(0, "/opt/autodj-mixer")
@@ -351,23 +372,6 @@ def main():
 
     min_len = min(len(mix), TOTAL)
     mix = mix[:min_len]
-
-    # Vinyl crackle
-    log.info("Generating vinyl crackle...")
-    crackle = gen_vinyl_crackle(min_len, SR, amp=0.012)
-    crackle_env = np.ones(min_len, dtype=np.float32) * 0.4
-    for i in range(min_len):
-        t = i / SR
-        if in_sec(t, "intro") or in_sec(t, "outro"):
-            crackle_env[i] = 1.0
-        elif in_sec(t, "breakdown"):
-            crackle_env[i] = 0.7
-    crackle *= crackle_env
-
-    # Add crackle
-    log.info("Mixing crackle...")
-    mix[:, 0] += crackle * 0.55
-    mix[:, 1] += crackle * 0.45
 
     # Master envelope
     env = master_envelope()[:min_len]

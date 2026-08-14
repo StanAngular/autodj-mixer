@@ -37,6 +37,27 @@ Mixed backend:
                 choir pad (GM 91 Pad Choir), drums (ch9)
   - DawDreamer Faust: supersaw lead, arpeggios, noise riser
 """
+# ═══════════════════════════════════════════════════════════════════════════
+# ⚠️  УСТАРЕВШИЙ СКРИПТ-ФОРК — НЕ ИСПОЛЬЗОВАТЬ ДЛЯ НОВЫХ ТРЕКОВ (P89)
+#
+# Этот файл содержит СОБСТВЕННУЮ копию композиции (мелодия/гармония/структура),
+# написанную до P82-P88. Он НЕ использует:
+#   • мотивную мелодию с развитием (P86)      • секционную аранжировку (P82/P83)
+#   • уникальную гармонию на трек (P88)       • личность трека: свинг/синкопа/регистры
+# Поэтому треки из него звучат одинаково от рендера к рендеру — что бы мы ни улучшали.
+#
+# ПРАВИЛЬНО:  python3 render_track.py <жанр>      (жанры см. GENRES в render_track.py)
+# Запустить всё-таки:  AUTODJ_ALLOW_LEGACY=1 python3 render_zaycev_trance.py
+# ═══════════════════════════════════════════════════════════════════════════
+import os as _os, sys as _sys
+if __name__ == "__main__" and not _os.environ.get("AUTODJ_ALLOW_LEGACY"):
+    print(__doc__ or "")
+    print("\n⚠️  УСТАРЕЛО: render_zaycev_trance.py не использует улучшения P82-P88 "
+          "(мотив, аранжировка, уникальная гармония).")
+    print("   Рендерь через:  python3 render_track.py <жанр>")
+    print("   Форс:           AUTODJ_ALLOW_LEGACY=1 python3 render_zaycev_trance.py\n")
+    _sys.exit(3)
+
 
 import sys, os, logging, numpy as np, soundfile as sf
 sys.path.insert(0, "/opt/autodj-mixer")

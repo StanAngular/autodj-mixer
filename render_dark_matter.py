@@ -21,6 +21,27 @@ Journey (8 acts):
   Dissipation 10:00-11:00 energy decays, reverb tails dominate
   Return      11:00-12:00 ambient void, echoes
 """
+# ═══════════════════════════════════════════════════════════════════════════
+# ⚠️  УСТАРЕВШИЙ СКРИПТ-ФОРК — НЕ ИСПОЛЬЗОВАТЬ ДЛЯ НОВЫХ ТРЕКОВ (P89)
+#
+# Этот файл содержит СОБСТВЕННУЮ копию композиции (мелодия/гармония/структура),
+# написанную до P82-P88. Он НЕ использует:
+#   • мотивную мелодию с развитием (P86)      • секционную аранжировку (P82/P83)
+#   • уникальную гармонию на трек (P88)       • личность трека: свинг/синкопа/регистры
+# Поэтому треки из него звучат одинаково от рендера к рендеру — что бы мы ни улучшали.
+#
+# ПРАВИЛЬНО:  python3 render_track.py <жанр>      (жанры см. GENRES в render_track.py)
+# Запустить всё-таки:  AUTODJ_ALLOW_LEGACY=1 python3 render_dark_matter.py
+# ═══════════════════════════════════════════════════════════════════════════
+import os as _os, sys as _sys
+if __name__ == "__main__" and not _os.environ.get("AUTODJ_ALLOW_LEGACY"):
+    print(__doc__ or "")
+    print("\n⚠️  УСТАРЕЛО: render_dark_matter.py не использует улучшения P82-P88 "
+          "(мотив, аранжировка, уникальная гармония).")
+    print("   Рендерь через:  python3 render_track.py <жанр>")
+    print("   Форс:           AUTODJ_ALLOW_LEGACY=1 python3 render_dark_matter.py\n")
+    _sys.exit(3)
+
 
 import sys, os, logging, numpy as np, soundfile as sf
 from scipy.signal import butter, sosfilt
@@ -34,6 +55,11 @@ from autodj.generate.synthcore import (
     apply_reverb, apply_delay, apply_compressor,
     make_section_envelope, mono_to_stereo, master_chain,
     normalize_master, _wavetable_osc
+)
+from autodj.generate.music_theory import (
+    voice_lead_sequence,
+    humanize_drum_events,
+    get_reverb, hp_for_role, mix_gain,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -66,13 +92,13 @@ def act_progress(t, act):
     """0.0 at start of act, 1.0 at end."""
     return np.clip((t - act[0]) / (act[1] - act[0]), 0, 1)
 
-# Dm scale MIDI
-CHORD_PROG = [
+# Dm scale MIDI — voice-led for smooth transitions (Manifesto 1.2)
+CHORD_PROG = voice_lead_sequence([
     [50, 53, 57],   # Dm  D3 F3 A3
     [43, 47, 50],   # Gm  G2 B2 D3
     [46, 50, 53],   # Bb  Bb2 D3 F3
     [40, 44, 47],   # Am  A2 C3 E3
-]
+])
 
 # Acid sequences (D minor flavour)
 ACID_A = [50,0,50,0, 53,52,50,0, 48,0,50,0, 55,0,53,50]
@@ -394,8 +420,10 @@ def build_dark_pad():
         buf[start:end] += chord_buf[:end - start]
 
     buf *= sec_env
+    buf = hp_for_role(buf, "pad", SR)   # clear sub-bass rumble (Manifesto 3.1)
     stereo = mono_to_stereo(buf, pan=0.0)
-    stereo = apply_reverb(stereo, SR, room_size=0.85, wet=0.45, damping=0.25)
+    rs, wet, damp = get_reverb("pad")   # 0.80 / 0.50 / 0.30 (Manifesto 5.1)
+    stereo = apply_reverb(stereo, SR, room_size=rs, wet=wet, damping=damp)
     return stereo
 
 
@@ -588,7 +616,10 @@ def main():
 
     log.info("Building drum events...")
     drum_events = build_drum_events()
-    log.info(f"  {len(drum_events)} drum hits")
+    log.info(f"  {len(drum_events)} drum hits — humanizing...")
+    drum_events = humanize_drum_events(
+        drum_events, vel_variation=0.09, apply_timing=True, seed=138
+    )
 
     log.info("Rendering 909 drums...")
     drum_buf = render_drums(drum_events, TOTAL, SR, stereo=True)
@@ -613,7 +644,6 @@ def main():
     acid_buf = build_acid_bass()
     pad_buf  = build_dark_pad()
     lead_buf = build_lead()
-    tex_buf  = build_cosmic_texture()
     riser_buf= build_risers()
 
     def trim(b, n=TOTAL):
@@ -621,17 +651,16 @@ def main():
             return b[:n]
         return np.pad(b, ((0, n - len(b)), (0, 0)))
 
-    # --- MIX with headroom ---
+    # --- MIX (gains from music_theory.mix_gain — Manifesto 7.2) ---
     log.info("Mixing...")
     mix = np.zeros((TOTAL, 2), dtype=np.float32)
-    mix += trim(drum_buf)  * 0.80
-    mix += trim(hk_buf)    * 0.65
-    mix += trim(sub_buf)   * 0.65
-    mix += trim(acid_buf)  * 0.50
-    mix += trim(pad_buf)   * 0.45
-    mix += trim(lead_buf)  * 0.40
-    mix += trim(tex_buf)   * 0.18
-    mix += trim(riser_buf) * 0.55
+    mix += trim(drum_buf)  * mix_gain("drums")
+    mix += trim(hk_buf)    * mix_gain("kick_extra")
+    mix += trim(sub_buf)   * mix_gain("sub")
+    mix += trim(acid_buf)  * mix_gain("acid")
+    mix += trim(pad_buf)   * mix_gain("pad")
+    mix += trim(lead_buf)  * mix_gain("lead")
+    mix += trim(riser_buf) * mix_gain("dub_fx")
 
     # Global fade-in 3s, fade-out 5s
     fi = int(3 * SR)

@@ -8,6 +8,27 @@ Dry drum programming, sidechained sub-bass, syncopated analog bassline,
 prickly synth stabs, filtered pad bed, breathy whispers,
 Berlin school sequencer pulse, plate reverb snare, lo-fi dub feel.
 """
+# ═══════════════════════════════════════════════════════════════════════════
+# ⚠️  УСТАРЕВШИЙ СКРИПТ-ФОРК — НЕ ИСПОЛЬЗОВАТЬ ДЛЯ НОВЫХ ТРЕКОВ (P89)
+#
+# Этот файл содержит СОБСТВЕННУЮ копию композиции (мелодия/гармония/структура),
+# написанную до P82-P88. Он НЕ использует:
+#   • мотивную мелодию с развитием (P86)      • секционную аранжировку (P82/P83)
+#   • уникальную гармонию на трек (P88)       • личность трека: свинг/синкопа/регистры
+# Поэтому треки из него звучат одинаково от рендера к рендеру — что бы мы ни улучшали.
+#
+# ПРАВИЛЬНО:  python3 render_track.py <жанр>      (жанры см. GENRES в render_track.py)
+# Запустить всё-таки:  AUTODJ_ALLOW_LEGACY=1 python3 render_indie_techno.py
+# ═══════════════════════════════════════════════════════════════════════════
+import os as _os, sys as _sys
+if __name__ == "__main__" and not _os.environ.get("AUTODJ_ALLOW_LEGACY"):
+    print(__doc__ or "")
+    print("\n⚠️  УСТАРЕЛО: render_indie_techno.py не использует улучшения P82-P88 "
+          "(мотив, аранжировка, уникальная гармония).")
+    print("   Рендерь через:  python3 render_track.py <жанр>")
+    print("   Форс:           AUTODJ_ALLOW_LEGACY=1 python3 render_indie_techno.py\n")
+    _sys.exit(3)
+
 
 import os, sys, time
 import numpy as np
@@ -27,6 +48,12 @@ from autodj.generate.synthcore import (
     mix_into, master_chain,
 )
 from scipy.signal import butter, sosfilt
+from autodj.generate.music_theory import (
+    resolve_progression, voice_lead_sequence,
+    humanize_drum_events, humanize_velocity,
+    get_reverb, get_pan, hp_for_role,
+    mix_gain, REVERB_PRESETS,
+)
 
 # ── constants ──────────────────────────────────────────────────────
 SR       = 44100
@@ -39,15 +66,12 @@ TOTAL    = int(DUR * SR)
 
 # key = Am
 ROOT     = 45              # A2
-SCALE_AM = [45, 48, 50, 52, 53, 55, 57]  # A B C D Eb E F# (harmonic minor feel)
 
-# chord voicings (MIDI)
-CHORD_Am  = [45, 48, 52]   # A2 C3 E3
-CHORD_Dm  = [50, 53, 57]   # D3 F3 A3
-CHORD_F   = [41, 45, 48]   # F2 A2 C3
-CHORD_G   = [43, 47, 50]   # G2 B2 D3
-CHORD_Em  = [40, 43, 47]   # E2 G2 B2
-CHORDS    = [CHORD_Am, CHORD_Dm, CHORD_F, CHORD_G]  # 4-bar loop
+# Chord progression via music_theory (voice-led for smooth transitions)
+_raw_chords = resolve_progression(ROOT, "indie")
+CHORDS = voice_lead_sequence(_raw_chords)
+# bass notes follow chord roots
+_bass_notes = [ch[0] for ch in CHORDS]
 
 # ── sections (seconds) ────────────────────────────────────────────
 # Gradual build → peak → dub strip → return → fadeout
@@ -179,14 +203,18 @@ def build_drum_events():
 
 def build_drums(drum_events):
     """Render all drum events into stereo buffer."""
-    print("  drums: rendering events...")
+    # Humanize: velocity variation + micro-timing per instrument role
+    print("  drums: humanizing events...")
+    drum_events = humanize_drum_events(
+        drum_events, vel_variation=0.10, apply_timing=True, seed=42
+    )
+    print(f"  drums: rendering {len(drum_events)} events...")
     buf = render_drums(drum_events, TOTAL, SR, stereo=True)
 
-    # Apply plate reverb to snare/clap channel:
-    # We apply light reverb to the full drum bus for cohesion
-    # but keep it dry-sounding (indie aesthetic)
-    buf_wet = apply_reverb(buf, SR, room_size=0.45, wet=0.12, damping=0.7)
-    # Blend: mostly dry
+    # Apply plate reverb (settings from manifesto reverb matrix)
+    rs, wet, damp = get_reverb("snare")  # plate-style for snare
+    buf_wet = apply_reverb(buf, SR, room_size=rs, wet=wet * 0.8, damping=damp)
+    # Blend: mostly dry (indie aesthetic)
     buf = buf * 0.85 + buf_wet * 0.15
     return buf.astype(np.float32)
 
@@ -199,8 +227,8 @@ def build_sub_bass(drum_events):
     print("  sub bass...")
     buf = np.zeros(TOTAL, dtype=np.float32)
 
-    # Bass note per bar follows chord progression
-    bass_notes = [45, 50, 41, 43]  # A2, D3, F2, G2
+    # Bass notes from voice-led chord roots
+    bass_notes = _bass_notes
 
     n_bars = int(DUR / BAR_S) + 1
     for bar in range(n_bars):
@@ -272,7 +300,7 @@ def build_analog_bass():
     print("  analog bass...")
     buf = np.zeros(TOTAL, dtype=np.float32)
 
-    bass_notes = [45, 50, 41, 43]
+    bass_notes = _bass_notes
 
     # Syncopated 16th pattern (velocity 0 = rest)
     #               1  .  .  .  2  .  .  .  3  .  .  .  4  .  .  .
@@ -355,16 +383,13 @@ def build_stabs():
     print("  synth stabs...")
     buf_stereo = np.zeros((TOTAL, 2), dtype=np.float32)
 
-    stab_chords = [
-        [60, 64],     # C4 E4 (Am: minor third inversion)
-        [62, 65],     # D4 F4
-        [57, 60],     # A3 C4
-        [59, 62],     # B3 D4
-    ]
+    # Derive stab chords from main progression (upper voicing, +12)
+    stab_chords = [[n + 12 for n in ch[:2]] for ch in CHORDS]
 
-    # Syncopated stab pattern
+    # Syncopated stab pattern (humanized velocity)
     #              1  .  .  .  2  .  .  .  3  .  .  .  4  .  .  .
-    PAT_STAB  = [  0, 0,90, 0,  0, 0, 0,85,  0,80, 0, 0,  0, 0,90, 0]
+    PAT_STAB_RAW = [0, 0,90, 0,  0, 0, 0,85,  0,80, 0, 0,  0, 0,90, 0]
+    PAT_STAB = humanize_velocity(PAT_STAB_RAW, variation=0.10, seed=77)
 
     n_bars = int(DUR / BAR_S) + 1
     for bar in range(n_bars):
@@ -494,8 +519,12 @@ def build_pad():
     )
     buf *= env
 
-    stereo = mono_to_stereo(buf, pan=0.0)
-    stereo = apply_reverb(stereo, SR, room_size=0.75, wet=0.45, damping=0.3)
+    # HP filter: pads don't need sub-bass rumble (Manifesto 3.1)
+    buf = hp_for_role(buf, "pad", SR)
+
+    stereo = mono_to_stereo(buf, pan=get_pan("pad"))
+    rs, wet, damp = get_reverb("pad")  # lush hall from manifesto matrix
+    stereo = apply_reverb(stereo, SR, room_size=rs, wet=wet, damping=damp)
     stereo = apply_chorus(stereo, SR, rate_hz=0.15, depth=0.2, wet=0.3)
     return stereo.astype(np.float32)
 
@@ -569,7 +598,10 @@ def build_sequencer():
     )
     buf *= env_sec
 
-    stereo = mono_to_stereo(buf, pan=0.15)  # slightly right
+    # HP: sequencer doesn't need lows (Manifesto 3.1)
+    buf = hp_for_role(buf, "sequencer", SR)
+
+    stereo = mono_to_stereo(buf, pan=get_pan("sequencer"))
     stereo = apply_delay(stereo, SR, delay_ms=int(STEP_S * 1000 * 3),
                          feedback=0.25, wet=0.2)
     return stereo.astype(np.float32)
@@ -673,7 +705,8 @@ def build_whispers():
     )
     apply_envelope_stereo(buf_stereo, env)
 
-    buf_stereo = apply_reverb(buf_stereo, SR, room_size=0.9, wet=0.6, damping=0.2)
+    rs, wet, damp = get_reverb("whisper")
+    buf_stereo = apply_reverb(buf_stereo, SR, room_size=rs, wet=wet, damping=damp)
     return buf_stereo.astype(np.float32)
 
 
@@ -781,22 +814,20 @@ def main():
     pad      = build_pad()
     seq      = build_sequencer()
     whispers = build_whispers()
-    texture  = build_texture()
     dub_fx   = build_dub_fx()
 
     print("  mixing...")
 
-    # Mix with gain structure
+    # Mix with gain structure (from music_theory.mix_gain)
     mix = np.zeros((TOTAL, 2), dtype=np.float32)
-    mix += drums    * 0.80
-    mix += sub      * 0.60
-    mix += bass     * 0.55
-    mix += stabs    * 0.45
-    mix += pad      * 0.35
-    mix += seq      * 0.40
-    mix += whispers * 0.30
-    mix += texture  * 0.15
-    mix += dub_fx   * 0.35
+    mix += drums    * mix_gain("drums")
+    mix += sub      * mix_gain("sub")
+    mix += bass     * mix_gain("bass")
+    mix += stabs    * mix_gain("stabs")
+    mix += pad      * mix_gain("pad")
+    mix += seq      * mix_gain("sequencer")
+    mix += whispers * mix_gain("whisper")
+    mix += dub_fx   * mix_gain("dub_fx")
 
     # Global fade in/out
     fade_in_n = int(8.0 * SR)   # 8s fade in

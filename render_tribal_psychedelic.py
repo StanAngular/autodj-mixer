@@ -30,6 +30,27 @@ Structure (sections blend over 8-16 bars, no abrupt cuts):
 Tempo acceleration: 92 BPM at t=0, 128 BPM at t=7:00
 Beat times computed via quadratic formula from integral of BPM(t).
 """
+# ═══════════════════════════════════════════════════════════════════════════
+# ⚠️  УСТАРЕВШИЙ СКРИПТ-ФОРК — НЕ ИСПОЛЬЗОВАТЬ ДЛЯ НОВЫХ ТРЕКОВ (P89)
+#
+# Этот файл содержит СОБСТВЕННУЮ копию композиции (мелодия/гармония/структура),
+# написанную до P82-P88. Он НЕ использует:
+#   • мотивную мелодию с развитием (P86)      • секционную аранжировку (P82/P83)
+#   • уникальную гармонию на трек (P88)       • личность трека: свинг/синкопа/регистры
+# Поэтому треки из него звучат одинаково от рендера к рендеру — что бы мы ни улучшали.
+#
+# ПРАВИЛЬНО:  python3 render_track.py <жанр>      (жанры см. GENRES в render_track.py)
+# Запустить всё-таки:  AUTODJ_ALLOW_LEGACY=1 python3 render_tribal_psychedelic.py
+# ═══════════════════════════════════════════════════════════════════════════
+import os as _os, sys as _sys
+if __name__ == "__main__" and not _os.environ.get("AUTODJ_ALLOW_LEGACY"):
+    print(__doc__ or "")
+    print("\n⚠️  УСТАРЕЛО: render_tribal_psychedelic.py не использует улучшения P82-P88 "
+          "(мотив, аранжировка, уникальная гармония).")
+    print("   Рендерь через:  python3 render_track.py <жанр>")
+    print("   Форс:           AUTODJ_ALLOW_LEGACY=1 python3 render_tribal_psychedelic.py\n")
+    _sys.exit(3)
+
 
 import sys, os, logging, numpy as np, soundfile as sf
 from scipy.signal import butter, sosfilt
@@ -41,6 +62,7 @@ from autodj.generate.synthcore import (
     apply_reverb, apply_delay, apply_chorus,
     mono_to_stereo, master_chain
 )
+from autodj.generate.music_theory import get_reverb, hp_for_role
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger("tribal")
@@ -386,8 +408,10 @@ def build_pad(beat_times):
     env[-fo:] = 0.5 * (1 + np.cos(np.pi * np.arange(fo) / fo))
     buf *= env * 0.2
 
+    buf = hp_for_role(buf, "pad", SR)   # HP: пад не владеет субчастотами
     stereo = mono_to_stereo(buf, pan=0.0)
-    stereo = apply_reverb(stereo, SR, room_size=0.88, wet=0.6, damping=0.3)
+    rs, wet, damp = get_reverb("pad")   # Manifesto 5.1: 0.80/0.50/0.30
+    stereo = apply_reverb(stereo, SR, room_size=rs, wet=wet, damping=damp)
     return stereo
 
 
@@ -457,7 +481,8 @@ def build_psychedelic_lead(step_times):
     # Delay: tribal echo (dotted 8th synced)
     delay_ms = 60000 / 110 * 0.75  # approx middle of tempo range
     stereo = apply_delay(stereo, SR, delay_ms=delay_ms, feedback=0.45, wet=0.4)
-    stereo = apply_reverb(stereo, SR, room_size=0.75, wet=0.5, damping=0.25)
+    rs, wet, damp = get_reverb("lead")  # 0.55/0.35/0.40 (medium space)
+    stereo = apply_reverb(stereo, SR, room_size=rs, wet=wet, damping=damp)
     stereo = apply_chorus(stereo, SR, rate_hz=0.2, depth=0.3, wet=0.35)
 
     return stereo
