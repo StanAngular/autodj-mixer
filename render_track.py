@@ -103,6 +103,8 @@ class GenreConfig:
     gain_accent:float = 0.45
     gain_counter:float = 0.42
     duck_db:    float = -4.5   # Q1: глубина сайдчейн-пампинга
+    seed:       int = 0        # P86: 0 = НОВЫЙ трек каждый раз; явный = воспроизвести
+    melody_engine: str = "motif"  # P86: motif | legacy
     arrange:    bool = True    # Q2: секционная аранжировка (филлы/плотность/ghosts)
     drum_bank:  str = ""       # S4: банк драм-машины (RolandTR909/TR808/AkaiLinn…); '' = env/дефолт
 
@@ -329,7 +331,7 @@ GENRES: Dict[str, GenreConfig] = {
         name="New Age Techno", bpm=125, key="Am", dur=360,
         progression="dark_techno", scale_mode="dorian", swing=0.0,
         melodic_style="staccato",
-        inst_pad="synth_pad_warm", inst_lead="synth:supersaw",
+        inst_pad="synth:pad?spread=1&detune=18", inst_lead="synth:supersaw",
         inst_arp="synth:pluck", inst_bass="synth:acid?drive=0.5&detune=20",
         inst_accent="tubular_bells", inst_counter="electric_piano",
         pad_bars=4,
@@ -992,13 +994,31 @@ def render(cfg: GenreConfig) -> str:
         cfg.outro_s = dur - 65
 
     # Single time-based seed → all generators produce new material each render
-    render_seed = int(time.time() * 1000) % 2**31
-    print(f"  seed={render_seed}")
+    # P86: КАЖДЫЙ РЕНДЕР — НОВЫЙ ТРЕК (требование: никакого наследования/шаблонов).
+    # Явный cfg.seed = режим «дорабатываем уже созданный» (точное воспроизведение).
+    from autodj.generate.motif import track_identity
+    _ident = track_identity(getattr(cfg, "seed", None) or None)
+    render_seed = _ident["seed"] % 2**31
+    print(f"  seed={render_seed}  отпечаток={_ident['fingerprint']}  "
+          f"мотив={len(_ident['motif'])} нот, регистр лида {_ident['lead_octave']:+d}, "
+          f"плотность {_ident['lead_density']}")
 
     # 1. Compose
     print("  composing...")
     pad_ev     = build_pad_events(cfg, chords, dur)
-    lead_ev    = build_lead_events(cfg, chords, scale, dur, seed=render_seed)
+    # P86: мелодия = ТЕМА с развитием по секциям (было: случайные ноты из гаммы).
+    if getattr(cfg, "melody_engine", "motif") == "motif":
+        import random as _rnd
+        from autodj.generate.motif import melody_for_sections
+        from autodj.generate.arrangement import default_plan as _dp
+        _bs2 = 60.0 / cfg.bpm * 4
+        _root = chords[0][0] if chords else 57
+        lead_ev = melody_for_sections(_dp(max(1, int(dur / _bs2))), chords, scale,
+                                      _root, cfg.bpm, _ident, _rnd.Random(render_seed))
+        print(f"    мелодия: тема {len(_ident['motif'])} нот → {len(lead_ev)} событий "
+              f"(инверсия/секвенция/аугментация по секциям)")
+    else:
+        lead_ev = build_lead_events(cfg, chords, scale, dur, seed=render_seed)
     counter_ev = build_counter_events(cfg, chords, scale, dur, seed=render_seed + 1)
     arp_ev     = build_arp_events(cfg, chords, scale, dur,   seed=render_seed + 2)
     accent_ev  = build_accent_events(cfg, chords, scale, dur, seed=render_seed + 3)
