@@ -34,17 +34,17 @@ STYLES_DIR = os.path.join(os.path.dirname(os.path.dirname(
 TIMBRE_POLICY = {
     "electronic": {
         "lead": "synth:supersaw", "bass": "synth:acid?drive=0.45",
-        "pad": "synth:pad?spread=1&detune=18", "arp": "synth:pluck",
-        "counter": "synth:square", "accent": "synth:pluck?cutoff=1600",
+        "pad": "synth:pad?spread=1&detune=6", "arp": "synth:pluck",
+        "counter": "synth:pluck", "accent": "synth:pluck?cutoff=1600",
     },
     "hybrid": {
         "lead": "synth:supersaw?detune=10", "bass": "synth:sub",
-        "pad": "synth:pad?spread=1", "arp": "synth:pluck",
+        "pad": "synth:pad?spread=1&detune=5", "arp": "synth:pluck",
         "counter": "electric_piano", "accent": "vibraphone",
     },
     "organic": {
         "lead": "synth:pluck?cutoff=1400", "bass": "synth:sub",
-        "pad": "synth:pad?spread=1&detune=12", "arp": "kalimba",
+        "pad": "synth:pad?spread=1&detune=7", "arp": "kalimba",
         "counter": "electric_piano", "accent": "vibraphone",
     },
     "acoustic": {

@@ -1195,6 +1195,8 @@ def render(cfg: GenreConfig) -> str:
         _plan = default_plan(max(1, int(dur / _bar_sec)))
         _before = len(drum_ev)
         drum_ev = apply_sections(drum_ev, _bar_sec, _plan, seed=getattr(cfg, "seed", 0) or 0)
+        from autodj.generate.arrangement import balance_drums
+        drum_ev = balance_drums(drum_ev)     # P92: бочка вперёд, тарелки назад
         print("    аранжировка: " + " → ".join(f"{k}({b-a}b)" for a, b, k in _plan)
               + f" | ударов {_before}→{len(drum_ev)}")
 
@@ -1257,11 +1259,18 @@ def render(cfg: GenreConfig) -> str:
     # Q2 (P83): структура и для МЕЛОДИЧЕСКИХ слоёв — лид молчит в интро, пад ведёт
     # брейкдаун, бас проваливается. Умножается на rcos_env (тот — общий вход/выход).
     if getattr(cfg, "arrange", True):
-        from autodj.generate.arrangement import default_plan, section_gain_envelope
+        # P92: МАТРИЦА АКТИВАЦИИ — иерархия, паузы, чередование второстепенных линий.
+        # Раньше все 6 слоёв играли непрерывно («каждый сам по себе», гудящий фон).
+        from autodj.generate.arrangement import (default_plan, activation_envelope,
+                                                 active_roles, FOCUS)
         _bs = 60.0 / cfg.bpm * 4
         _pl = default_plan(max(1, int(dur / _bs)))
-        _senv = {r: section_gain_envelope(r, _pl, _bs, total, SR)
-                 for r in ("pad", "lead", "counter", "arp", "accent", "bass")}
+        _senv = {r: activation_envelope(r, _pl, _bs, total, SR,
+                                        seed=_ident["seed"] % 7)
+                 for r in ("pad", "lead", "counter", "arp", "accent", "bass", "drums")}
+        for _a, _b, _k in _pl:
+            _on = [r for r, v in active_roles(_k).items() if v > 0]
+            print(f"    {_k:10s} фокус={FOCUS.get(_k,'-'):6s} играют: {', '.join(_on)}")
     else:
         _senv = {}
 
@@ -1277,7 +1286,7 @@ def render(cfg: GenreConfig) -> str:
         "arp":     apply_env(trim(arp_buf),     _sec('arp', arp_env))     * cfg.gain_arp * _gm,
         "accent":  apply_env(trim(accent_buf),  _sec('accent', accent_env))  * cfg.gain_accent * _gm,
         "bass":    apply_env(trim(bass_buf),    _sec('bass', bass_env))    * cfg.gain_bass * _gm,
-        "drums":   apply_env(trim(drum_buf),    drum_env)    * cfg.gain_drums,
+        "drums":   apply_env(trim(drum_buf),    _sec('drums', drum_env))    * cfg.gain_drums,
     }
     mix, _gains = mix_layers(layers, SR, int(_beat(cfg.bpm) * SR),
                              duck_db=getattr(cfg, "duck_db", -4.5))

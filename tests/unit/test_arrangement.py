@@ -121,3 +121,74 @@ class TestSectionEnvelope:
         import numpy as np
         assert len(section_gain_envelope("lead", self._plan(), 1.0, 500, 100)) == 500
         assert np.all(section_gain_envelope("lead", [], 1.0, 500, 100) == 1.0)
+
+
+# ═══ P92: иерархия слоёв, паузы, чередование, баланс барабанов ═══
+
+class TestActivationMatrix:
+    def test_pad_silent_in_drop(self):
+        from autodj.generate.arrangement import active_roles
+        assert active_roles("drop")["pad"] == 0.0          # «гудящий фон» убран из дропа
+    def test_drums_silent_in_breakdown(self):
+        from autodj.generate.arrangement import active_roles
+        assert active_roles("breakdown")["drums"] == 0.0   # брейкдаун без барабанов
+    def test_lead_absent_until_drop(self):
+        from autodj.generate.arrangement import active_roles
+        assert active_roles("intro")["lead"] == 0.0
+        assert active_roles("build")["lead"] == 0.0
+        assert active_roles("drop")["lead"] > 0.9          # лид входит только в дропе
+    def test_max_voices_enforced(self):
+        from autodj.generate.arrangement import active_roles, MELODIC
+        for kind in ("intro", "build", "drop", "breakdown", "outro"):
+            on = [r for r in MELODIC if active_roles(kind, max_voices=3).get(r, 0) > 0]
+            assert len(on) <= 3, f"{kind}: {on}"           # не 6 слоёв разом
+    def test_focus_is_loudest_melodic(self):
+        from autodj.generate.arrangement import active_roles, FOCUS, MELODIC
+        for kind in ("drop", "breakdown"):
+            lv = active_roles(kind)
+            focus = FOCUS[kind]
+            others = [v for r, v in lv.items() if r in MELODIC and r != focus and v > 0]
+            assert all(lv[focus] >= o for o in others)     # фокус ведёт
+
+
+class TestTurnTaking:
+    def test_secondary_roles_alternate(self):
+        from autodj.generate.arrangement import turn_window, SECONDARY
+        active_per_window = [
+            [r for r in SECONDARY if turn_window(r, bar) > 0] for bar in (0, 8, 16, 24)
+        ]
+        assert all(len(a) == 1 for a in active_per_window)  # играет ОДИН, не все
+        assert len({tuple(a) for a in active_per_window}) > 1  # и они сменяются
+    def test_primary_roles_unaffected(self):
+        from autodj.generate.arrangement import turn_window
+        assert turn_window("lead", 0) == 1.0 and turn_window("drums", 8) == 1.0
+
+
+class TestActivationEnvelope:
+    def test_real_silence_not_just_quieter(self):
+        import numpy as np
+        from autodj.generate.arrangement import activation_envelope
+        plan = [(0, 8, "drop")]
+        env = activation_envelope("pad", plan, 1.0, 8 * 100, 100, turn_taking=False)
+        assert float(np.abs(env).max()) < 0.05            # пад реально молчит
+    def test_focus_louder_than_support(self):
+        import numpy as np
+        from autodj.generate.arrangement import activation_envelope
+        plan = [(0, 8, "drop")]
+        lead = activation_envelope("lead", plan, 1.0, 800, 100, turn_taking=False)
+        arp = activation_envelope("arp", plan, 1.0, 800, 100, turn_taking=False)
+        assert lead[400] > arp[400]
+
+
+class TestDrumBalance:
+    def test_kick_forward_cymbals_back(self):
+        from autodj.generate.arrangement import balance_drums
+        out = dict((n, v) for _, n, v in balance_drums(
+            [(0.0, "kick", 100), (0.5, "closed_hat", 100), (1.0, "ride", 100)]))
+        assert out["kick"] > 100 and out["closed_hat"] < 60 and out["ride"] < 45
+    def test_velocity_clamped(self):
+        from autodj.generate.arrangement import balance_drums
+        assert all(1 <= v <= 127 for _, _, v in balance_drums([(0.0, "kick", 127)]))
+    def test_unknown_drum_untouched(self):
+        from autodj.generate.arrangement import balance_drums
+        assert balance_drums([(0.0, "shaker", 80)])[0][2] == 80

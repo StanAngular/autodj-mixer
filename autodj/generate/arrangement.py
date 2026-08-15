@@ -163,3 +163,118 @@ def section_gain_envelope(role: str, plan: list, bar_sec: float, total: int,
         k = np.ones(n, dtype="float32") / n
         env = np.convolve(env, k, mode="same").astype("float32")
     return env
+
+# ═══ P92: МАТРИЦА АКТИВАЦИИ — кто играет, кто молчит, кто главный ═══════════
+# Диагноз (прослушка Стаса + разбор Claw): одновременно звучали ШЕСТЬ синт-слоёв
+# (lead + acid bass + расстроенный pad + arp + counter + accent), каждый со своей
+# независимой логикой, все — непрерывно. Отсюда «гудение на фоне», «инструменты
+# играют сами по себе», «артхаус». Гейнами это не лечится: нужна ИЕРАРХИЯ и ПАУЗЫ.
+#
+# Правила живой аранжировки, которые здесь закодированы:
+#   1. В каждой секции есть ФОКУС — один ведущий голос, остальные его поддерживают.
+#   2. Максимум MAX_VOICES активных мелодических слоёв; лишние выключаются ПОЛНОСТЬЮ
+#      (0.0, а не «потише») по приоритету.
+#   3. Пад — не фон на весь трек: он ведёт брейкдаун и МОЛЧИТ в дропе.
+#   4. Второстепенные линии ЧЕРЕДУЮТСЯ (call-and-response) окнами по 4-8 тактов,
+#      а не играют одновременно.
+#   5. Не-фокусные слои приглушены относительно фокуса (не спорят за внимание).
+
+MAX_VOICES = 3          # мелодических слоёв одновременно (кроме drums/bass)
+
+# (уровень, приоритет) — приоритет решает, кого выключить при переполнении
+ACTIVATION = {
+    "intro":     {"drums": (0.85, 9), "bass": (0.70, 8), "pad": (0.45, 5),
+                  "arp": (0.0, 2), "lead": (0.0, 1), "counter": (0.0, 1), "accent": (0.25, 3)},
+    "build":     {"drums": (0.95, 9), "bass": (0.85, 8), "arp": (0.80, 6),
+                  "pad": (0.35, 4), "lead": (0.0, 2), "counter": (0.30, 3), "accent": (0.40, 5)},
+    "drop":      {"drums": (1.00, 9), "bass": (1.00, 8), "lead": (0.95, 7),
+                  "pad": (0.0, 1), "arp": (0.45, 5), "counter": (0.0, 2), "accent": (0.35, 4)},
+    "breakdown": {"pad": (0.95, 8), "lead": (0.55, 6), "counter": (0.45, 5),
+                  "drums": (0.0, 1), "bass": (0.25, 4), "arp": (0.0, 2), "accent": (0.30, 3)},
+    "outro":     {"drums": (0.70, 9), "bass": (0.55, 8), "pad": (0.60, 6),
+                  "arp": (0.25, 4), "lead": (0.0, 2), "counter": (0.0, 1), "accent": (0.20, 3)},
+}
+
+FOCUS = {"intro": "drums", "build": "arp", "drop": "lead",
+         "breakdown": "pad", "outro": "pad"}
+
+MELODIC = ("lead", "arp", "pad", "counter", "accent")
+SECONDARY = ("arp", "counter", "accent")     # чередуются между собой
+
+
+def active_roles(kind: str, max_voices: int = MAX_VOICES) -> dict:
+    """Кто играет в секции и с каким уровнем. Лишние мелодические слои выключаются
+    ПОЛНОСТЬЮ по приоритету (не «потише», а молчат). Чистая."""
+    table = ACTIVATION.get(kind, ACTIVATION["drop"])
+    out = {r: lvl for r, (lvl, _) in table.items()}
+    melodic_on = [(r, table[r][1]) for r in MELODIC if out.get(r, 0.0) > 0.0]
+    if len(melodic_on) > max_voices:
+        melodic_on.sort(key=lambda x: x[1], reverse=True)
+        for r, _ in melodic_on[max_voices:]:
+            out[r] = 0.0
+    return out
+
+
+def turn_window(role: str, bar: int, rng_seed: int = 0, window: int = 8) -> float:
+    """Call-and-response: второстепенные линии ЧЕРЕДУЮТСЯ окнами, а не играют
+    одновременно. Возвращает множитель 1.0 (её окно) или 0.0 (молчит). Чистая."""
+    if role not in SECONDARY:
+        return 1.0
+    slot = (bar // max(1, window) + rng_seed) % len(SECONDARY)
+    return 1.0 if SECONDARY[slot] == role else 0.0
+
+
+def activation_envelope(role: str, plan: list, bar_sec: float, total: int, sr: int,
+                        max_voices: int = MAX_VOICES, seed: int = 0,
+                        smooth_ms: float = 120.0, turn_taking: bool = True):
+    """Огибающая слоя по МАТРИЦЕ АКТИВАЦИИ + чередование + приглушение не-фокуса.
+    Заменяет мягкий layer_section_gain: здесь есть настоящие ПАУЗЫ. numpy out."""
+    import numpy as np
+    env = np.zeros(total, dtype="float32")
+    if not plan or bar_sec <= 0:
+        return env + 1.0
+    for a, b, kind in plan:
+        lvl = active_roles(kind, max_voices).get(role, 0.0)
+        if lvl <= 0.0:
+            continue
+        if role != FOCUS.get(kind) and role in MELODIC:
+            lvl *= 0.75                                   # не спорим с фокусом
+        for bar in range(a, b):
+            i0 = max(0, min(total, int(bar * bar_sec * sr)))
+            i1 = max(0, min(total, int((bar + 1) * bar_sec * sr)))
+            if i1 <= i0:
+                continue
+            g = lvl * (turn_window(role, bar, seed) if turn_taking else 1.0)
+            env[i0:i1] = g
+    n = max(1, int(sr * smooth_ms / 1000))
+    if n > 1 and total > n:                               # мягкие входы/выходы
+        k = np.ones(n, dtype="float32") / n
+        env = np.convolve(env, k, mode="same").astype("float32")
+    return env
+
+
+# ─── Баланс барабанов: плотный низ, без «звона» ─────────────────────────────
+# Запрос Стаса: «низкочастотные плотные биты, даунбит ритмичный, не звенящие ударные».
+DRUM_BALANCE = {
+    "kick": 1.25, "bd": 1.25,                 # бочка вперёд — даунбит слышен
+    "snare": 0.95, "sd": 0.95, "clap": 0.85, "cp": 0.85,
+    "closed_hat": 0.55, "hh": 0.55,           # хэты назад — уходит «звон»
+    "open_hat": 0.45, "oh": 0.45,
+    "ride": 0.40, "rd": 0.40, "crash": 0.45, "cr": 0.45,
+    "tom_low": 1.0, "tom_mid": 0.9, "tom_high": 0.8,
+}
+
+
+def balance_drums(hits: list, downbeat_boost: float = 1.15) -> list:
+    """Velocity по ролям барабанов: бочка/низ вперёд, тарелки назад; удар НА ДАУНБИТЕ
+    дополнительно акцентирован. Чистая."""
+    out = []
+    for t, name, vel in hits:
+        k = str(name).lower()
+        g = DRUM_BALANCE.get(k, 1.0)
+        v = float(vel) * g
+        if k in ("kick", "bd"):
+            v *= downbeat_boost
+        out.append((t, name, int(max(1, min(127, round(v))))))
+    return out
+
