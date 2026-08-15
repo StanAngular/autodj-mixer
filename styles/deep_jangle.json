@@ -30,5 +30,17 @@
   "melodic_style": "staccato",
   "role_overrides": {},
   "gain_bias": {},
-  "notes": "перенесено из GENRES[deep_jangle] (P90); характер по смыслу жанра"
+  "notes": "перенесено из GENRES[deep_jangle] (P90); характер по смыслу жанра",
+  "drum_patterns": [
+    "four_on_floor",
+    "breakbeat",
+    "halftime",
+    "dnb_halftime"
+  ],
+  "chord_bars_options": [
+    1,
+    2,
+    2,
+    4
+  ]
 }

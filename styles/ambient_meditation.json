@@ -30,5 +30,16 @@
   "melodic_style": "legato",
   "role_overrides": {},
   "gain_bias": {},
-  "notes": "перенесено из GENRES[ambient_meditation] (P90); характер по смыслу жанра"
+  "notes": "перенесено из GENRES[ambient_meditation] (P90); характер по смыслу жанра",
+  "drum_patterns": [
+    "none",
+    "halftime",
+    "breakbeat",
+    "four_on_floor"
+  ],
+  "chord_bars_options": [
+    4,
+    4,
+    8
+  ]
 }

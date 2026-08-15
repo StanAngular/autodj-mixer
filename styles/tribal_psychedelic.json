@@ -31,5 +31,17 @@
   "melodic_style": "syncopated",
   "role_overrides": {},
   "gain_bias": {},
-  "notes": "перенесено из GENRES[tribal_psychedelic] (P90); характер по смыслу жанра"
+  "notes": "перенесено из GENRES[tribal_psychedelic] (P90); характер по смыслу жанра",
+  "drum_patterns": [
+    "breakbeat",
+    "four_on_floor",
+    "halftime",
+    "dnb_halftime"
+  ],
+  "chord_bars_options": [
+    1,
+    2,
+    2,
+    4
+  ]
 }

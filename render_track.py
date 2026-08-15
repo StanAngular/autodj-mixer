@@ -84,6 +84,7 @@ class GenreConfig:
 
     # Chord pad: how many bars per chord (8 = ambient drone, 4 = techno punchy)
     pad_bars: int = 8
+    chord_bars: int = 2        # P91: тактов на аккорд (было жёстко 8 = 15 сек!)
 
     # Drum style
     drum_pattern: str = "four_on_floor"
@@ -620,7 +621,7 @@ def build_lead_events(cfg, chords, scale, dur, seed=None):
     t = cfg.intro_s * 0.6
 
     while t < dur - bar * 4:
-        ci        = int(t / (bar * 8)) % len(chords)
+        ci        = int(t / (bar * _cb(cfg))) % len(chords)
         chord     = chords[ci]
         chord_pcs = set(m % 12 for m in chord)
 
@@ -738,7 +739,7 @@ def build_counter_events(cfg, chords, scale, dur, seed=None):
     t = cfg.intro_s * 1.2
 
     while t < dur - bar * 3:
-        ci        = int(t / (bar * 8)) % len(chords)
+        ci        = int(t / (bar * _cb(cfg))) % len(chords)
         chord     = chords[ci]
         chord_pcs = set(m % 12 for m in chord)
 
@@ -799,7 +800,7 @@ def build_arp_events(cfg, chords, scale, dur, seed=None):
     t = 15.0
 
     while t < dur - bar:
-        ci = int(t / (bar * 8)) % len(chords)
+        ci = int(t / (bar * _cb(cfg))) % len(chords)
         chord = chords[ci]
 
         chord_tones = list(chord) + [n + 12 for n in chord if n + 12 <= 96]
@@ -864,6 +865,14 @@ def build_accent_events(cfg, chords, scale, dur, seed=None):
     return events
 
 
+def _cb(cfg) -> int:
+    """P91: ГАРМОНИЧЕСКИЙ РИТМ — сколько тактов держится один аккорд.
+    Было жёстко 8: при 125 BPM это 15 секунд на аккорд и МИНУТА на круг прогрессии —
+    музыка стоит на месте («примитивно, не гармонично»). Живая электроника меняет
+    гармонию каждые 1-4 такта."""
+    return max(1, int(getattr(cfg, "chord_bars", 2)))
+
+
 def build_bass_events(cfg, chords, scale, dur, seed=None):
     """
     Groovy bass with syncopation control.
@@ -880,7 +889,7 @@ def build_bass_events(cfg, chords, scale, dur, seed=None):
     t = 20.0
 
     while t < dur - bar:
-        ci    = int(t / (bar * 8)) % len(chords)
+        ci    = int(t / (bar * _cb(cfg))) % len(chords)
         root  = chords[ci][0] - 12
         fifth = root + 7
         octv  = root + 12

@@ -72,7 +72,9 @@ class StyleSpec:
     progressions: tuple = ("dark_techno", "plagal", "modal_interchange")
     energy: float = 0.6                        # 0..1 — плотность/напор
     swing_range: tuple = (0.0, 0.12)
-    drum_pattern: str = "four_on_floor"
+    drum_patterns: tuple = ("four_on_floor",)   # P91: список — выбор на трек
+    chord_bars_options: tuple = (2, 4)          # P91: гармонический ритм
+    drum_pattern: str = "four_on_floor"         # legacy (одиночный)
     dur_range: tuple = (240, 420)
     melodic_style: str = "default"
     role_overrides: dict = field(default_factory=dict)   # точечные замены тембров
@@ -183,7 +185,8 @@ def sample_style(spec: StyleSpec, rng: random.Random | None = None) -> dict:
         "dur": dur,
         "swing": round(rng.uniform(*spec.swing_range), 3),
         "melodic_style": spec.melodic_style,
-        "drum_pattern": spec.drum_pattern,
+        "drum_pattern": rng.choice(spec.drum_patterns or (spec.drum_pattern,)),
+        "chord_bars": rng.choice(spec.chord_bars_options or (2,)),
         "drum_bank": rng.choice(banks),
         "duck_db": round(-3.0 - 3.0 * e, 2),
         "inst_lead": timbres.get("lead"),

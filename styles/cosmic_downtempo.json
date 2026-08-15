@@ -31,5 +31,17 @@
   "melodic_style": "legato",
   "role_overrides": {},
   "gain_bias": {},
-  "notes": "перенесено из GENRES[cosmic_downtempo] (P90); характер по смыслу жанра"
+  "notes": "перенесено из GENRES[cosmic_downtempo] (P90); характер по смыслу жанра",
+  "drum_patterns": [
+    "halftime",
+    "four_on_floor",
+    "breakbeat",
+    "dnb_halftime"
+  ],
+  "chord_bars_options": [
+    1,
+    2,
+    2,
+    4
+  ]
 }

@@ -30,5 +30,15 @@
   "melodic_style": "legato",
   "role_overrides": {},
   "gain_bias": {},
-  "notes": "перенесено из GENRES[cosmic_massage] (P90); характер по смыслу жанра"
+  "notes": "перенесено из GENRES[cosmic_massage] (P90); характер по смыслу жанра",
+  "drum_patterns": [
+    "halftime",
+    "breakbeat",
+    "four_on_floor"
+  ],
+  "chord_bars_options": [
+    4,
+    4,
+    8
+  ]
 }

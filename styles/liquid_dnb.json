@@ -31,5 +31,16 @@
   "melodic_style": "flowing",
   "role_overrides": {},
   "gain_bias": {},
-  "notes": "перенесено из GENRES[liquid_dnb] (P90); характер по смыслу жанра"
+  "notes": "перенесено из GENRES[liquid_dnb] (P90); характер по смыслу жанра",
+  "drum_patterns": [
+    "dnb_halftime",
+    "four_on_floor",
+    "breakbeat",
+    "halftime"
+  ],
+  "chord_bars_options": [
+    2,
+    2,
+    4
+  ]
 }

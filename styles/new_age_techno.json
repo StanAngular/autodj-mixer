@@ -30,5 +30,15 @@
   "melodic_style": "staccato",
   "role_overrides": {},
   "gain_bias": {},
-  "notes": "перенесено из GENRES[new_age_techno] (P90); характер по смыслу жанра"
+  "notes": "перенесено из GENRES[new_age_techno] (P90); характер по смыслу жанра",
+  "drum_patterns": [
+    "four_on_floor",
+    "breakbeat",
+    "halftime"
+  ],
+  "chord_bars_options": [
+    2,
+    2,
+    4
+  ]
 }
