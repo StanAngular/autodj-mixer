@@ -1,0 +1,34 @@
+{
+  "name": "new_age_techno",
+  "character": "electronic",
+  "bpm_range": [
+    122,
+    128
+  ],
+  "keys": [
+    "Am",
+    "Dm",
+    "Fm"
+  ],
+  "modes": [
+    "dorian",
+    "minor"
+  ],
+  "progressions": [
+    "dark_techno"
+  ],
+  "energy": 0.82,
+  "swing_range": [
+    0.0,
+    0.06
+  ],
+  "drum_pattern": "four_on_floor",
+  "dur_range": [
+    300,
+    480
+  ],
+  "melodic_style": "staccato",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[new_age_techno] (P90); характер по смыслу жанра"
+}

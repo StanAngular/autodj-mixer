@@ -1,0 +1,35 @@
+{
+  "name": "berlin_minimal",
+  "character": "electronic",
+  "bpm_range": [
+    125,
+    131
+  ],
+  "keys": [
+    "Dm",
+    "Am",
+    "Fm"
+  ],
+  "modes": [
+    "phrygian",
+    "minor",
+    "dorian"
+  ],
+  "progressions": [
+    "industrial"
+  ],
+  "energy": 0.82,
+  "swing_range": [
+    0.0,
+    0.06
+  ],
+  "drum_pattern": "minimal",
+  "dur_range": [
+    540,
+    720
+  ],
+  "melodic_style": "staccato",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[berlin_minimal] (P90); характер по смыслу жанра"
+}

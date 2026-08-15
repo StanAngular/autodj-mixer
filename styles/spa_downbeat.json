@@ -1,0 +1,35 @@
+{
+  "name": "spa_downbeat",
+  "character": "organic",
+  "bpm_range": [
+    82,
+    88
+  ],
+  "keys": [
+    "Cm",
+    "Am",
+    "Dm",
+    "Fm"
+  ],
+  "modes": [
+    "minor",
+    "dorian"
+  ],
+  "progressions": [
+    "lounge"
+  ],
+  "energy": 0.6,
+  "swing_range": [
+    0.0,
+    0.3
+  ],
+  "drum_pattern": "breakbeat",
+  "dur_range": [
+    550,
+    730
+  ],
+  "melodic_style": "legato",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[spa_downbeat] (P90); характер по смыслу жанра"
+}

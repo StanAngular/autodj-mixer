@@ -1,0 +1,35 @@
+{
+  "name": "cosmic_downtempo",
+  "character": "hybrid",
+  "bpm_range": [
+    81,
+    87
+  ],
+  "keys": [
+    "Dm",
+    "Am",
+    "Fm"
+  ],
+  "modes": [
+    "phrygian",
+    "minor",
+    "dorian"
+  ],
+  "progressions": [
+    "ambient"
+  ],
+  "energy": 0.52,
+  "swing_range": [
+    0.0,
+    0.18
+  ],
+  "drum_pattern": "halftime",
+  "dur_range": [
+    240,
+    420
+  ],
+  "melodic_style": "legato",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[cosmic_downtempo] (P90); характер по смыслу жанра"
+}

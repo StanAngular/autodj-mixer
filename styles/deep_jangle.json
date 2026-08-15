@@ -1,0 +1,34 @@
+{
+  "name": "deep_jangle",
+  "character": "hybrid",
+  "bpm_range": [
+    115,
+    121
+  ],
+  "keys": [
+    "Am",
+    "Dm",
+    "Fm"
+  ],
+  "modes": [
+    "minor",
+    "dorian"
+  ],
+  "progressions": [
+    "indie"
+  ],
+  "energy": 0.72,
+  "swing_range": [
+    0.0,
+    0.18
+  ],
+  "drum_pattern": "four_on_floor",
+  "dur_range": [
+    300,
+    480
+  ],
+  "melodic_style": "staccato",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[deep_jangle] (P90); характер по смыслу жанра"
+}

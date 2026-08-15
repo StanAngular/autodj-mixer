@@ -1,0 +1,35 @@
+{
+  "name": "afro_house",
+  "character": "hybrid",
+  "bpm_range": [
+    119,
+    125
+  ],
+  "keys": [
+    "Gm",
+    "Am",
+    "Dm",
+    "Fm"
+  ],
+  "modes": [
+    "dorian",
+    "minor"
+  ],
+  "progressions": [
+    "deep_house"
+  ],
+  "energy": 0.75,
+  "swing_range": [
+    0.0,
+    0.24
+  ],
+  "drum_pattern": "afro",
+  "dur_range": [
+    480,
+    660
+  ],
+  "melodic_style": "syncopated",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[afro_house] (P90); характер по смыслу жанра"
+}

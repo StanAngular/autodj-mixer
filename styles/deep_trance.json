@@ -1,0 +1,34 @@
+{
+  "name": "deep_trance",
+  "character": "electronic",
+  "bpm_range": [
+    135,
+    141
+  ],
+  "keys": [
+    "Am",
+    "Dm",
+    "Fm"
+  ],
+  "modes": [
+    "minor",
+    "dorian"
+  ],
+  "progressions": [
+    "trance"
+  ],
+  "energy": 0.75,
+  "swing_range": [
+    0.0,
+    0.06
+  ],
+  "drum_pattern": "four_on_floor",
+  "dur_range": [
+    540,
+    720
+  ],
+  "melodic_style": "flowing",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[deep_trance] (P90); характер по смыслу жанра"
+}

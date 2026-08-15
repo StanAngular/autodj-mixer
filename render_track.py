@@ -133,6 +133,37 @@ class GenreConfig:
     target_db: float = -2.0
 
 
+def config_from_style(name_or_path: str, seed: int = 0) -> "GenreConfig":
+    """P90: стиль из styles/*.json → конкретный GenreConfig (параметры СЭМПЛИРУЮТСЯ,
+    поэтому каждый рендер уникален). Новый жанр = новый JSON, БЕЗ правки кода;
+    смешение — autodj.generate.style.blend()."""
+    import random as _r
+    from autodj.generate.style import load_style, sample_style
+    spec = load_style(name_or_path)
+    params = sample_style(spec, _r.Random(seed) if seed else _r.Random())
+    base = {f.name: getattr(GenreConfig, f.name, None)
+            for f in GenreConfig.__dataclass_fields__.values()}
+    kw = {k: v for k, v in params.items() if k in base and v is not None}
+    kw.setdefault("dur", params.get("dur", 300))
+    if seed:
+        kw["seed"] = seed
+    return GenreConfig(**kw)
+
+
+def resolve_config(name: str, seed: int = 0) -> "GenreConfig":
+    """Единая точка выбора: сначала пространство стилей, потом legacy-реестр."""
+    from autodj.generate.style import list_styles
+    if name in list_styles() or os.path.exists(name):
+        cfg = config_from_style(name, seed)
+        print(f"  стиль из styles/: {name} (параметры сэмплированы под этот трек)")
+        return cfg
+    if name in GENRES:
+        print(f"  ⚠ legacy GENRES[{name}] — стиль-файла нет; "
+              f"создай styles/{name}.json, чтобы получить уникальность и синт-тембры")
+        return GENRES[name]
+    raise SystemExit(f"неизвестный стиль {name!r}; доступны: {', '.join(list_styles())}")
+
+
 GENRES: Dict[str, GenreConfig] = {
     # ── SPA / CHILL ───────────────────────────────────────────────────────
     "spa_downbeat": GenreConfig(
@@ -1362,21 +1393,35 @@ def main():
     p.add_argument("--key", type=str)
     p.add_argument("--dur", type=int)
     p.add_argument("--send", action="store_true")
+    p.add_argument("--seed", type=int, default=0,
+                   help="P90: воспроизвести конкретный трек (0 = каждый раз новый)")
+    p.add_argument("--blend", type=str, default="",
+                   help="P90: смешать стили, напр. --blend afro_house:liquid_dnb:0.5")
     args = p.parse_args()
 
+    if args.blend:                                   # P90: смешение жанров на лету
+        from autodj.generate.style import load_style, blend, save_style
+        parts = args.blend.split(":")
+        a, b = load_style(parts[0]), load_style(parts[1])
+        t = float(parts[2]) if len(parts) > 2 else 0.5
+        mixed = blend(a, b, t)
+        save_style(mixed)
+        print(f"смешанный стиль: {mixed.name} ({a.name}↔{b.name}, t={t}) → styles/{mixed.name}.json")
+        args.genre = mixed.name
+
     if args.list or not args.genre:
-        print("Genres:")
+        from autodj.generate.style import list_styles as _ls
+        print("Стили (styles/*.json):", ", ".join(_ls()))
+        print("Legacy GENRES:")
         for k, c in GENRES.items():
             print(f"  {k:22s} {c.bpm} BPM / {c.key:4s} / {c.melodic_style:12s} / {c.dur//60}:{c.dur%60:02d}")
         if not args.genre:
             print("\nUsage: python3 render_track.py <genre> [options]")
         return
 
-    gk = args.genre.lower().replace("-","_").replace(" ","_")
-    if gk not in GENRES:
-        print(f"Unknown: {args.genre}. Available: {', '.join(GENRES.keys())}"); sys.exit(1)
-
-    cfg = GENRES[gk]
+    gk = args.genre.lower().replace("-", "_").replace(" ", "_")
+    # P90: сначала пространство стилей (styles/*.json + смеси), потом legacy-реестр
+    cfg = resolve_config(gk, seed=getattr(args, "seed", 0) or 0)
     if args.bpm: cfg.bpm = args.bpm
     if args.key: cfg.key = args.key
     if args.dur: cfg.dur = args.dur

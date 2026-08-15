@@ -1,0 +1,35 @@
+{
+  "name": "tribal_psychedelic",
+  "character": "hybrid",
+  "bpm_range": [
+    125,
+    131
+  ],
+  "keys": [
+    "Em",
+    "Am",
+    "Dm",
+    "Fm"
+  ],
+  "modes": [
+    "dorian",
+    "minor"
+  ],
+  "progressions": [
+    "psychedelic"
+  ],
+  "energy": 0.7,
+  "swing_range": [
+    0.0,
+    0.21
+  ],
+  "drum_pattern": "breakbeat",
+  "dur_range": [
+    540,
+    720
+  ],
+  "melodic_style": "syncopated",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[tribal_psychedelic] (P90); характер по смыслу жанра"
+}

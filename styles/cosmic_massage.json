@@ -1,0 +1,34 @@
+{
+  "name": "cosmic_massage",
+  "character": "organic",
+  "bpm_range": [
+    72,
+    78
+  ],
+  "keys": [
+    "Fm",
+    "Am",
+    "Dm"
+  ],
+  "modes": [
+    "minor",
+    "dorian"
+  ],
+  "progressions": [
+    "deep_lounge"
+  ],
+  "energy": 0.48,
+  "swing_range": [
+    0.0,
+    0.16
+  ],
+  "drum_pattern": "halftime",
+  "dur_range": [
+    360,
+    540
+  ],
+  "melodic_style": "legato",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[cosmic_massage] (P90); характер по смыслу жанра"
+}

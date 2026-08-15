@@ -1,0 +1,34 @@
+{
+  "name": "indie_techno",
+  "character": "electronic",
+  "bpm_range": [
+    139,
+    145
+  ],
+  "keys": [
+    "Am",
+    "Dm",
+    "Fm"
+  ],
+  "modes": [
+    "dorian",
+    "minor"
+  ],
+  "progressions": [
+    "indie"
+  ],
+  "energy": 0.75,
+  "swing_range": [
+    0.0,
+    0.06
+  ],
+  "drum_pattern": "four_on_floor",
+  "dur_range": [
+    540,
+    720
+  ],
+  "melodic_style": "staccato",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[indie_techno] (P90); характер по смыслу жанра"
+}

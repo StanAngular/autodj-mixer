@@ -1,0 +1,35 @@
+{
+  "name": "dark_cosmic",
+  "character": "hybrid",
+  "bpm_range": [
+    130,
+    136
+  ],
+  "keys": [
+    "Dm",
+    "Am",
+    "Fm"
+  ],
+  "modes": [
+    "phrygian",
+    "minor",
+    "dorian"
+  ],
+  "progressions": [
+    "dark_techno"
+  ],
+  "energy": 0.75,
+  "swing_range": [
+    0.0,
+    0.06
+  ],
+  "drum_pattern": "four_on_floor",
+  "dur_range": [
+    540,
+    720
+  ],
+  "melodic_style": "staccato",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[dark_cosmic] (P90); характер по смыслу жанра"
+}

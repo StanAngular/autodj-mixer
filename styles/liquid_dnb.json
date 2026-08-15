@@ -1,0 +1,35 @@
+{
+  "name": "liquid_dnb",
+  "character": "electronic",
+  "bpm_range": [
+    171,
+    177
+  ],
+  "keys": [
+    "Am",
+    "Dm",
+    "Fm"
+  ],
+  "modes": [
+    "melodic_minor",
+    "minor",
+    "dorian"
+  ],
+  "progressions": [
+    "neo_soul"
+  ],
+  "energy": 0.75,
+  "swing_range": [
+    0.0,
+    0.14
+  ],
+  "drum_pattern": "dnb_halftime",
+  "dur_range": [
+    420,
+    600
+  ],
+  "melodic_style": "flowing",
+  "role_overrides": {},
+  "gain_bias": {},
+  "notes": "перенесено из GENRES[liquid_dnb] (P90); характер по смыслу жанра"
+}
