@@ -108,6 +108,7 @@ class GenreConfig:
     melody_engine: str = "motif"  # P86: motif | legacy
     arrange:    bool = True    # Q2: секционная аранжировка (филлы/плотность/ghosts)
     drum_bank:  str = ""       # S4: банк драм-машины (RolandTR909/TR808/AkaiLinn…); '' = env/дефолт
+    perf_ranges: Optional[dict] = None  # P93/P96: живое исполнение (None = как раньше)
 
     # Reverb presets per layer: (room, wet, damp)
     fx_pad:    Tuple = (0.82, 0.32, 0.48)
@@ -1110,6 +1111,21 @@ def render(cfg: GenreConfig) -> str:
           f"мотив={len(_ident['motif'])} нот, регистр лида {_ident['lead_octave']:+d}, "
           f"плотность {_ident['lead_density']}")
 
+    # P93/P96: профиль ЖИВОГО ИСПОЛНЕНИЯ этого трека (грув, динамика, хвосты).
+    # Сэмплируется из диапазонов стиля по seed трека: новый трек = новый профиль,
+    # тот же seed = тот же профиль. Стили без "performance" → None, всё как раньше.
+    import random as _r93
+    from autodj.generate.groove import (sample_performance, apply_groove,
+                                        thin_events, echo as _echo)
+    perf = sample_performance(getattr(cfg, "perf_ranges", None),
+                              _r93.Random(_ident["seed"] ^ 0x93))
+    if perf:
+        print(f"  исполнение: оттяжка Rhodes {perf['lag_ms']['counter']:.0f} мс, "
+              f"плаки {perf['lag_ms']['arp']:.0f}, свинг как у барабанов {cfg.swing}; "
+              f"релиз пада {perf['pad_release_ms']/1000:.1f} с, плака {perf['pluck_release_ms']:.0f} мс; "
+              f"арп {perf['arp_keep']:.0%} нот; эхо {perf['echo_beats']} доли "
+              f"fb={perf['echo_feedback']} {'пинг-понг' if perf['echo_pingpong'] else 'центр'}")
+
     # 1. Compose
     print("  composing...")
     pad_ev     = build_pad_events(cfg, chords, dur)
@@ -1134,9 +1150,11 @@ def render(cfg: GenreConfig) -> str:
     _beat_sec = 60.0 / cfg.bpm
     pad_ev = apply_octave(pad_ev, _ident["pad_octave"])
     arp_ev = apply_octave(arp_ev, _ident["arp_octave"])
-    arp_ev = apply_swing(arp_ev, _ident["swing"], _beat_sec)
+    if not perf:                       # P93: с perf свинг общий с барабанами (ниже)
+        arp_ev = apply_swing(arp_ev, _ident["swing"], _beat_sec)
     lead_ev = syncopate(lead_ev, _ident["syncopation"], _beat_sec, _rng88)
-    counter_ev = apply_swing(counter_ev, _ident["swing"] * 0.6, _beat_sec)
+    if not perf:
+        counter_ev = apply_swing(counter_ev, _ident["swing"] * 0.6, _beat_sec)
     print(f"    личность: пад {_ident['pad_octave']:+d} полутонов, арп {_ident['arp_octave']:+d}, "
           f"свинг {_ident['swing']}, синкопа {_ident['syncopation']}")
     accent_ev  = build_accent_events(cfg, chords, scale, dur, seed=render_seed + 3)
@@ -1146,6 +1164,17 @@ def render(cfg: GenreConfig) -> str:
     # Apply drum timing humanization (post-process with same seed for reproducibility)
     _drum_rng  = np.random.RandomState(render_seed + 6)
     drum_ev    = _humanize_drums(drum_ev, _drum_rng)
+
+    # P93/P96: мелодические партии играются «руками». Бас и барабаны не трогаем.
+    if perf:
+        _gr = _r93.Random(_ident["seed"] ^ 0x9396)
+        arp_ev  = thin_events(arp_ev, perf["arp_keep"], _beat_sec, _gr)
+        lead_ev = thin_events(lead_ev, perf["lead_keep"], _beat_sec, _gr, protect_strong=True)
+        lead_ev    = apply_groove(lead_ev, "lead", perf, cfg.swing, _beat_sec, _gr)
+        counter_ev = apply_groove(counter_ev, "counter", perf, cfg.swing, _beat_sec, _gr)
+        arp_ev     = apply_groove(arp_ev, "arp", perf, cfg.swing, _beat_sec, _gr)
+        accent_ev  = apply_groove(accent_ev, "accent", perf, cfg.swing, _beat_sec, _gr)
+        pad_ev     = apply_groove(pad_ev, "pad", perf, cfg.swing, _beat_sec, _gr)
 
     print(f"  events: pad={len(pad_ev)} lead={len(lead_ev)} counter={len(counter_ev)} "
           f"arp={len(arp_ev)} accent={len(accent_ev)} bass={len(bass_ev)} drums={len(drum_ev)}")
@@ -1162,10 +1191,12 @@ def render(cfg: GenreConfig) -> str:
         from autodj.generate.synthvoice import parse_instrument, render_notes_synth
         voice, prm = parse_instrument(inst)
         if voice:
+            _rel = perf["pluck_release_ms"] if (perf and voice == "pluck") else None
             buf = render_notes_synth(voice, evs, dur, SR,
                                      detune=prm.get("detune", 14.0),
                                      drive=prm.get("drive", 0.25),
-                                     cutoff_base=prm.get("cutoff", 900.0))
+                                     cutoff_base=prm.get("cutoff", 900.0),
+                                     release_ms=_rel)
         else:
             buf = render_notes(inst, evs, dur, SR, channel=ch)
         print(f"    {inst}: {time.time()-t1:.1f}s ({len(evs)} notes)")
@@ -1179,7 +1210,8 @@ def render(cfg: GenreConfig) -> str:
                                        detune=_pp.get("detune", 18.0),
                                        drive=_pp.get("drive", 0.12),
                                        cutoff_base=_pp.get("cutoff", 1100.0),
-                                       spread=_pp.get("spread", 1.0))
+                                       spread=_pp.get("spread", 1.0),
+                                       release_ms=(perf["pad_release_ms"] if perf else None))
                    if _pv else render_chords(cfg.inst_pad, pad_ev, dur, SR))
     lead_buf    = rn(cfg.inst_lead, lead_ev, ch=0)
     counter_buf = rn(cfg.inst_counter or cfg.inst_accent, counter_ev, ch=3) if counter_ev else np.zeros((total,2), np.float32)
@@ -1205,6 +1237,14 @@ def render(cfg: GenreConfig) -> str:
                 if drum_ev else np.zeros((total, 2), np.float32))
     print(f"    drums: {time.time()-t1:.1f}s")
 
+    # P96: длинное эхо на плаках (до реверба): хвосты вместо лишних нот
+    if perf:
+        _et = _beat(cfg.bpm) * perf["echo_beats"]
+        _ekw = dict(feedback=perf["echo_feedback"], lp_hz=perf["echo_lp_hz"],
+                    pingpong=perf["echo_pingpong"])
+        arp_buf = _echo(arp_buf, SR, _et, wet=perf["echo_wet"], **_ekw)
+        lead_buf = _echo(lead_buf, SR, _et, wet=perf["echo_wet"] * 0.7, **_ekw)
+
     # 3. Pedalboard effects
     print("  effects...")
 
@@ -1222,10 +1262,10 @@ def render(cfg: GenreConfig) -> str:
     bass_buf    = fx(bass_buf,    *cfg.fx_bass)
     drum_buf    = fx(drum_buf,    *cfg.fx_drums)
 
-    if cfg.delay_arp:
+    if cfg.delay_arp and not perf:
         dm      = _beat(cfg.bpm) * 375
         arp_buf = apply_delay(arp_buf, SR, delay_ms=dm, feedback=0.28, wet=0.20)
-    if cfg.delay_lead:
+    if cfg.delay_lead and not perf:
         dm       = _beat(cfg.bpm) * 500
         lead_buf = apply_delay(lead_buf, SR, delay_ms=dm, feedback=0.20, wet=0.15)
     if cfg.chorus_pad:
@@ -1367,7 +1407,8 @@ def render(cfg: GenreConfig) -> str:
     # Ловит «работает только у меня»: незакоммиченные модули видны прямо в логе.
     try:
         from autodj.generate.manifest import write_manifest
-        write_manifest(wav, cfg, _ident, {"duration_s": round(len(mix) / SR, 1)})
+        write_manifest(wav, cfg, _ident, {"duration_s": round(len(mix) / SR, 1),
+                                          "performance": perf})
     except Exception as _e:
         print(f"    манифест пропущен: {type(_e).__name__}")
     os.system(f'ffmpeg -y -i "{wav}" -b:a 320k "{mp3}" 2>/dev/null')

@@ -80,6 +80,7 @@ class StyleSpec:
     role_overrides: dict = field(default_factory=dict)   # точечные замены тембров
     gain_bias: dict = field(default_factory=dict)        # смещения баланса ролей
     notes: str = ""                                       # человеческое описание
+    performance: dict = field(default_factory=dict)      # P93/P96: диапазоны живого исполнения
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -146,6 +147,7 @@ def blend(a: StyleSpec, b: StyleSpec, t: float = 0.5, name: str | None = None) -
         melodic_style=b.melodic_style if t > 0.5 else a.melodic_style,
         role_overrides={**a.role_overrides, **b.role_overrides},
         gain_bias={**a.gain_bias, **b.gain_bias},
+        performance={**a.performance, **b.performance},
         notes=f"blend {a.name}↔{b.name} t={t:.2f}",
     ))
 
@@ -196,6 +198,7 @@ def sample_style(spec: StyleSpec, rng: random.Random | None = None) -> dict:
         "inst_counter": timbres.get("counter"),
         "inst_accent": timbres.get("accent"),
         **gains,
+        "perf_ranges": dict(spec.performance) or None,     # P93: сэмплируется в render по seed трека
     }
 
 

@@ -1,0 +1,63 @@
+{
+  "name": "psy_triphop",
+  "character": "hybrid",
+  "bpm_range": [
+    84,
+    90
+  ],
+  "keys": [
+    "Dm",
+    "Em",
+    "F#m"
+  ],
+  "modes": [
+    "phrygian",
+    "dorian",
+    "minor"
+  ],
+  "progressions": [
+    "psychedelic",
+    "neo_soul",
+    "deep_lounge"
+  ],
+  "energy": 0.55,
+  "swing_range": [
+    0.12,
+    0.22
+  ],
+  "drum_patterns": [
+    "breakbeat",
+    "halftime",
+    "breakbeat"
+  ],
+  "chord_bars_options": [
+    2,
+    4,
+    4
+  ],
+  "dur_range": [
+    420,
+    420
+  ],
+  "melodic_style": "legato",
+  "role_overrides": {
+    "bass": "synth:sub",
+    "pad": "synth:pad?spread=1&detune=9",
+    "lead": "synth:pluck?cutoff=1100",
+    "arp": "synth:pluck?cutoff=2200",
+    "counter": "electric_piano",
+    "accent": "vibraphone"
+  },
+  "gain_bias": {
+    "bass": 0.22,
+    "drums": 0.1,
+    "pad": 0.05,
+    "counter": 0.0,
+    "lead": -0.04,
+    "arp": -0.06
+  },
+  "notes": "Психоделический трип-хоп (запрос Стаса 2026-10-08): свингованный брейкбит 84-90 BPM, глубокий саб, широкий расстроенный пад, Rhodes, вибрафон. P93/P96: живое исполнение включено (диапазоны по умолчанию из groove.DEFAULT_RANGES).",
+  "performance": {
+    "enabled": true
+  }
+}

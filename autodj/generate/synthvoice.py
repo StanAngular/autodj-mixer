@@ -51,8 +51,11 @@ def _brightness(velocity: int, base_hz: float, span: float = 3.5) -> float:
 def render_voice_note(voice: str, midi_note: int, dur_s: float, velocity: int,
                       sr: int = SR_DEFAULT, detune: float = 14.0,
                       drive: float = 0.25, cutoff_base: float = 900.0,
-                      attack_ms: float = 6.0, release_ms: float = 180.0) -> np.ndarray:
-    """Одна нота выбранным голосом → моно float32. Чистая."""
+                      attack_ms: float = 6.0, release_ms: float = 180.0,
+                      release_override_ms: float | None = None) -> np.ndarray:
+    """Одна нота выбранным голосом → моно float32. Чистая.
+    release_override_ms (P96): точное затухание пада/плака вместо зашитого
+    (пад 600 мс, плак 90 мс). None → как раньше."""
     n = max(1, int(dur_s * sr))
     f = midi_to_hz(midi_note)
     amp = (max(1, min(127, int(velocity))) / 127.0) ** 1.15
@@ -79,11 +82,12 @@ def render_voice_note(voice: str, midi_note: int, dur_s: float, velocity: int,
         o, e = _fit(osc, env); out = lpf(o * e, max(180.0, cut * 0.5), q=0.7, sr=sr)
     elif voice == "pad":
         osc = supersaw(f, n, sr, detune_cents=detune * 1.6, n_voices=7)
-        env = adsr(max(80.0, attack_ms * 20), 400, -3.0, max(600.0, release_ms * 3), dur_s, sr)
+        _rel = release_override_ms if release_override_ms else max(600.0, release_ms * 3)
+        env = adsr(max(80.0, attack_ms * 20), 400, -3.0, _rel, dur_s, sr)
         o, e = _fit(osc, env); out = lpf(o * e, cut * 1.2, q=0.6, sr=sr)
     elif voice == "pluck":
         osc = sawtooth_bl(f, n, sr)
-        env = adsr(2, 45, -18.0, 90, dur_s, sr)
+        env = adsr(2, 45, -18.0, release_override_ms or 90, dur_s, sr)
         o, e = _fit(osc, env); out = lpf(o * e, cut * 1.4, q=1.2, sr=sr)
         out = _drive(out, drive * 0.6)
     elif voice == "square":
@@ -98,15 +102,19 @@ def render_voice_note(voice: str, midi_note: int, dur_s: float, velocity: int,
 
 def render_notes_synth(voice: str, notes: list, duration: float, sr: int = SR_DEFAULT,
                        pan: float = 0.0, detune: float = 14.0, drive: float = 0.25,
-                       cutoff_base: float = 900.0) -> np.ndarray:
+                       cutoff_base: float = 900.0,
+                       release_ms: float | None = None) -> np.ndarray:
     """События [(t, midi, vel, dur)] → стерео буфер собственным синтом.
+    release_ms (P96): нота звучит dur + release (хвост поверх следующих нот).
     Прямая замена instrument.render_notes для ролей, где GM звучит «по-миди»."""
     total = int(duration * sr) + sr
     out = np.zeros(total, dtype=np.float32)
     for ev in notes:
         t, note, vel, ndur = ev[0], int(ev[1]), int(ev[2]), float(ev[3])
-        seg = render_voice_note(voice, note, max(0.03, ndur), vel, sr,
-                                detune=detune, drive=drive, cutoff_base=cutoff_base)
+        _len = max(0.03, ndur) + ((release_ms or 0) / 1000.0)
+        seg = render_voice_note(voice, note, _len, vel, sr,
+                                detune=detune, drive=drive, cutoff_base=cutoff_base,
+                                release_override_ms=release_ms)
         pos = int(t * sr)
         m = min(len(seg), total - pos)
         if m > 0:
@@ -177,7 +185,8 @@ def render_chords_synth(voice: str, chords: list, duration: float, sr: int = SR_
                         detune: float = 18.0, drive: float = 0.12,
                         cutoff_base: float = 1100.0, spread: float = 1.0,
                         lfo_depth: float = 0.45, lfo_rate: float = 0.07,
-                        width: float = 0.6) -> np.ndarray:
+                        width: float = 0.6,
+                        release_ms: float | None = None) -> np.ndarray:
     """Аккорды [(t, [midi…], vel, dur)] → стерео своим синтом, с разносом голосов,
     стерео-шириной и дышащим фильтром. Замена GM-пада."""
     total = int(duration * sr) + sr
@@ -188,8 +197,10 @@ def render_chords_synth(voice: str, chords: list, duration: float, sr: int = SR_
         voiced = spread_voicing(notes, spread)
         k = max(1, len(voiced) - 1)
         for i, note in enumerate(voiced):
-            seg = render_voice_note(voice, note, max(0.05, cdur), vel, sr,
-                                    detune=detune, drive=drive, cutoff_base=cutoff_base)
+            _len = max(0.05, cdur) + ((release_ms or 0) / 1000.0)   # P96: наплыв
+            seg = render_voice_note(voice, note, _len, vel, sr,
+                                    detune=detune, drive=drive, cutoff_base=cutoff_base,
+                                    release_override_ms=release_ms)
             pan = width * (-1.0 + 2.0 * (i / k))          # голоса по стерео-полю
             gl = np.sqrt(max(0.0, (1 - pan) / 2)) * np.sqrt(2)
             gr = np.sqrt(max(0.0, (1 + pan) / 2)) * np.sqrt(2)
