@@ -179,17 +179,34 @@ def motif_to_notes(motif, scale: list[int], root_midi: int, start_beat: float,
                    beat_sec: float, chord: list[int] | None = None,
                    octave: int = 0) -> list[tuple[float, int, int, float]]:
     """Тема (шаги по гамме) → события [(t, midi, velocity, dur)]. Опорные ноты
-    подтягиваются к тонам аккорда — мелодия остаётся в гармонии. Чистая."""
+    подтягиваются к тонам аккорда — мелодия остаётся в гармонии. Чистая.
+
+    scale: интервалы лада (0..11) ИЛИ абсолютные MIDI-ноты гаммы. P97: render_track
+    передаёт абсолютные, а функция прибавляла к ним root_midi → лид до MIDI 171
+    (ультразвук, алиасинг, «писк»)."""
+    absolute = bool(scale) and max(scale) >= 12
+    if absolute:
+        pool = [n for n in scale if 55 <= n <= 96] or list(scale)
+        i0 = min(range(len(pool)), key=lambda i: abs(pool[i] - root_midi))
     out = []
     deg = 0
     beat = start_beat
     for i, (step, dur) in enumerate(motif):
         deg += step
-        idx = deg % len(scale)
-        octs = deg // len(scale)
-        midi = root_midi + scale[idx] + 12 * octs + octave
+        if absolute:
+            midi = pool[max(0, min(len(pool) - 1, i0 + deg))] + octave
+        else:
+            idx = deg % len(scale)
+            octs = deg // len(scale)
+            midi = root_midi + scale[idx] + 12 * octs + octave
         if chord and i % 4 == 0:                              # опора — тон аккорда
-            midi = min(chord, key=lambda c: abs((c % 12) - (midi % 12))) + 12 * octs + octave
+            pcs = {c % 12 for c in chord}
+            midi = min((midi + d for d in range(-6, 7) if (midi + d) % 12 in pcs),
+                       key=lambda m: abs(m - midi), default=midi)
+        while midi > 100:
+            midi -= 12
+        while midi < 24:
+            midi += 12
         vel = 78 + (18 if i % 4 == 0 else 0) + (6 if dur >= 1.0 else 0)
         out.append((beat * beat_sec, int(midi), int(min(120, vel)), dur * beat_sec * 0.92))
         beat += dur
@@ -197,7 +214,8 @@ def motif_to_notes(motif, scale: list[int], root_midi: int, start_beat: float,
 
 
 def melody_for_sections(plan, chords, scale, root_midi, bpm, ident: dict,
-                        rng: random.Random) -> list[tuple[float, int, int, float]]:
+                        rng: random.Random, chord_bars: int | None = None
+                        ) -> list[tuple[float, int, int, float]]:
     """Мелодия всего трека: одна тема, развитая по секциям. Лид молчит в интро
     (это делает P83), но тема прорастает в build → drop → breakdown."""
     beat_sec = 60.0 / bpm
@@ -212,7 +230,10 @@ def melody_for_sections(plan, chords, scale, root_midi, bpm, ident: dict,
         end_beat = b * bar_beats
         ci = 0
         while beat < end_beat - 1:
-            chord = chords[ci % len(chords)] if chords else None
+            if chords and chord_bars:                         # P97: аккорд по ВРЕМЕНИ
+                chord = chords[int(beat // (bar_beats * chord_bars)) % len(chords)]
+            else:
+                chord = chords[ci % len(chords)] if chords else None
             notes = motif_to_notes(phrase, scale, root_midi, beat, beat_sec,
                                    chord, ident["lead_octave"])
             events.extend([e for e in notes if e[0] < end_beat * beat_sec])

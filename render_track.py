@@ -15,7 +15,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional
 
 from autodj.generate.instrument import render_notes, render_chords, render_drums
-from autodj.generate.music_theory import resolve_progression, voice_lead_sequence
+from autodj.generate.music_theory import (resolve_progression, voice_lead_sequence,
+                                          diatonic_progression)
 from autodj.generate.synthcore import (
     apply_reverb, apply_delay, apply_chorus, apply_compressor, master_chain,
 )
@@ -555,7 +556,7 @@ def build_pad_events(cfg, chords, dur):
     """
     bar = _bar(cfg.bpm)
     chord_bars = cfg.pad_bars
-    chord_dur = bar * chord_bars
+    chord_dur = bar * _cb(cfg)     # P97: пад меняет аккорд вместе с басом (было pad_bars=8 против 4)
     overlap = 3.0
     events, t, ci = [], 0.0, 0
     while t < dur - 1:
@@ -1098,7 +1099,9 @@ def render(cfg: GenreConfig) -> str:
     _rng88 = _r88.Random(_ident["seed"])
     _prog, _sevenths = pick_progression(cfg.progression, _rng88)
     try:
-        chords = voice_lead_sequence(resolve_progression(root, _prog, use_7ths=_sevenths))
+        # P97: аккорды из ЛАДА трека (не из натурального минора)
+        chords = voice_lead_sequence(diatonic_progression(
+            root, _prog, MODE_MAP.get(cfg.scale_mode, MINOR_IV), use_7ths=_sevenths))
     except Exception:
         try:
             chords = voice_lead_sequence(resolve_progression(root, cfg.progression))
@@ -1126,6 +1129,21 @@ def render(cfg: GenreConfig) -> str:
               f"арп {perf['arp_keep']:.0%} нот; эхо {perf['echo_beats']} доли "
               f"fb={perf['echo_feedback']} {'пинг-понг' if perf['echo_pingpong'] else 'центр'}")
 
+    # P94/P95: фактура и каркас трека (только в живом режиме; иначе как раньше)
+    from autodj.generate.arrangement import default_plan as _default_plan
+    _total_bars = max(1, int(dur / _bar(cfg.bpm)))
+    tex = None
+    if perf:
+        from autodj.generate import texture as _tx
+        tex = _tx.sample_texture(_r93.Random(_ident["seed"] ^ 0x94))
+        _plan_all = _tx.plan_variant(_total_bars, tex["plan"])
+        print(f"  фактура: каркас {tex['plan']}, мотив {tex['melody_density']} нот, "
+              f"Rhodes паттерн {tex['comp_main']}/{tex['comp_alt']}, ответы {tex['answer_op']} "
+              f"p={tex['answer_prob']}, плаки={tex['pluck_mode']}, "
+              f"фильтр {tex['filter_lo']}-{tex['filter_hi']} Гц")
+    else:
+        _plan_all = _default_plan(_total_bars)
+
     # 1. Compose
     print("  composing...")
     pad_ev     = build_pad_events(cfg, chords, dur)
@@ -1136,8 +1154,12 @@ def render(cfg: GenreConfig) -> str:
         from autodj.generate.arrangement import default_plan as _dp
         _bs2 = 60.0 / cfg.bpm * 4
         _root = chords[0][0] if chords else 57
-        lead_ev = melody_for_sections(_dp(max(1, int(dur / _bs2))), chords, scale,
-                                      _root, cfg.bpm, _ident, _rnd.Random(render_seed))
+        if tex:
+            lead_ev = _tx.phrase_melody(_plan_all, chords, scale, cfg.bpm, _cb(cfg), tex,
+                                        _rnd.Random(render_seed))
+        else:
+            lead_ev = melody_for_sections(_plan_all, chords, scale, _root, cfg.bpm, _ident,
+                                          _rnd.Random(render_seed), chord_bars=_cb(cfg))
         print(f"    мелодия: тема {len(_ident['motif'])} нот → {len(lead_ev)} событий "
               f"(инверсия/секвенция/аугментация по секциям)")
     else:
@@ -1168,7 +1190,17 @@ def render(cfg: GenreConfig) -> str:
     # P93/P96: мелодические партии играются «руками». Бас и барабаны не трогаем.
     if perf:
         _gr = _r93.Random(_ident["seed"] ^ 0x9396)
-        arp_ev  = thin_events(arp_ev, perf["arp_keep"], _beat_sec, _gr)
+        _tr = _r93.Random(_ident["seed"] ^ 0x9494)
+        _cbars = _cb(cfg)
+        # P94: Rhodes компингует, вибрафон отвечает лиду, плаки — арп или второй ответ
+        counter_ev = _tx.comp_events(_plan_all, chords, _cbars, cfg.bpm, tex, _tr)
+        accent_ev = _tx.answer_events(lead_ev, chords, _cbars, cfg.bpm, tex, _tr)
+        if tex["pluck_mode"] == "answer":
+            arp_ev = _tx.answer_events(lead_ev, chords, _cbars, cfg.bpm,
+                                       {**tex, "answer_op": "echo"}, _tr, lo=74, hi=93,
+                                       prob=tex["answer_prob"] * 0.5)
+        else:
+            arp_ev = thin_events(arp_ev, perf["arp_keep"], _beat_sec, _gr)
         lead_ev = thin_events(lead_ev, perf["lead_keep"], _beat_sec, _gr, protect_strong=True)
         lead_ev    = apply_groove(lead_ev, "lead", perf, cfg.swing, _beat_sec, _gr)
         counter_ev = apply_groove(counter_ev, "counter", perf, cfg.swing, _beat_sec, _gr)
@@ -1224,7 +1256,7 @@ def render(cfg: GenreConfig) -> str:
     if drum_ev and getattr(cfg, "arrange", True):
         from autodj.generate.arrangement import default_plan, apply_sections
         _bar_sec = 60.0 / cfg.bpm * 4
-        _plan = default_plan(max(1, int(dur / _bar_sec)))
+        _plan = _plan_all
         _before = len(drum_ev)
         drum_ev = apply_sections(drum_ev, _bar_sec, _plan, seed=getattr(cfg, "seed", 0) or 0)
         from autodj.generate.arrangement import balance_drums
@@ -1244,6 +1276,11 @@ def render(cfg: GenreConfig) -> str:
                     pingpong=perf["echo_pingpong"])
         arp_buf = _echo(arp_buf, SR, _et, wet=perf["echo_wet"], **_ekw)
         lead_buf = _echo(lead_buf, SR, _et, wet=perf["echo_wet"] * 0.7, **_ekw)
+        # P95: фильтр раскрывается к кульминациям, закрывается в ямах (до реверба)
+        _bsec = _bar(cfg.bpm)
+        pad_buf = _tx.filter_macro(pad_buf, SR, _plan_all, _bsec, tex, scale=0.7)
+        arp_buf = _tx.filter_macro(arp_buf, SR, _plan_all, _bsec, tex)
+        lead_buf = _tx.filter_macro(lead_buf, SR, _plan_all, _bsec, tex, scale=1.3)
 
     # 3. Pedalboard effects
     print("  effects...")
@@ -1304,12 +1341,16 @@ def render(cfg: GenreConfig) -> str:
         from autodj.generate.arrangement import (default_plan, activation_envelope,
                                                  active_roles, FOCUS)
         _bs = 60.0 / cfg.bpm * 4
-        _pl = default_plan(max(1, int(dur / _bs)))
+        _pl = _plan_all
+        from autodj.generate.arrangement import LIVE_ACTIVATION
+        _tab = LIVE_ACTIVATION if perf else None
         _senv = {r: activation_envelope(r, _pl, _bs, total, SR,
-                                        seed=_ident["seed"] % 7)
+                                        seed=_ident["seed"] % 7,
+                                        max_voices=(5 if perf else 3),
+                                        turn_taking=not perf, table=_tab)
                  for r in ("pad", "lead", "counter", "arp", "accent", "bass", "drums")}
         for _a, _b, _k in _pl:
-            _on = [r for r, v in active_roles(_k).items() if v > 0]
+            _on = [r for r, v in active_roles(_k, 5 if perf else 3, _tab).items() if v > 0]
             print(f"    {_k:10s} фокус={FOCUS.get(_k,'-'):6s} играют: {', '.join(_on)}")
     else:
         _senv = {}
@@ -1408,7 +1449,8 @@ def render(cfg: GenreConfig) -> str:
     try:
         from autodj.generate.manifest import write_manifest
         write_manifest(wav, cfg, _ident, {"duration_s": round(len(mix) / SR, 1),
-                                          "performance": perf})
+                                          "performance": perf, "texture": tex,
+                                          "plan": _plan_all})
     except Exception as _e:
         print(f"    манифест пропущен: {type(_e).__name__}")
     os.system(f'ffmpeg -y -i "{wav}" -b:a 320k "{mp3}" 2>/dev/null')

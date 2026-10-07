@@ -195,6 +195,21 @@ ACTIVATION = {
                   "arp": (0.25, 4), "lead": (0.0, 2), "counter": (0.0, 1), "accent": (0.20, 3)},
 }
 
+# P94: живой режим — Rhodes компингует как ритм-секция (не молчит в дропе),
+# вибрафон отвечает лиду; чередование окнами не нужно (ответы сами в паузах).
+LIVE_ACTIVATION = {
+    "intro":     {"drums": (0.85, 9), "bass": (0.70, 8), "pad": (0.55, 6),
+                  "arp": (0.30, 3), "lead": (0.0, 1), "counter": (0.0, 2), "accent": (0.30, 4)},
+    "build":     {"drums": (0.95, 9), "bass": (0.85, 8), "arp": (0.60, 5), "lead": (0.65, 6),
+                  "pad": (0.40, 3), "counter": (0.60, 5), "accent": (0.45, 4)},
+    "drop":      {"drums": (1.00, 9), "bass": (1.00, 8), "lead": (0.95, 7),
+                  "counter": (0.70, 6), "pad": (0.35, 3), "arp": (0.40, 4), "accent": (0.55, 5)},
+    "breakdown": {"pad": (0.95, 8), "lead": (0.60, 6), "counter": (0.50, 5),
+                  "drums": (0.0, 1), "bass": (0.30, 4), "arp": (0.20, 2), "accent": (0.55, 5)},
+    "outro":     {"drums": (0.70, 9), "bass": (0.55, 8), "pad": (0.60, 6),
+                  "arp": (0.30, 4), "lead": (0.0, 2), "counter": (0.30, 3), "accent": (0.30, 4)},
+}
+
 FOCUS = {"intro": "drums", "build": "arp", "drop": "lead",
          "breakdown": "pad", "outro": "pad"}
 
@@ -202,10 +217,11 @@ MELODIC = ("lead", "arp", "pad", "counter", "accent")
 SECONDARY = ("arp", "counter", "accent")     # чередуются между собой
 
 
-def active_roles(kind: str, max_voices: int = MAX_VOICES) -> dict:
+def active_roles(kind: str, max_voices: int = MAX_VOICES, table: dict | None = None) -> dict:
     """Кто играет в секции и с каким уровнем. Лишние мелодические слои выключаются
     ПОЛНОСТЬЮ по приоритету (не «потише», а молчат). Чистая."""
-    table = ACTIVATION.get(kind, ACTIVATION["drop"])
+    src = table or ACTIVATION
+    table = src.get(kind, src["drop"])
     out = {r: lvl for r, (lvl, _) in table.items()}
     melodic_on = [(r, table[r][1]) for r in MELODIC if out.get(r, 0.0) > 0.0]
     if len(melodic_on) > max_voices:
@@ -226,7 +242,8 @@ def turn_window(role: str, bar: int, rng_seed: int = 0, window: int = 8) -> floa
 
 def activation_envelope(role: str, plan: list, bar_sec: float, total: int, sr: int,
                         max_voices: int = MAX_VOICES, seed: int = 0,
-                        smooth_ms: float = 120.0, turn_taking: bool = True):
+                        smooth_ms: float = 120.0, turn_taking: bool = True,
+                        table: dict | None = None):
     """Огибающая слоя по МАТРИЦЕ АКТИВАЦИИ + чередование + приглушение не-фокуса.
     Заменяет мягкий layer_section_gain: здесь есть настоящие ПАУЗЫ. numpy out."""
     import numpy as np
@@ -234,7 +251,7 @@ def activation_envelope(role: str, plan: list, bar_sec: float, total: int, sr: i
     if not plan or bar_sec <= 0:
         return env + 1.0
     for a, b, kind in plan:
-        lvl = active_roles(kind, max_voices).get(role, 0.0)
+        lvl = active_roles(kind, max_voices, table).get(role, 0.0)
         if lvl <= 0.0:
             continue
         if role != FOCUS.get(kind) and role in MELODIC:

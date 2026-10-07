@@ -40,11 +40,11 @@ _MINOR_DEGREES = {
 _MINOR_DEGREES_7 = {
     "i7":   (0,  [0, 3, 7, 10]),
     "ii7":  (2,  [0, 3, 6, 10]),
-    "III7": (3,  [0, 4, 7, 10]),
+    "III7": (3,  [0, 4, 7, 11]),     # P97: maj7 (было b7 — нота вне тональности)
     "iv7":  (5,  [0, 3, 7, 10]),
     "v7":   (7,  [0, 3, 7, 10]),
     "V7":   (7,  [0, 4, 7, 10]),
-    "VI7":  (8,  [0, 4, 7, 10]),
+    "VI7":  (8,  [0, 4, 7, 11]),     # P97: maj7
     "VII7": (10, [0, 4, 7, 10]),
 }
 
@@ -72,6 +72,32 @@ PROGRESSIONS: Dict[str, List[str]] = {
     "industrial":      ["i", "i", "VII", "VII"],
     "psychedelic":     ["i", "III", "iv", "VII"],
 }
+
+
+_ROMAN = {"i": 0, "ii": 1, "iii": 2, "iv": 3, "v": 4, "vi": 5, "vii": 6}
+
+
+def diatonic_progression(root_midi: int, prog_name: str, mode_intervals: List[int],
+                         use_7ths: bool = False) -> List[List[int]]:
+    """P97: аккорды строятся терциями ИЗ ЛАДА трека — ни одной ноты вне лада.
+    Раньше аккорды брались из натурального минора при мелодии в дорийском/фригийском
+    (D против D#). Заглавная V в миноре остаётся мажорной (гармонический минор)."""
+    prog = PROGRESSIONS.get(prog_name)
+    if prog is None:
+        raise ValueError(f"Unknown progression: {prog_name}")
+    iv = list(mode_intervals)
+    if len(iv) != 7:
+        return resolve_progression(root_midi, prog_name, use_7ths=use_7ths)
+    chords = []
+    for sym in prog:
+        core = sym.rstrip("7")
+        d = _ROMAN[core.lower()]
+        n = 4 if (use_7ths or sym.endswith("7")) else 3
+        ch = [root_midi + iv[(d + 2 * k) % 7] + 12 * ((d + 2 * k) // 7) for k in range(n)]
+        if core == "V" and iv[2] == 3 and (ch[1] - ch[0]) % 12 == 3:
+            ch[1] += 1                                   # мажорная доминанта
+        chords.append(ch)
+    return chords
 
 
 def resolve_progression(root_midi: int, prog_name: str,
@@ -123,56 +149,27 @@ def resolve_progression(root_midi: int, prog_name: str,
 def voice_lead(prev_chord: List[int], next_chord: List[int],
                max_delta: int = 4) -> List[int]:
     """
-    Re-voice next_chord so each note is as close as possible to its
-    counterpart in prev_chord. Common tones stay in place.
+    Re-voice next_chord so voices move as little as possible from prev_chord.
 
-    Manifesto rule: max delta for pad/chord voices = 4 semitones.
-    Bass voice exempt (can jump by 4th/5th).
-
-    Args:
-        prev_chord: previous chord as MIDI notes (sorted low to high)
-        next_chord: target chord (same number of voices)
-        max_delta: maximum allowed semitone jump per voice
-
-    Returns:
-        Re-voiced next_chord (same pitch classes, optimal octave placement)
+    P97: меняются ТОЛЬКО октавы нот — звуки аккорда сохраняются. Прежняя версия
+    «ограничивала скачок» сдвигом ноты на ±max_delta полутонов, превращая звук аккорда
+    в чужую ноту (iv7 B-D-F#-A → F#-A-C-D). max_delta оставлен для совместимости.
     """
-    if len(prev_chord) != len(next_chord):
-        # Different voice count: just return as-is
+    import itertools
+    if len(prev_chord) != len(next_chord) or not prev_chord:
         return list(next_chord)
-
-    result = []
-    used = set()
-
-    for prev_note in sorted(prev_chord):
-        # Find the closest pitch class match in next_chord
-        best = None
-        best_dist = 999
-
-        for i, next_note in enumerate(next_chord):
-            if i in used:
-                continue
-
-            # Try the note at various octaves near prev_note
-            pc = next_note % 12
-            for octave_shift in range(-1, 2):
-                candidate = (prev_note // 12 + octave_shift) * 12 + pc
-                dist = abs(candidate - prev_note)
-                if dist < best_dist:
-                    best_dist = dist
-                    best = (i, candidate)
-
-        if best is not None:
-            idx, note = best
-            used.add(idx)
-            # Enforce max_delta for non-bass voices (skip first/lowest)
-            if len(result) > 0 and abs(note - prev_note) > max_delta:
-                # Clamp to nearest valid position
-                direction = 1 if note > prev_note else -1
-                note = prev_note + direction * max_delta
-            result.append(note)
-
-    return sorted(result)
+    prev = sorted(prev_chord)
+    pcs = [n % 12 for n in next_chord]
+    best, best_cost = None, None
+    for perm in set(itertools.permutations(pcs)):
+        cand = []
+        for p, pc in zip(prev, perm):
+            base = p - ((p - pc) % 12)                   # ближайшая снизу с этим звуком
+            cand.append(base if p - base <= 6 else base + 12)
+        cost = sum(abs(a - b) for a, b in zip(cand, prev)) + (8 if len(set(cand)) < len(cand) else 0)
+        if best_cost is None or cost < best_cost:
+            best, best_cost = sorted(cand), cost
+    return best
 
 
 def voice_lead_sequence(chords: List[List[int]],
