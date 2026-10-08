@@ -1144,6 +1144,16 @@ def render(cfg: GenreConfig) -> str:
     else:
         _plan_all = _default_plan(_total_bars)
 
+    # P98: настоящие инструменты (Surge XT / Nice-Keys). Селектор «@роль» → конкретный
+    # пресет ЭТОГО трека по seed (у каждого трека свой набор звуков).
+    from autodj.generate import realinst as _ri
+    _rr = _r93.Random(_ident["seed"] ^ 0x98)
+    for _role in ("inst_pad", "inst_lead", "inst_arp", "inst_bass", "inst_counter", "inst_accent"):
+        _v = getattr(cfg, _role, None)
+        if _ri.is_real(_v):
+            setattr(cfg, _role, _ri.resolve(_v, _rr))
+            print(f"    звук {_role[5:]:8s}: {_ri.label(getattr(cfg, _role))}")
+
     # 1. Compose
     print("  composing...")
     pad_ev     = build_pad_events(cfg, chords, dur)
@@ -1222,7 +1232,9 @@ def render(cfg: GenreConfig) -> str:
         # (движущийся фильтр, расстройка, драйв). Иначе — GM-патч FluidSynth.
         from autodj.generate.synthvoice import parse_instrument, render_notes_synth
         voice, prm = parse_instrument(inst)
-        if voice:
+        if _ri.is_real(inst):                                # P98
+            buf = _ri.render_real(inst, evs, dur, SR)
+        elif voice:
             _rel = perf["pluck_release_ms"] if (perf and voice == "pluck") else None
             buf = render_notes_synth(voice, evs, dur, SR,
                                      detune=prm.get("detune", 14.0),
@@ -1238,7 +1250,8 @@ def render(cfg: GenreConfig) -> str:
     # GM-пад тесным трезвучием в среднем регистре = звук «баяна/гармошки».
     from autodj.generate.synthvoice import parse_instrument as _pi, render_chords_synth
     _pv, _pp = _pi(cfg.inst_pad)
-    pad_buf     = (render_chords_synth(_pv, pad_ev, dur, SR,
+    pad_buf     = (_ri.render_real(cfg.inst_pad, pad_ev, dur, SR) if _ri.is_real(cfg.inst_pad) else
+                   render_chords_synth(_pv, pad_ev, dur, SR,
                                        detune=_pp.get("detune", 18.0),
                                        drive=_pp.get("drive", 0.12),
                                        cutoff_base=_pp.get("cutoff", 1100.0),

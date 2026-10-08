@@ -1,25 +1,69 @@
 {
   "name": "sunset_balearic",
   "character": "electronic",
-  "bpm_range": [116, 120],
-  "keys": ["D", "E", "F#", "A"],
-  "modes": ["major", "dorian"],
-  "progressions": ["lounge", "indie", "deep_house"],
+  "bpm_range": [
+    116,
+    120
+  ],
+  "keys": [
+    "D",
+    "E",
+    "F#",
+    "A"
+  ],
+  "modes": [
+    "major",
+    "dorian"
+  ],
+  "progressions": [
+    "lounge",
+    "indie",
+    "deep_house"
+  ],
   "energy": 0.66,
-  "swing_range": [0.05, 0.14],
-  "drum_patterns": ["four_on_floor"],
-  "chord_bars_options": [2, 2, 4],
-  "dur_range": [420, 420],
+  "swing_range": [
+    0.05,
+    0.14
+  ],
+  "drum_patterns": [
+    "four_on_floor"
+  ],
+  "chord_bars_options": [
+    2,
+    2,
+    4
+  ],
+  "dur_range": [
+    420,
+    420
+  ],
   "melodic_style": "legato",
   "role_overrides": {
-    "lead": "synth:square?cutoff=1500",
+    "lead": "surge:@lead",
     "bass": "synth:sub",
-    "pad": "synth:pad?spread=1&detune=6",
-    "arp": "marimba",
-    "counter": "synth:pluck?cutoff=1700&drive=0.3",
-    "accent": "marimba"
+    "pad": "surge:@pad",
+    "arp": "keys:@mallet",
+    "counter": "keys:@guitar",
+    "accent": "keys:@mallet"
   },
-  "gain_bias": {"bass": 0.12, "lead": 0.04, "counter": 0.02, "pad": -0.04},
-  "performance": {"enabled": true, "lag_ms": {"counter": [3, 12], "accent": [4, 14]}},
-  "notes": "Балеарик-хаус на закате (Стас, 2026-10-08: новый стиль, без повтора паттернов трип-хопа). Мажор/дорийский, стэбы-плаки компингом, маримба отвечает лиду, 909/707/808."
+  "gain_bias": {
+    "bass": 0.12,
+    "lead": 0.04,
+    "counter": 0.02,
+    "pad": -0.04
+  },
+  "performance": {
+    "enabled": true,
+    "lag_ms": {
+      "counter": [
+        3,
+        12
+      ],
+      "accent": [
+        4,
+        14
+      ]
+    }
+  },
+  "notes": "Балеарик-хаус на закате (Стас, 2026-10-08: новый стиль, без повтора паттернов трип-хопа). Мажор/дорийский, стэбы-плаки компингом, маримба отвечает лиду, 909/707/808. P98: настоящие инструменты (Surge XT, Nice-Keys), пресет выбирается на трек."
 }

@@ -42,11 +42,11 @@
   "melodic_style": "legato",
   "role_overrides": {
     "bass": "synth:sub",
-    "pad": "synth:pad?spread=1&detune=9",
-    "lead": "synth:pluck?cutoff=1100",
-    "arp": "synth:pluck?cutoff=2200",
-    "counter": "electric_piano",
-    "accent": "vibraphone"
+    "pad": "surge:@pad",
+    "lead": "surge:@pluck",
+    "arp": "surge:@pluck",
+    "counter": "keys:@ep",
+    "accent": "surge:@keys"
   },
   "gain_bias": {
     "bass": 0.22,
@@ -56,7 +56,7 @@
     "lead": -0.04,
     "arp": -0.06
   },
-  "notes": "Психоделический трип-хоп (запрос Стаса 2026-10-08): свингованный брейкбит 84-90 BPM, глубокий саб, широкий расстроенный пад, Rhodes, вибрафон. P93/P96: живое исполнение включено (диапазоны по умолчанию из groove.DEFAULT_RANGES).",
+  "notes": "Психоделический трип-хоп (запрос Стаса 2026-10-08): свингованный брейкбит 84-90 BPM, глубокий саб, широкий расстроенный пад, Rhodes, вибрафон. P93/P96: живое исполнение включено (диапазоны по умолчанию из groove.DEFAULT_RANGES). P98: настоящие инструменты (Surge XT, Nice-Keys), пресет выбирается на трек.",
   "performance": {
     "enabled": true
   }
