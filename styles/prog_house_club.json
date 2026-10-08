@@ -1,0 +1,108 @@
+{
+  "name": "prog_house_club",
+  "character": "electronic",
+  "bpm_range": [
+    124,
+    128
+  ],
+  "keys": [
+    "Am",
+    "Fm",
+    "Gm",
+    "Dm",
+    "Cm",
+    "F#m"
+  ],
+  "modes": [
+    "minor",
+    "dorian"
+  ],
+  "progressions": [
+    "trance",
+    "psychedelic",
+    "indie"
+  ],
+  "energy": 0.9,
+  "swing_range": [
+    0.0,
+    0.06
+  ],
+  "drum_patterns": [
+    "four_on_floor"
+  ],
+  "chord_bars_options": [
+    2,
+    2,
+    4
+  ],
+  "dur_range": [
+    420,
+    420
+  ],
+  "melodic_style": "flowing",
+  "role_overrides": {
+    "pad": "surge:@pad",
+    "lead": "surge:@lead",
+    "arp": "surge:@pluck",
+    "counter": "surge:@pluck",
+    "accent": "surge:@keys",
+    "bass": "surge:@bass"
+  },
+  "gain_bias": {
+    "drums": 0.45,
+    "bass": 0.15,
+    "arp": -0.02,
+    "pad": -0.22,
+    "counter": -0.15,
+    "accent": -0.12,
+    "lead": -0.04
+  },
+  "performance": {
+    "enabled": true,
+    "arp_keep": [
+      0.85,
+      1.0
+    ],
+    "lead_keep": [
+      0.9,
+      1.0
+    ],
+    "echo_feedback": [
+      0.25,
+      0.4
+    ],
+    "echo_wet": [
+      0.12,
+      0.2
+    ],
+    "echo_times": [
+      0.75,
+      0.75,
+      1.5
+    ],
+    "lag_ms": {
+      "counter": [
+        0,
+        6
+      ],
+      "arp": [
+        0,
+        3
+      ],
+      "lead": [
+        0,
+        6
+      ],
+      "accent": [
+        2,
+        8
+      ]
+    },
+    "texture": {
+      "pluck_mode": "arp"
+    }
+  },
+  "club_drums": true,
+  "bass_syncopation": 0.8,
+  "notes": "Клубный энергичный прогрессив-хаус (Стас 2026-10-08): плотные ударные на живых сэмплах (P99), катящийся арп-плак Surge, басы Surge."
+}

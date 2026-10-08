@@ -110,6 +110,8 @@ class GenreConfig:
     arrange:    bool = True    # Q2: секционная аранжировка (филлы/плотность/ghosts)
     drum_bank:  str = ""       # S4: банк драм-машины (RolandTR909/TR808/AkaiLinn…); '' = env/дефолт
     perf_ranges: Optional[dict] = None  # P93/P96: живое исполнение (None = как раньше)
+    club_drums: bool = False            # P99: клубные ударные (сэмплы + лупы-топы)
+    silent_roles: Tuple = ()            # P100: стиль выключает лишние партии
 
     # Reverb presets per layer: (room, wet, damp)
     fx_pad:    Tuple = (0.82, 0.32, 0.48)
@@ -1136,6 +1138,7 @@ def render(cfg: GenreConfig) -> str:
     if perf:
         from autodj.generate import texture as _tx
         tex = _tx.sample_texture(_r93.Random(_ident["seed"] ^ 0x94))
+        tex.update((getattr(cfg, "perf_ranges", None) or {}).get("texture") or {})  # стиль может зафиксировать
         _plan_all = _tx.plan_variant(_total_bars, tex["plan"])
         print(f"  фактура: каркас {tex['plan']}, мотив {tex['melody_density']} нот, "
               f"Rhodes паттерн {tex['comp_main']}/{tex['comp_alt']}, ответы {tex['answer_op']} "
@@ -1205,6 +1208,8 @@ def render(cfg: GenreConfig) -> str:
         # P94: Rhodes компингует, вибрафон отвечает лиду, плаки — арп или второй ответ
         counter_ev = _tx.comp_events(_plan_all, chords, _cbars, cfg.bpm, tex, _tr)
         accent_ev = _tx.answer_events(lead_ev, chords, _cbars, cfg.bpm, tex, _tr)
+        if tex.get("bass_mode") == "rolling":               # P100: бас тек-хауса
+            bass_ev = _tx.rolling_bass(_plan_all, chords, _cbars, cfg.bpm, _tr)
         if tex["pluck_mode"] == "answer":
             arp_ev = _tx.answer_events(lead_ev, chords, _cbars, cfg.bpm,
                                        {**tex, "answer_op": "echo"}, _tr, lo=74, hi=93,
@@ -1212,6 +1217,12 @@ def render(cfg: GenreConfig) -> str:
         else:
             arp_ev = thin_events(arp_ev, perf["arp_keep"], _beat_sec, _gr)
         lead_ev = thin_events(lead_ev, perf["lead_keep"], _beat_sec, _gr, protect_strong=True)
+        for _sr in (getattr(cfg, "silent_roles", ()) or ()):   # P100: меньше «брынчалок»
+            if _sr == "lead": lead_ev = []
+            elif _sr == "counter": counter_ev = []
+            elif _sr == "arp": arp_ev = []
+            elif _sr == "accent": accent_ev = []
+            elif _sr == "pad": pad_ev = []
         lead_ev    = apply_groove(lead_ev, "lead", perf, cfg.swing, _beat_sec, _gr)
         counter_ev = apply_groove(counter_ev, "counter", perf, cfg.swing, _beat_sec, _gr)
         arp_ev     = apply_groove(arp_ev, "arp", perf, cfg.swing, _beat_sec, _gr)
@@ -1278,8 +1289,15 @@ def render(cfg: GenreConfig) -> str:
               + f" | ударов {_before}→{len(drum_ev)}")
 
     t1       = time.time()
-    drum_buf = (render_drums(drum_ev, dur, SR, bank=(cfg.drum_bank or None))
-                if drum_ev else np.zeros((total, 2), np.float32))
+    from autodj.generate import clubdrums as _cd
+    if getattr(cfg, "club_drums", False) and _cd.available():       # P99
+        drum_buf = _cd.render(_plan_all, cfg.bpm, dur, SR,
+                              _r93.Random(_ident["seed"] ^ 0xD5), swing=cfg.swing * 0.5,
+                              overrides=(getattr(cfg, "perf_ranges", None) or {}).get("drums"))
+        bass_buf = _cd.carve_bass(bass_buf, SR)
+    else:
+        drum_buf = (render_drums(drum_ev, dur, SR, bank=(cfg.drum_bank or None))
+                    if drum_ev else np.zeros((total, 2), np.float32))
     print(f"    drums: {time.time()-t1:.1f}s")
 
     # P96: длинное эхо на плаках (до реверба): хвосты вместо лишних нот
@@ -1359,11 +1377,11 @@ def render(cfg: GenreConfig) -> str:
         _tab = LIVE_ACTIVATION if perf else None
         _senv = {r: activation_envelope(r, _pl, _bs, total, SR,
                                         seed=_ident["seed"] % 7,
-                                        max_voices=(5 if perf else 3),
+                                        max_voices=3,
                                         turn_taking=not perf, table=_tab)
                  for r in ("pad", "lead", "counter", "arp", "accent", "bass", "drums")}
         for _a, _b, _k in _pl:
-            _on = [r for r, v in active_roles(_k, 5 if perf else 3, _tab).items() if v > 0]
+            _on = [r for r, v in active_roles(_k, 3, _tab).items() if v > 0]
             print(f"    {_k:10s} фокус={FOCUS.get(_k,'-'):6s} играют: {', '.join(_on)}")
     else:
         _senv = {}

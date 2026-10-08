@@ -81,6 +81,8 @@ class StyleSpec:
     gain_bias: dict = field(default_factory=dict)        # смещения баланса ролей
     notes: str = ""                                       # человеческое описание
     performance: dict = field(default_factory=dict)      # P93/P96: диапазоны живого исполнения
+    club_drums: bool = False                              # P99: клубные ударные на живых сэмплах
+    silent_roles: tuple = ()                              # P100: роли, которые стиль выключает
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -198,7 +200,9 @@ def sample_style(spec: StyleSpec, rng: random.Random | None = None) -> dict:
         "inst_counter": timbres.get("counter"),
         "inst_accent": timbres.get("accent"),
         **gains,
-        "perf_ranges": dict(spec.performance) or None,     # P93: сэмплируется в render по seed трека
+        "perf_ranges": dict(spec.performance) or None,
+        "club_drums": bool(spec.club_drums),
+        "silent_roles": tuple(spec.silent_roles or ()),     # P93: сэмплируется в render по seed трека
     }
 
 
