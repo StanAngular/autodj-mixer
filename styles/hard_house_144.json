@@ -1,0 +1,79 @@
+{
+  "name": "hard_house_144",
+  "character": "electronic",
+  "bpm_range": [
+    144,
+    144
+  ],
+  "keys": [
+    "Fm"
+  ],
+  "modes": [
+    "phrygian"
+  ],
+  "progressions": [
+    "dark_techno",
+    "industrial",
+    "psychedelic"
+  ],
+  "energy": 1.0,
+  "swing_range": [
+    0.0,
+    0.03
+  ],
+  "drum_patterns": [
+    "four_on_floor"
+  ],
+  "chord_bars_options": [
+    4,
+    8
+  ],
+  "dur_range": [
+    230,
+    230
+  ],
+  "melodic_style": "staccato",
+  "role_overrides": {
+    "pad": "surge:@pad",
+    "counter": "surge:@pluck",
+    "bass": "surge:@bass",
+    "lead": "surge:@lead",
+    "arp": "surge:@pluck",
+    "accent": "surge:@keys"
+  },
+  "gain_bias": {
+    "drums": 0.5,
+    "bass": 0.2,
+    "pad": -0.3
+  },
+  "silent_roles": [
+    "arp",
+    "accent",
+    "lead"
+  ],
+  "performance": {
+    "enabled": true,
+    "lag_ms": {
+      "counter": [
+        0,
+        3
+      ]
+    },
+    "texture": {
+      "bass_mode": "rolling",
+      "comp_staccato": true,
+      "plan": [
+        "classic",
+        "slow_burn"
+      ]
+    },
+    "drums": {
+      "hat16": true,
+      "open_offbeat": true,
+      "perc": true,
+      "kick_gap_before_drop": true
+    }
+  },
+  "club_drums": true,
+  "notes": "Хард-хаус 144 BPM (P101): вторая часть перехода из дарк даунбита."
+}

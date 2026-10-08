@@ -1,0 +1,67 @@
+{
+  "name": "psy_dark_downbeat",
+  "character": "electronic",
+  "bpm_range": [
+    72,
+    72
+  ],
+  "keys": [
+    "Fm"
+  ],
+  "modes": [
+    "phrygian"
+  ],
+  "progressions": [
+    "dark_techno",
+    "psychedelic"
+  ],
+  "energy": 0.5,
+  "swing_range": [
+    0.1,
+    0.18
+  ],
+  "drum_patterns": [
+    "halftime"
+  ],
+  "chord_bars_options": [
+    2,
+    4
+  ],
+  "dur_range": [
+    250,
+    250
+  ],
+  "melodic_style": "legato",
+  "role_overrides": {
+    "pad": "surge:@pad",
+    "lead": "surge:@pluck",
+    "arp": "surge:@pluck",
+    "counter": "keys:@ep",
+    "accent": "surge:@keys",
+    "bass": "synth:sub"
+  },
+  "gain_bias": {
+    "bass": 0.22,
+    "drums": 0.2,
+    "pad": 0.0
+  },
+  "silent_roles": [
+    "accent"
+  ],
+  "performance": {
+    "enabled": true,
+    "texture": {
+      "pluck_mode": "answer",
+      "plan": [
+        "slow_burn",
+        "classic"
+      ]
+    },
+    "drums": {
+      "pattern": "downbeat",
+      "top_gain": 0
+    }
+  },
+  "club_drums": true,
+  "notes": "Психоделический дарк даунбит 72 BPM (P101), первая часть перехода в хард-хаус 144 (=2x)."
+}

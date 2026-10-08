@@ -121,7 +121,7 @@ def pick_loops(rng: random.Random) -> dict:
     kits = _g(f"{LOOPS}/LoopKit *")
     k1, k2 = rng.choice(kits), rng.choice(kits)
     beats = lambda k: [p for p in _g(f"{k}/Beats/*Beat*.wav")       # без LPF-версий:
-                       if "LPF" not in os.path.basename(p) and "Roll" not in p]  # после среза низа пусто
+                       if not any(x in os.path.basename(p) for x in ("LPF", "Fx", "Roll"))]  # после среза низа пусто
     fx = lambda k: _g(f"{k}/Beats/*BeatFx*.wav") or beats(k)
     rolls = _g(f"{LOOPS}/*/Beats/*RollSnare*.wav")
     bpm_of = lambda p: 127.0 if "127" in os.path.basename(os.path.dirname(os.path.dirname(p))) else 128.0
@@ -168,12 +168,15 @@ def sample_groove(rng: random.Random) -> dict:
         "perc": rng.random() < 0.5,            # P100: перкуссия (рим/конги/шейкер)
         "perc_pattern": rng.choice([[3, 7, 10, 14], [3, 6, 11, 14], [2, 7, 10, 15], [3, 10, 13]]),
         "shaker16": rng.random() < 0.6,
+        "db_kick": rng.randrange(4),
     }
 
 
 def bar_events(kind: str, bar_in: int, sec_len: int, gr: dict, rng: random.Random,
                next_kind: str | None) -> list[tuple[float, str, float]]:
     """События одного такта: [(шаг 16-й, звук, velocity)]. Чистая при rng."""
+    if gr.get("pattern") == "downbeat":
+        return downbeat_events(kind, bar_in, sec_len, gr, rng, next_kind)
     ev = []
     last_bars = sec_len - bar_in
     pre_drop = next_kind == "drop" and kind in ("build", "breakdown", "intro")
@@ -218,6 +221,37 @@ def bar_events(kind: str, bar_in: int, sec_len: int, gr: dict, rng: random.Rando
                 ev.append((st, "shaker", (70 if st % 2 else 50) + rng.uniform(-6, 6)))
     if kind == "drop" and bar_in % 8 == 7 and not rolling:  # мини-сбивка в конце фразы
         ev += [(13, "snare", 70), (14, "snare", 82), (15, "snare", 95)]
+    return ev
+
+
+DOWNBEAT_KICKS = [[0, 10], [0, 7, 10], [0, 6, 11], [0, 3, 10]]
+
+
+def downbeat_events(kind, bar_in, sec_len, gr, rng, next_kind):
+    """P101: даунбит/трип-хоп (60-95 BPM): тяжёлый халфтайм, снейр на 3-ю долю,
+    бочка ломаная, хэты восьмыми с акцентом, гоуст-снейры. Чистая при rng."""
+    ev = []
+    last_bars = sec_len - bar_in
+    kicks = DOWNBEAT_KICKS[gr.get("db_kick", 0) % len(DOWNBEAT_KICKS)]
+    groove = kind in ("build", "drop", "outro") or (kind == "intro" and bar_in >= sec_len // 2)
+    if groove:
+        for s in kicks:
+            ev.append((s, "kick", 118 if s == 0 else 100))
+        ev.append((8, "snare", 116))
+        ev.append((8, "clap", 90))
+        for s in range(0, 16, 2):
+            ev.append((s, "hat", (80 if s % 4 == 2 else 58) + rng.uniform(-6, 6)))
+        if rng.random() < 0.5:
+            ev.append((rng.choice([13, 14, 15]), "snare", 48 + rng.uniform(-6, 6)))   # гоуст
+        if bar_in % 4 == 3:
+            ev.append((14, "open", 70))
+    elif kind == "breakdown" and bar_in % 2 == 0:
+        ev.append((0, "kick", 90))                                  # редкий пульс в яме
+    if bar_in == 0 and kind in ("drop", "breakdown"):
+        ev.append((0, "crash", 96))
+    if next_kind == "drop" and kind != "drop" and last_bars == 1:
+        for s in range(8, 16):                                       # сбивка снейром
+            ev.append((s, "snare", 60 + 5 * (s - 8)))
     return ev
 
 
@@ -281,8 +315,9 @@ def render(plan, bpm: float, dur: float, sr: int, rng: random.Random,
             for br in range(a, b, bars_in_loop):
                 if kind == "intro" and br - a < (b - a) // 2:
                     continue
-                _place(tops, lp, br * bar, sr, gr["top_gain"] * lvl)
-    if loops["roll"]:
+                if gr["top_gain"] > 0:
+                    _place(tops, lp, br * bar, sr, gr["top_gain"] * lvl)
+    if loops["roll"] and gr["top_gain"] > 0:
         roll = _hpf(resample(load(loops["roll"], sr), 127.0 / bpm), sr, 150)
         for si, (a, b, kind) in enumerate(plan):
             if si + 1 < len(plan) and plan[si + 1][2] == "drop" and kind != "drop":

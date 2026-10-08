@@ -88,7 +88,7 @@ def test_loops_never_lowpassed_or_rolls():
         lp = cd.pick_loops(random.Random(seed))
         for k in ("top_a", "top_b"):
             name = os.path.basename(lp[k])
-            assert "LPF" not in name and "Roll" not in name
+            assert "LPF" not in name and "Roll" not in name and "Fx" not in name
 
 
 def test_kick_score_penalizes_long_tail_and_rewards_punch():
@@ -118,3 +118,15 @@ def test_perc_only_when_enabled_and_in_groove_sections():
     bd = cd.bar_events("breakdown", 2, 16, {**GR, "perc": True, "perc_pattern": [3], "shaker16": True},
                        random.Random(1), None)
     assert not sounds(bd, "perc")
+
+
+
+def test_downbeat_halftime_snare_on_three_and_silent_breakdown_groove():
+    g = {**GR, "pattern": "downbeat", "db_kick": 1}
+    e = cd.bar_events("drop", 3, 16, g, random.Random(1), None)
+    assert 8 in sounds(e, "snare") and 4 not in sounds(e, "snare") and 12 not in sounds(e, "snare")
+    assert sounds(e, "kick") == [0, 7, 10]
+    bd = cd.bar_events("breakdown", 3, 16, g, random.Random(1), None)
+    assert not sounds(bd, "snare") and not sounds(bd, "hat")
+    house = cd.bar_events("drop", 3, 16, GR, random.Random(1), None)
+    assert sounds(house, "kick") == [0, 4, 8, 12]                 # хаус не затронут
