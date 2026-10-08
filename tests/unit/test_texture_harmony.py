@@ -212,3 +212,23 @@ class TestFilterMacro:
         y = tx.filter_macro(x, sr, plan, 1.0, {**tex(1), "filter_lo": 300, "filter_hi": 600})
         assert y.shape == x.shape and np.isfinite(y).all()
         assert 0.05 < np.std(y) < np.std(x)
+
+
+class TestRollingBass:
+    def test_offbeat_only_in_register_and_sections(self):
+        plan = [(0, 8, "intro"), (8, 24, "drop"), (24, 32, "breakdown")]
+        chords = [[57, 60, 64], [53, 57, 60]]
+        bar = 4 * 60 / 126
+        for seed in range(6):
+            ev = tx.rolling_bass(plan, chords, 2, 126, random.Random(seed))
+            assert ev
+            steps = {round((t % bar) / (bar / 16)) % 16 for t, *_ in ev}
+            assert not steps & {0, 4, 8, 12}                 # бочке место
+            assert all(24 <= m <= 59 for _, m, _, _ in ev)
+            assert all(8 * bar <= t < 24 * bar for t, *_ in ev)   # интро и яма без баса
+
+    def test_follows_chord_root(self):
+        bar = 4 * 60 / 126
+        ev = tx.rolling_bass([(0, 4, "drop")], [[57, 60, 64], [53, 57, 60]], 2, 126, random.Random(1))
+        first = [m % 12 for t, m, _, _ in ev if t < 2 * bar]
+        assert {57 % 12, (57 + 7) % 12} >= set(first)

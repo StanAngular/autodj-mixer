@@ -249,7 +249,9 @@ def comp_events(plan, chords, chord_bars, bpm, tex, rng: random.Random,
                 prev = voic
                 for i, m in enumerate(voic):
                     events.append((t + i * rng.uniform(0.004, 0.012), int(m),
-                                   72 if st % 4 == 0 else 62, ln * step * 0.9))
+                                   72 if st % 4 == 0 else 62,
+                                   (min(ln, 1.5) * step * 0.7) if tex.get("comp_staccato")
+                                   else ln * step * 0.9))
     return sorted(events, key=lambda e: e[0])
 
 
@@ -337,3 +339,46 @@ def filter_macro(buf: np.ndarray, sr: int, plan, bar_sec: float, tex: dict,
         seg, zi = sosfilt(sos, buf[i:i + block], axis=0, zi=zi)
         out[i:i + block] = seg
     return out.astype(np.float32)
+
+
+# ─── P100: катящийся бас тек-хауса ──────────────────────────────────────────
+
+ROLLING_BASS = [            # шаги 16-х без сильных долей (место бочке) — офбитный грув
+    [2, 3, 6, 7, 10, 11, 14, 15],
+    [2, 6, 10, 14],
+    [2, 3, 6, 10, 11, 14],
+    [3, 6, 7, 10, 14, 15],
+    [2, 5, 6, 10, 13, 14],
+]
+
+
+def rolling_bass(plan, chords, chord_bars, bpm, rng: random.Random,
+                 active=("build", "drop", "outro")):
+    """Бас тек-хауса: офбитные 16-е на корне, октава/квинта как акценты, короткие ноты.
+    Паттерн и вариация свои у каждого трека. [(t, midi, vel, dur)]."""
+    beat_sec = 60.0 / bpm
+    bar_sec = beat_sec * 4
+    step = bar_sec / 16
+    main = rng.choice(ROLLING_BASS)
+    alt = rng.choice(ROLLING_BASS)
+    oct_prob = rng.uniform(0.1, 0.3)
+    gate = rng.uniform(0.45, 0.7)
+    out = []
+    for a, b, kind in plan:
+        if kind not in active:
+            continue
+        for bar in range(a, b):
+            pat = alt if bar % 8 == 7 else main
+            for st in pat:
+                t = bar * bar_sec + st * step
+                ch = chord_at(chords, t + 0.01, bar_sec, chord_bars)
+                root = ch[0] % 12
+                n = 36 + root if 36 + root <= 47 else 24 + root
+                r = rng.random()
+                if r < oct_prob:
+                    n += 12
+                elif r < oct_prob + 0.08:
+                    n += 7
+                vel = 104 if st % 4 == 2 else 88
+                out.append((t, int(n), vel, step * gate))
+    return out

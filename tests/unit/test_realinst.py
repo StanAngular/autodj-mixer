@@ -55,7 +55,7 @@ class TestResolve:
 
 def mt(**kw):
     base = dict(rms=0.1, early=0.1, late=0.1, tail=0.05, centroid=1500, flatness=0.01,
-                harmonicity=0.8, low_ratio=0.1, width=0.3)
+                harmonicity=0.85, low_ratio=0.1, width=0.3)
     base.update(kw)
     return base
 
@@ -99,3 +99,27 @@ class TestLevelMatch:
         assert float(np.abs(ri.level_match(x)).max()) <= 0.99 + 1e-6
         s = np.zeros((10, 2), np.float32)
         assert np.array_equal(ri.level_match(s), s)
+
+
+class TestStricterP100:
+    def test_markov_like_inharmonic_lead_rejected(self):
+        assert ri.classify("Leads", "Markov", mt(harmonicity=0.53, centroid=1990)) == []
+
+    def test_bright_noisy_pluck_rejected(self):
+        assert ri.classify("Plucks", "Pipe", mt(early=0.12, late=0.001, centroid=3094,
+                                                 flatness=0.17, harmonicity=0.66)) == []
+
+    def test_bright_keys_rejected_warm_keys_kept(self):
+        assert "keys" not in ri.classify("Polysynths", "Waver", mt(early=0.07, late=0.03, centroid=2696))
+        assert "keys" in ri.classify("Keys", "Warm EP", mt(early=0.07, late=0.03, centroid=1200))
+
+    def test_bell_and_dist_names_rejected(self):
+        assert ri.classify("Keys", "Glass Bell", mt(early=0.07, late=0.03, centroid=1200)) == []
+        assert ri.classify("Leads", "Dist Lead", mt()) == []
+
+    def test_reclassify_uses_saved_metrics(self):
+        idx = {"_meta": {"patches_factory/Pads/Warm.fxp": mt(centroid=900),
+                         "patches_factory/Pads/Harsh.fxp": mt(centroid=900, flatness=0.3),
+                         "patches_factory/Pads/Broken.fxp": {"error": "X"}}}
+        out = ri.reclassify(idx)
+        assert out["pad"] == ["patches_factory/Pads/Warm.fxp"]

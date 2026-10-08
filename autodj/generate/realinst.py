@@ -287,27 +287,51 @@ def _metrics(a: np.ndarray, sr: int, f0: float) -> dict:
     }
 
 
+# P100: строже. Отзыв Стаса 2026-10-08: «много резких негармоничных звуков, верх
+# забивает». Старые пороги пропускали гармоничность 0.35 и центроид до 5.5 кГц
+# (Markov 0.53, Bowed Plucked Pipe 3.1 кГц/шум 0.18). Теперь — чистый тон, тёплый верх.
+CENTROID_MAX = {"pad": 2200, "pluck": 2200, "lead": 2500, "keys": 2000, "bass": 500}
+HARM_MIN = {"pad": 0.75, "pluck": 0.75, "lead": 0.72, "keys": 0.78, "bass": 0.55}
+
+
 def classify(cat: str, name: str, mt: dict) -> list[str]:
     """Метрики прослушивания → подходящие роли. Чистая."""
     bad = re.search(r"(?i)\b(fx|noise|riser|sweep|vocoder|sequence|seq|arp|drone|glitch|"
-                    r"init|template|tutorial|split|mpe|perc|drum|kick|snare|hat)\b", name)
-    if bad or mt["rms"] < 0.01 or mt["flatness"] > 0.22 or mt["harmonicity"] < 0.35:
+                    r"init|template|tutorial|split|mpe|perc|drum|kick|snare|hat|bell|metal|"
+                    r"scream|dist|fuzz|growl|wobble|chip|8.?bit|bitcrush)\b", name)
+    if bad or mt["rms"] < 0.01 or mt["flatness"] > 0.06:
         return []
     roles = []
     sustained = mt["late"] > 0.5 * mt["early"]
     decaying = mt["late"] < 0.45 * mt["early"]
-    c = mt["centroid"]
-    if cat in SURGE_ROLE_CATEGORIES["bass"] and mt["low_ratio"] > 0.35 and c < 1500:
+    c, h = mt["centroid"], mt["harmonicity"]
+    ok = lambda r: h >= HARM_MIN[r] and c <= CENTROID_MAX[r]
+    if cat in SURGE_ROLE_CATEGORIES["bass"] and mt["low_ratio"] > 0.35 and ok("bass"):
         roles.append("bass")
-    if cat in SURGE_ROLE_CATEGORIES["pad"] and sustained and 300 < c < 4500:
+    if cat in SURGE_ROLE_CATEGORIES["pad"] and sustained and c > 300 and ok("pad"):
         roles.append("pad")
-    if cat in SURGE_ROLE_CATEGORIES["pluck"] and decaying and 500 < c < 5500:
+    if cat in SURGE_ROLE_CATEGORIES["pluck"] and decaying and c > 500 and ok("pluck"):
         roles.append("pluck")
-    if cat in SURGE_ROLE_CATEGORIES["lead"] and sustained and 600 < c < 5500:
+    if cat in SURGE_ROLE_CATEGORIES["lead"] and sustained and c > 600 and ok("lead"):
         roles.append("lead")
-    if cat in SURGE_ROLE_CATEGORIES["keys"] and 300 < c < 4000 and not sustained:
+    if cat in SURGE_ROLE_CATEGORIES["keys"] and c > 300 and not sustained and ok("keys"):
         roles.append("keys")
     return roles
+
+
+def reclassify(idx: dict) -> dict:
+    """Пересобрать роли по сохранённым метрикам (без повторного прослушивания)."""
+    out = {"_meta": idx.get("_meta", {})}
+    for rel, mt in out["_meta"].items():
+        if "error" in mt:
+            continue
+        cat = os.path.basename(os.path.dirname(rel))
+        name = os.path.basename(rel)[:-4]
+        roles = classify(cat, name, mt)
+        mt["roles"] = roles
+        for r in roles:
+            out.setdefault(r, []).append(rel)
+    return out
 
 
 def audition_surge(paths: list[str] | None = None, sr: int = 44100) -> dict:
@@ -348,6 +372,11 @@ def load_index() -> dict:
 
 if __name__ == "__main__":
     import sys
+    if "--reclassify" in sys.argv:
+        idx = reclassify(load_index())
+        with open(SURGE_INDEX, "w") as f:
+            json.dump(idx, f, ensure_ascii=False, indent=1)
+        print({k: len(v) for k, v in idx.items() if k != "_meta"})
     if "--audition" in sys.argv:
         idx = audition_surge()
         os.makedirs(os.path.dirname(SURGE_INDEX), exist_ok=True)

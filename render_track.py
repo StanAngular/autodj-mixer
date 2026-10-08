@@ -1139,6 +1139,9 @@ def render(cfg: GenreConfig) -> str:
         from autodj.generate import texture as _tx
         tex = _tx.sample_texture(_r93.Random(_ident["seed"] ^ 0x94))
         tex.update((getattr(cfg, "perf_ranges", None) or {}).get("texture") or {})  # стиль может зафиксировать
+        for _k, _v in list(tex.items()):                    # список в стиле = выбор на трек
+            if isinstance(_v, list) and _k != "perc_pattern":
+                tex[_k] = _r93.Random(_ident["seed"] ^ 0x95).choice(_v)
         _plan_all = _tx.plan_variant(_total_bars, tex["plan"])
         print(f"  фактура: каркас {tex['plan']}, мотив {tex['melody_density']} нот, "
               f"Rhodes паттерн {tex['comp_main']}/{tex['comp_alt']}, ответы {tex['answer_op']} "

@@ -1,0 +1,90 @@
+{
+  "name": "tech_house_energy",
+  "character": "electronic",
+  "bpm_range": [
+    126,
+    130
+  ],
+  "keys": [
+    "Gm",
+    "Am",
+    "Fm",
+    "Cm",
+    "Dm",
+    "Em"
+  ],
+  "modes": [
+    "minor",
+    "dorian",
+    "phrygian"
+  ],
+  "progressions": [
+    "industrial",
+    "plagal",
+    "dark_techno"
+  ],
+  "energy": 0.95,
+  "swing_range": [
+    0.08,
+    0.16
+  ],
+  "drum_patterns": [
+    "four_on_floor"
+  ],
+  "chord_bars_options": [
+    4,
+    4,
+    8
+  ],
+  "dur_range": [
+    420,
+    420
+  ],
+  "melodic_style": "staccato",
+  "role_overrides": {
+    "pad": "surge:@pad",
+    "counter": "keys:@organ",
+    "bass": "surge:@bass",
+    "lead": "surge:@lead",
+    "arp": "surge:@pluck",
+    "accent": "surge:@keys"
+  },
+  "gain_bias": {
+    "drums": 0.5,
+    "bass": 0.2,
+    "counter": 0.0,
+    "pad": -0.3
+  },
+  "silent_roles": [
+    "lead",
+    "arp",
+    "accent"
+  ],
+  "performance": {
+    "enabled": true,
+    "lag_ms": {
+      "counter": [
+        0,
+        5
+      ]
+    },
+    "texture": {
+      "pluck_mode": "arp",
+      "bass_mode": "rolling",
+      "comp_staccato": true,
+      "plan": [
+        "classic",
+        "slow_burn",
+        "two_valleys"
+      ]
+    },
+    "drums": {
+      "perc": true,
+      "shaker16": true,
+      "hat16": true,
+      "open_offbeat": true
+    }
+  },
+  "club_drums": true,
+  "notes": "Энергичный тек-хаус (Стас 2026-10-08): ударные+перкуссия+топ-лупы, катящийся офбит-бас, органные стэбы; без лида/арпа/ответов (меньше «брынчалок»), только чистые тёплые пресеты (P100)."
+}
