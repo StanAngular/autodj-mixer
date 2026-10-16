@@ -63,3 +63,22 @@ class Groove:
                 a = self.amount if amount is None else amount
                 tt = br * trk.BAR + st * trk.S16 + (0 if (c == "kick" and self.kick_on_grid) else off * trk.S16 * a)
                 trk.place(buf, s, tt, (gain or {}).get(c, 1.0) * (.25 + .75 * v))
+
+def from_ref(name, rng=None, amount=1.0):
+    """Groove learned from a reference track (autodj.compose.learn): micro-timing relative to the beat, accents and
+    how often each 16th is played, per class (kick / hh / perc). Exposes .occupancy(cls, st) and .bass_occupancy(st)."""
+    prof = json.load(open(os.path.join(ASSETS, "grooves", "refs", f"{name}.json")))
+    g = Groove.__new__(Groove); g.rng = rng or np.random.default_rng(); g.amount, g.vel_depth, g.kick_on_grid = amount, 1.0, True
+    g.style = "ref:" + name; g.prof = prof; tpl = {}
+    for cls, t in prof["classes"].items():
+        base = np.median([v[0] for s, v in t.items() if int(s) % 4 == 0] or [0])     # beat-tracker phase -> relative feel
+        top = max([v[2] for v in t.values()] or [1])
+        for s, (mu, sd, vel, occ) in t.items():
+            tpl[f"{cls}:{s}"] = [round(mu - base, 3), min(sd, .05), vel / top, .08, occ]
+        if cls == "perc":
+            for s, row in list(tpl.items()):
+                if s.startswith("perc:"): tpl["rim:" + s[5:]] = row
+    g.tpl = tpl; g.d = {"template": tpl, "bars": [], "fills": [], "phrases": []}
+    g.occupancy = lambda cls, st: g.tpl.get(f"{cls}:{st % 16}", [0, 0, 0, 0, 0])[4]
+    g.bass_occupancy = lambda st: prof["bass"]["occupancy"].get(str(st % 16), 0.0)
+    return g
