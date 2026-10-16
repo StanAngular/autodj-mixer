@@ -5,7 +5,7 @@ import numpy as np, soundfile as sf
 from scipy.signal import butter, sosfilt
 
 # high_db = 3-14 kHz band vs whole mix: Sieben v1 (-15.8, «шик-шик») failed by ear, Sieben v2 (-23.1) passed.
-GATES = dict(limiter_max_db=3.0, high_db=-19.0, sub_mean=.35, sub_max=.50, jump_db=4.0, break_drop_db=8.0, voice_lift_db=6.0, spikes=0)
+GATES = dict(clash_ratio=.12, limiter_max_db=3.0, high_db=-19.0, sub_mean=.35, sub_max=.50, jump_db=4.0, break_drop_db=8.0, voice_lift_db=6.0, spikes=0)
 BANDS = [(20, 60, "sub"), (60, 150, "bass"), (150, 400, "lowmid"), (400, 2000, "mid"), (2000, 6000, "himid"), (6000, 16000, "air")]
 
 def _read(path):
@@ -36,11 +36,13 @@ def analyze(path, info):
     out["voice_lift"] = [[t, lab, round(r(t + .1, t + 2) - r(t - 4, t - .3), 1)] for t, lab in info.get("voice", []) if t > 4.5]
     st = 3 * sr; k = len(m) // st; L = 20 * np.log10(np.sqrt((m[:k * st].reshape(k, st) ** 2).mean(1)) + 1e-9)
     med3 = np.array([np.median(L[max(0, i - 5):i + 5]) for i in range(k)]); out["spikes"] = [round(float(i) * 3 / 60, 1) for i in np.where(L - med3 > 2.5)[0]]
+    out["clash_ratio"] = info.get("clash_ratio", 0.0)
     return out
 
 def gates(metrics, master, g=None):
     """list of (code, message). Empty list = passed."""
     g = {**GATES, **(g or {})}; bad = []
+    if metrics.get("clash_ratio", 0) > g["clash_ratio"]: bad.append(("clash", f"ноты разных слоёв трутся (м2/м9) в {metrics['clash_ratio']:.0%} тактовых долей"))
     if master["limiter_max_db"] > g["limiter_max_db"]: bad.append(("limiter", f"лимитер давит {master['limiter_max_db']} дБ (хрип)"))
     if metrics["high_db"] > g["high_db"]: bad.append(("high", f"верх {metrics['high_db']} дБ к общему (шик)"))
     if metrics["sub_mean"] > g["sub_mean"] or metrics["sub_max"] > g["sub_max"]: bad.append(("sub", f"саб {metrics['sub_mean']:.0%} в среднем, {metrics['sub_max']:.0%} макс"))

@@ -31,6 +31,11 @@ class Sampler:
             m = pitch.get(os.path.basename(f))
             if m is not None: self.map.setdefault(m, {}).setdefault(_dyn(os.path.basename(f)), []).append(f)
         self.keys = sorted(self.map); self.cache = {}; self.rr = 0
+    def _cents(self, f, base):
+        """measured detune of this sample (cents) so every note lands on A440 (VSCO samples drift +-15 c)"""
+        from .tuning import Cache, cents_off
+        if not hasattr(self, "_tc"): self._tc = Cache(os.path.join(self.dir, "_cents.json"))
+        return self._tc.get(os.path.basename(f), lambda: cents_off(self._load(f), base, start=.12, dur=.8))
     def _load(self, f):
         if f not in self.cache:
             a, sr = sf.read(f, dtype="float32", always_2d=True)
@@ -41,7 +46,7 @@ class Sampler:
         base = min(self.keys, key=lambda k: (abs(k - midi), k > midi)); layers = self.map[base]
         want = 0 if vel < 55 else (1 if vel < 95 else 2); lay = min(layers, key=lambda d: abs(d - want))
         fl = layers[lay]; f = fl[self.rr % len(fl)]; self.rr += 1
-        a = self._load(f); ratio = 2 ** ((midi - base) / 12)
+        a = self._load(f); ratio = 2 ** ((midi - base - self._cents(f, base) / 100) / 12)
         n_out = int((dur + release) * SR); n_in = min(len(a), int(n_out * ratio) + 2)
         src = a[:n_in]; pos = np.arange(n_out) * ratio; pos = pos[pos < len(src) - 1]
         y = np.stack([np.interp(pos, np.arange(len(src)), src[:, c]) for c in range(2)], 1).astype(np.float32)

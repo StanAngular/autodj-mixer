@@ -58,7 +58,7 @@ class Track:
         self.N = int((self.bars * self.BAR + tail_s) * sr); self.rng = np.random.default_rng(seed)
         self.swing, self.humanize_s = swing, humanize_s
         self.mix = np.zeros((self.N, 2), np.float32); self.ref = None; self.tl = []; self.voice = []; self.layers = {}
-        self.tt = np.arange(self.N, dtype=np.float32) / sr; self.roles = {}
+        self.tt = np.arange(self.N, dtype=np.float32) / sr; self.roles = {}; self.notes = {}
     # ---- grid ----
     def t(self, br, st, swing=None):
         """time of 16th step st in bar br, with swing on odd steps and a little timing noise"""
@@ -115,6 +115,9 @@ class Track:
     def mono_low(self, cut=120):
         lo = sosfiltfilt(butter(8, cut / (self.sr / 2), "low", output="sos"), self.mix, axis=0).astype(np.float32)
         self.mix[:] = (self.mix - lo) + lo.mean(1, keepdims=True)
+    def log_notes(self, name, events):
+        """register a tonal layer's notes (t, midi, vel, dur) for the clash check"""
+        self.notes.setdefault(name, []).extend(events)
     def log_voice(self, t, label):
         self.voice.append([round(float(t), 2), label])
     def finish(self, path, fade_s=4.0, meta=None):
@@ -123,6 +126,9 @@ class Track:
         assert np.isfinite(m).all(), "NaN/inf in the mix"
         sf.write(path, m, self.sr, subtype="FLOAT")
         plan = [[a, b, nm, int(bool(lv.get("_break")))] for a, b, nm, lv in self.tl]
-        info = {"bpm": self.bpm, "bars": self.bars, "plan": plan, "voice": self.voice, "layers_db": self.layers, **(meta or {})}
+        from .harmony import clashes
+        ratio, top = clashes(self.notes, self.S16, min_len_s=self.S16 * 1.5) if self.notes else (0.0, [])
+        info = {"bpm": self.bpm, "bars": self.bars, "plan": plan, "voice": self.voice, "layers_db": self.layers,
+                "clash_ratio": round(ratio, 3), "clash_pairs": [[f"{a}+{b}", c] for (a, b), c in top], **(meta or {})}
         json.dump(info, open(path.rsplit(".", 1)[0] + ".json", "w"), ensure_ascii=False)
         return info

@@ -30,15 +30,31 @@ class Vital:
         head = bytearray(inner[:172]); head[20:24] = (172 + 4 + len(js) - 24).to_bytes(4, "big")
         new = xml.replace(m.group(1), juce_b64_encode(bytes(head) + len(js).to_bytes(4, "big") + js + tail)).encode() + b"\x00"
         self.p.raw_state = b"VC2!" + len(new).to_bytes(4, "little") + new
+        self.preset = path
+        from .tuning import Cache, pitch_offset, split
+        cache = Cache(os.path.join(VITAL_PRESETS, "_tuning3.json"))
+        def measure():
+            offs = [pitch_offset(self._raw([(0.05, m, 95, 1.3)], 1.6), m) for m in (36, 48, 60)]
+            offs = [o for o in offs if o is not None]
+            tr, c = split(float(np.median(offs)) if offs else None)
+            return [tr, c, round(max(offs) - min(offs), 2) if offs else None]
+        self.transpose, self.cents, self.spread = cache.get(os.path.basename(path), measure)
+        self.in_tune = self.spread is not None and self.spread < .3 and abs(self.cents) <= 15
+        if not self.in_tune: print(f"  ! Vital {os.path.basename(path)}: not in tune (spread {self.spread} st, {self.cents} c) -- pick another preset for tonal parts", flush=True)
         return self
-    def render(self, events, total_s, sr=SR):
-        """events: (t, midi, vel 1-127, dur)"""
+    def render(self, events, total_s, sr=SR, tune=True):
+        """events: (t, midi, vel 1-127, dur). tune=True transposes the MIDI by the preset's measured pitch-class error
+        (some presets are built a semitone off); octave transpositions inside presets are kept."""
+        tr = getattr(self, "transpose", 0) if tune else 0
+        return self._raw([(t, m + tr, v, d) for t, m, v, d in events] if tr else events, total_s, sr)
+    def _raw(self, events, total_s, sr=SR):
         from mido import Message
         msgs = []
         for t, m, v, d in events:
             msgs += [(max(0.0, t), [0x90, int(m), int(max(1, min(127, v)))]), (max(0.0, t + d), [0x80, int(m), 0])]
         msgs.sort(key=lambda x: x[0])
-        out = self.p([Message.from_bytes(b, time=t) for t, b in msgs], duration=total_s, sample_rate=sr, num_channels=2, reset=True).T.astype(np.float32)
+        mm = [Message.from_bytes(b, time=t) for t, b in msgs]
+        out = self.p(mm, duration=total_s, sample_rate=sr, num_channels=2, reset=True).T.astype(np.float32)
         n = int(round(total_s * sr)); return np.pad(out, ((0, max(0, n - len(out))), (0, 0)))[:n]
 
 def sampler(key):

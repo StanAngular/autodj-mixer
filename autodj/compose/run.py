@@ -42,7 +42,7 @@ def fixes_for(bad, met, ms, g):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="autodj.compose run"); ap.add_argument("cmd", choices=["run"]); ap.add_argument("score")
     ap.add_argument("--seed", type=int, default=1); ap.add_argument("--name"); ap.add_argument("--title"); ap.add_argument("--target", type=float)
-    ap.add_argument("--outdir"); ap.add_argument("--send", action="store_true"); ap.add_argument("--keep-wav", action="store_true")
+    ap.add_argument("--outdir"); ap.add_argument("--send", action="store_true"); ap.add_argument("--keep-wav", action="store_true"); ap.add_argument("--review", action="store_true", help="Gemini second ear on the final mp3")
     a = ap.parse_args(argv); t0 = time.time()
     mod = load_score(a.score); meta = getattr(mod, "META", {}); name = a.name or os.path.splitext(os.path.basename(a.score))[0]
     outdir = a.outdir or os.path.join(os.path.dirname(os.path.abspath(a.score)), "out"); os.makedirs(outdir, exist_ok=True)
@@ -65,6 +65,10 @@ def main(argv=None):
             "voice_max_lift": max([v[2] for v in met["voice_lift"]] or [None], key=lambda v: v or -99), "spikes": met["spikes"],
             "sections": [[s["name"], s["rms"], round(s["sub"] * 100)] for s in met["sections"]],
             "auto_fixed": fixed, "problems": [m for _, m in bad], "render_min": round((time.time() - t0) / 60, 1)}
+    summ["clash_ratio"] = info.get("clash_ratio"); summ["clash_pairs"] = info.get("clash_pairs")
+    if a.review:
+        from .review import review
+        summ["review"] = review(mp3, summ, info, meta, os.path.join(outdir, f"{name}.review.txt"))
     if a.send: summ["telegram"] = send_telegram(mp3, title)
     json.dump(summ, open(os.path.join(outdir, f"{name}.summary.json"), "w"), ensure_ascii=False, indent=1)
     try:

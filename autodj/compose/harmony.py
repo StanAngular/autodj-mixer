@@ -36,6 +36,7 @@ def voicing(chord_pcs, lo, hi, prev=None, n=4, rootless=False):
         if len(got) < min(len(pcs), n) - 1: continue
         c = sorted(combo); cost = 0.0
         if c[1] - c[0] <= 2: cost += 6                                   # mud at the bottom
+        cost += 14 * sum(1 for x, y in itertools.combinations(c, 2) if y - x in (1, 13))   # minor 2nd / minor 9th = cluster that rubs
         cost += max(0, (c[-1] - c[0]) - 19) * .5                          # too wide
         if prev: cost += sum(min(abs(a - b) for b in prev) for a in c) + sum(min(abs(a - b) for a in c) for b in prev) * .5
         else: cost += abs(np.mean(c) - (lo + hi) / 2) * .3
@@ -98,3 +99,28 @@ def strong_to_chord(m, chord_pcs):
             n = min([x for x in range(n - 3, n + 4) if x % 12 in chord_pcs] or [n], key=lambda x: abs(x - n))
         out.append((s, l, n))
     return out
+
+
+def clashes(layers, step_s, min_len_s=0.0):
+    """layers: {name: [(t, midi, vel, dur), ...]} -> how often notes of DIFFERENT layers sound a minor 2nd / minor 9th
+    (or two octaves + a semitone) apart. Major 7ths are left alone: they live inside every maj7/9th chord. Returns (ratio of busy grid steps with a clash, top offending layer pairs)."""
+    import collections
+    ends = [t + d for evs in layers.values() for t, _, _, d in evs]
+    if not ends: return 0.0, []
+    n = int(max(ends) / step_s) + 1; grid = [collections.defaultdict(set) for _ in range(n)]
+    for name, evs in layers.items():
+        for t, m, _, d in evs:
+            if d < min_len_s: continue
+            for k in range(int(t / step_s), min(n, int((t + d) / step_s))): grid[k][name].add(int(m))
+    busy = bad = 0; pairs = collections.Counter()
+    for g in grid:
+        names = list(g)
+        if len(names) < 2: continue
+        busy += 1; hit = False
+        for i in range(len(names)):
+            for j in range(i + 1, len(names)):
+                for a in g[names[i]]:
+                    for b in g[names[j]]:
+                        if abs(a - b) in (1, 13, 25): pairs[(names[i], names[j])] += 1; hit = True
+        bad += hit
+    return (bad / busy if busy else 0.0), pairs.most_common(4)

@@ -109,6 +109,7 @@ def test_voicing_keeps_guide_tones_and_key_both_sides():
         assert c[1] in {n % 12 for n in v} and c[3] in {n % 12 for n in v}
         assert all(n % 12 in k.pcs for n in v) and 50 <= min(v) and max(v) <= 67
     assert max(abs(a - b) for a, b in zip(vs[0], vs[1])) <= 7          # moves smoothly, not block jumps
+    for v in vs: assert not any(abs(a - b) in (1, 13) for a in v for b in v)   # no rubbing minor 2nds / 9ths inside a voicing
 
 def test_comp_rhythm_is_syncopated_never_all_downbeats():
     r = np.random.default_rng(5)
@@ -136,3 +137,21 @@ def test_duck_for_voice_dips_only_where_voice_is():
     r = lambda z: np.sqrt(np.mean(z ** 2))
     assert r(trk.mix[a + 5000:b - 5000]) < r(before[a + 5000:b - 5000]) * .6           # dips under the voice
     assert abs(r(trk.mix[trk.i(1):trk.i(2)]) / r(before[trk.i(1):trk.i(2)]) - 1) < .02  # untouched elsewhere
+
+# ---- harmony of layers: tuning + clashes ----
+from autodj.compose.harmony import clashes
+from autodj.compose.tuning import split
+
+def test_clash_detector_both_sides():
+    keys = [(0, 62, 80, 2), (0, 65, 80, 2), (0, 69, 80, 2)]
+    assert clashes({"keys": keys, "bass": [(0, 38, 90, 2)]}, .125)[0] == 0          # D under Dm: fine
+    assert clashes({"keys": keys, "bass": [(0, 37, 90, 2)]}, .125)[0] == 1.0        # C# under Dm: the v1/v2 bug
+
+def test_clash_gate_both_sides():
+    assert "clash" in codes(ok_metrics(clash_ratio=.3)) and "clash" not in codes(ok_metrics(clash_ratio=.05))
+
+def test_tuning_split_keeps_octaves_fixes_pitch_class():
+    assert split(-12.02) == (0, -2.0)           # an octave down is a register choice, not an error
+    assert split(-13.0)[0] == 1                 # octave + semitone flat -> transpose MIDI up 1
+    assert split(-5.95)[0] == 6 or split(-5.95)[0] == -6
+    assert split(0.05) == (0, 5.0)
