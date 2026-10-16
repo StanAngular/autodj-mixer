@@ -55,3 +55,16 @@ def chain(a, semitones=0.0, hp=120, lp=6000, drive=4.0, sr=SR):
     fx = ([PitchShift(semitones=semitones)] if semitones else []) + [HighpassFilter(hp), LowpassFilter(lp), Compressor(-22, 3, 4, 100)]
     x = pb(Pedalboard(fx), mono2(a / (np.abs(a).max() + 1e-9)), sr)
     return sat(x, drive) if drive else x
+
+def texture(a, rng=None, sr=SR, octave=-12, grains=24, spread_s=1.6, wet=.55):
+    """turn a spoken line into an atmospheric texture: octave double, scattered grains after it, big dark reverb.
+    The words stay recognisable at the start, then dissolve."""
+    from pedalboard import Pedalboard, PitchShift, Reverb, LowpassFilter, HighpassFilter
+    rng = rng or np.random.default_rng(0); x = mono2(a / (np.abs(a).max() + 1e-9))
+    low = pb(Pedalboard([PitchShift(semitones=octave)]), x, sr)
+    out = np.zeros((len(x) + int((spread_s + 3) * sr), 2), np.float32); out[:len(x)] += x + .45 * low[:len(x)]
+    for _ in range(grains):
+        L = int(rng.uniform(.06, .14) * sr); s = int(rng.integers(0, max(1, len(x) - L))); g = x[s:s + L] * np.hanning(L)[:, None]
+        p = rng.uniform(-.8, .8); i = len(x) + int(rng.uniform(0, spread_s) * sr) - L // 2
+        out[i:i + L, 0] += g[:, 0] * .35 * np.sqrt(1 - p); out[i:i + L, 1] += g[:, 1] * .35 * np.sqrt(1 + p)
+    return pb(Pedalboard([HighpassFilter(150), LowpassFilter(5000), Reverb(room_size=.95, damping=.6, wet_level=wet, dry_level=1 - wet * .6, width=1.)]), out, sr)

@@ -2,7 +2,7 @@
 import glob, json, os, re
 import numpy as np
 from .assets import WA, TDM, VITAL_PRESETS, VITAL_VST3, VSCO
-from .core import SR, load_sample
+from .core import SR, load_sample, pb
 
 def wa(rel, max_s=None):
     """W.A. Production sample, e.g. wa('Kicks/WATE_Kick_03.wav', .3)"""
@@ -61,3 +61,23 @@ def hand_drum(freq=200.0, slap=0.0, decay=.18, sr=SR, seed=0):
     nz = sosfilt(butter(2, [freq * 3, min(9000, freq * 20)], "band", fs=sr, output="sos"), r.normal(0, 1, n)) * np.exp(-t / .012)
     y = body + (.25 + slap) * nz; y[:32] *= np.linspace(0, 1, 32); y = y / np.abs(y).max()
     return np.stack([y, y], 1).astype(np.float32)
+
+def keys(preset, events, total_s, sr=SR):
+    """sampled Nice-Keys (sf2 via FluidSynth): 'Straight Rhodes', 'Rhodes Bright', pianos, organs... events (t, midi, vel, dur)"""
+    from autodj.generate.realinst import render_keys
+    y = np.asarray(render_keys(preset, events, total_s, sr), np.float32)
+    if y.ndim == 1: y = np.stack([y, y], 1)
+    if y.shape[0] == 2 and y.shape[1] != 2: y = y.T
+    n = int(round(total_s * sr)); return np.pad(y, ((0, max(0, n - len(y))), (0, 0)))[:n]
+
+def atmosphere(kind, total_s, sr=SR, seed=0, amount=.5):
+    """quiet bed of synthesised nature: 'rain', 'wind', 'night' (crickets), 'sand'. Stereo from two seeds."""
+    from autodj.generate import nature_synth as ns
+    from pedalboard import Pedalboard, HighpassFilter, LowpassFilter
+    n = int(total_s * sr)
+    f = {"rain": lambda s: ns.rain(n, sr, amount, seed=s), "wind": lambda s: ns.wind_gust(n, sr, amount, seed=s),
+         "night": lambda s: ns.crickets(n, sr, seed=s) if "seed" in ns.crickets.__code__.co_varnames else ns.crickets(n, sr),
+         "sand": lambda s: ns.sand_on_glass(n, sr, seed=s) if "seed" in ns.sand_on_glass.__code__.co_varnames else ns.sand_on_glass(n, sr)}[kind]
+    l, r = np.asarray(f(seed), np.float32).reshape(-1)[:n], np.asarray(f(seed + 1), np.float32).reshape(-1)[:n]
+    x = np.stack([l, r], 1); x /= np.abs(x).max() + 1e-9
+    return pb(Pedalboard([HighpassFilter(180), LowpassFilter(8000)]), x, sr)

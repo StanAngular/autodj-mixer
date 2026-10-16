@@ -54,3 +54,18 @@ def echo_throw(trk, buf, x, t, step_s, n=4, decay=.6, start_g=.5, tail_s=.3):
     """repeat the tail of x after time t, alternating sides (send the buffer through a dark delay/reverb)"""
     tl = fade(x[-int(tail_s * trk.sr):] if x.ndim == 2 else x[-int(tail_s * trk.sr):], 40)
     for q in range(n): trk.place(buf, tl, t + (q + 1) * step_s, start_g * decay ** q, (-.5, .5)[q % 2])
+
+def analog(x, sr=44100, wow_ms=1.0, wow_hz=.45, flutter_ms=.08, flutter_hz=6.5, drive_db=2.5, hiss_db=-66, top_hz=12000, seed=0):
+    """tape-ish imperfection: slow wow + fast flutter (pitch wobble via modulated delay), soft saturation, rolled-off
+    top and a whisper of hiss. Against the 'sterile / digital' sound."""
+    from pedalboard import Pedalboard, LowpassFilter
+    from .core import sat
+    n = len(x); t = np.arange(n) / sr; r = np.random.default_rng(seed); ph = r.uniform(0, 2 * np.pi, 2)
+    d = (3.0 + wow_ms * np.sin(2 * np.pi * wow_hz * t + ph[0]) + flutter_ms * np.sin(2 * np.pi * flutter_hz * t + ph[1])) * sr / 1000
+    pos = np.clip(np.arange(n) - d, 0, n - 1)
+    y = np.stack([np.interp(pos, np.arange(n), x[:, c]) for c in range(2)], 1).astype(np.float32)
+    y = pb(Pedalboard([LowpassFilter(top_hz)]), sat(y, drive_db), sr)
+    if hiss_db is not None:
+        lvl = np.sqrt(np.mean(y ** 2)) * 10 ** (hiss_db / 20) * 30
+        y += pb(Pedalboard([LowpassFilter(9000)]), r.normal(0, lvl, (n, 2)).astype(np.float32), sr)
+    return y

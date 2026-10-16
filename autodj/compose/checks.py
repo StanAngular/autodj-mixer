@@ -35,7 +35,7 @@ def analyze(path, info):
     bp = sosfilt(butter(4, [300, 3000], "band", fs=sr, output="sos"), m); r = lambda t0, t1: _db(bp[int(t0 * sr):int(t1 * sr)])
     out["voice_lift"] = [[t, lab, round(r(t + .1, t + 2) - r(t - 4, t - .3), 1)] for t, lab in info.get("voice", []) if t > 4.5]
     st = 3 * sr; k = len(m) // st; L = 20 * np.log10(np.sqrt((m[:k * st].reshape(k, st) ** 2).mean(1)) + 1e-9)
-    med3 = np.array([np.median(L[max(0, i - 5):i + 5]) for i in range(k)]); out["spikes"] = [round(i * 3 / 60, 1) for i in np.where(L - med3 > 2.5)[0]]
+    med3 = np.array([np.median(L[max(0, i - 5):i + 5]) for i in range(k)]); out["spikes"] = [round(float(i) * 3 / 60, 1) for i in np.where(L - med3 > 2.5)[0]]
     return out
 
 def gates(metrics, master, g=None):
