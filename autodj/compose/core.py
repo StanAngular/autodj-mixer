@@ -44,6 +44,11 @@ def sweep(x, cuts, c, kind=None, sr=SR):
     for i, cp in enumerate(cps): out += cp * np.clip(1 - np.abs(pos - i), 0, 1)[:, None]
     return out
 
+# RMS of each role relative to the kick, dB. A starting point; a score can override with META["roles"] or level=.
+ROLE_DB = {"kick": 0, "bass": -2, "sub": -3, "rumble": -9, "snare": -7, "clap": -9, "rim": -14, "hats": -15, "shaker": -18,
+           "open": -17, "ride": -19, "perc": -14, "tom": -13, "pad": -11, "keys": -9, "chords": -10, "lead": -9, "pluck": -12,
+           "strings": -10, "arp": -13, "fx": -20, "texture": -24, "voice": -6, "voice_bg": -14}
+
 class Track:
     """Grid + sections + mix bus. Sections: list of (start_bar, end_bar, name, {layer: level}); add "_break": 1
     to a section's dict to tell the checks that it is meant to be quieter."""
@@ -53,7 +58,7 @@ class Track:
         self.N = int((self.bars * self.BAR + tail_s) * sr); self.rng = np.random.default_rng(seed)
         self.swing, self.humanize_s = swing, humanize_s
         self.mix = np.zeros((self.N, 2), np.float32); self.ref = None; self.tl = []; self.voice = []; self.layers = {}
-        self.tt = np.arange(self.N, dtype=np.float32) / sr
+        self.tt = np.arange(self.N, dtype=np.float32) / sr; self.roles = {}
     # ---- grid ----
     def t(self, br, st, swing=None):
         """time of 16th step st in bar br, with swing on odd steps and a little timing noise"""
@@ -87,16 +92,26 @@ class Track:
     def lfo(self, bars, phase=0.0):
         return (.5 - .5 * np.cos(2 * np.pi * (self.tt / (bars * self.BAR) + phase))).astype(np.float32)[:, None]
     # ---- bus ----
-    def add(self, name, x, level, duck=0.0, env=None, smooth_bars=1, release_ms=140):
-        """level is RMS relative to the FIRST layer added (usually the kick); env defaults to the section level"""
+    def add(self, name, x, level=None, duck=0.0, env=None, smooth_bars=1, release_ms=140, role=None):
+        """level is RMS relative to the FIRST layer added (usually the kick); env defaults to the section level.
+        level=None takes the role norm (ROLE_DB, role defaults to the layer name)."""
         from autodj.generate.mixbus import sidechain_duck
         x = np.pad(x, ((0, max(0, self.N - len(x))), (0, 0)))[:self.N]; act = x[np.abs(x).max(1) > 1e-4]
         if not len(act): return
+        if level is None: level = 10 ** (self.roles.get(role or name, ROLE_DB.get(role or name, -12)) / 20)
         if self.ref is None: self.ref = rms(act)
         x = x * (level * self.ref / rms(act)) * (self.env(name, smooth_bars) if env is None else env)
         if duck: x = sidechain_duck(x, self.sr, self.BEAT, duck, release_ms=release_ms)
         self.mix += x; self.layers[name] = round(20 * np.log10(rms(x[np.abs(x).max(1) > 1e-4]) + 1e-9), 1) if np.any(np.abs(x) > 1e-4) else None
         print("  +", name, flush=True)
+    def duck_for_voice(self, vbuf, band=(300, 3500), depth_db=-4.0, attack_ms=15, release_ms=250):
+        """make room for the voice: only the voice band of the music dips while the voice sounds (call before add voice)"""
+        from scipy.ndimage import maximum_filter1d, uniform_filter1d
+        bp = sosfiltfilt(butter(4, list(band), "band", fs=self.sr, output="sos"), self.mix, axis=0).astype(np.float32)
+        e = np.abs(vbuf).max(1); e = maximum_filter1d(e, int(self.sr * release_ms / 1000)); e = uniform_filter1d(e, int(self.sr * attack_ms / 1000))
+        e = np.clip(e / (np.percentile(e[e > 1e-4], 90) if np.any(e > 1e-4) else 1), 0, 1)
+        g = 1 - (1 - 10 ** (depth_db / 20)) * e
+        self.mix[:] = self.mix - bp + bp * g[:, None]
     def mono_low(self, cut=120):
         lo = sosfiltfilt(butter(8, cut / (self.sr / 2), "low", output="sos"), self.mix, axis=0).astype(np.float32)
         self.mix[:] = (self.mix - lo) + lo.mean(1, keepdims=True)

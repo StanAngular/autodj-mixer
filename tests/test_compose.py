@@ -84,3 +84,55 @@ def test_autofix_only_fixable_codes_and_sized():
     assert len(eq) == 1 and abs(eq[0].gain_db + 5.5) < 1e-6 and abs(dt + 1.5) < 1e-6
     eq, dt = fixes_for([("voice", ""), ("jump", "")], ok_metrics(), OK_MASTER, None)
     assert eq == [] and dt == 0
+
+# ---- P104 stage A: groove, harmony, roles, voice ducking ----
+from autodj.compose.harmony import Key, voicing, lead_chords, comp_rhythm, motif, answer, strong_to_chord
+from autodj.compose.groove import Groove, library
+
+def test_groove_kick_stays_on_grid_hats_get_feel():
+    g = Groove("funk", np.random.default_rng(0))
+    assert all(g.offset("kick", s) == 0 for s in range(16))
+    offs = [g.offset("hh", s) for s in range(16) for _ in range(5)]
+    assert np.std(offs) > .01 and max(abs(o) for o in offs) <= .3
+
+def test_groove_accents_strong_steps_louder_than_weak():
+    g = Groove("hiphop", np.random.default_rng(0))
+    strong = np.mean([g.vel("hh", s) for s in (0, 4, 8, 12) for _ in range(20)]); weak = np.mean([g.vel("hh", s) for s in (1, 3, 5, 7) for _ in range(20)])
+    assert strong > weak
+
+def test_groove_real_bar_has_requested_classes():
+    b = Groove("rock", np.random.default_rng(3)).bar(("kick", "snare", "hh")); assert {"kick", "snare", "hh"} <= set(b)
+
+def test_voicing_keeps_guide_tones_and_key_both_sides():
+    k = Key("D", "dorian"); chs = [k.chord(d, 4) for d in (0, 3, 6, 4)]; vs = lead_chords(chs, 50, 67)
+    for c, v in zip(chs, vs):
+        assert c[1] in {n % 12 for n in v} and c[3] in {n % 12 for n in v}
+        assert all(n % 12 in k.pcs for n in v) and 50 <= min(v) and max(v) <= 67
+    assert max(abs(a - b) for a, b in zip(vs[0], vs[1])) <= 7          # moves smoothly, not block jumps
+
+def test_comp_rhythm_is_syncopated_never_all_downbeats():
+    r = np.random.default_rng(5)
+    for _ in range(50):
+        cr = comp_rhythm(r); st = [s for s, _ in cr]
+        assert any(s % 4 for s in st) and sum(l for _, l in cr) + st[0] == 16
+
+def test_answer_resolves_to_chord_root_question_unchanged():
+    k = Key("A", "minor"); r = np.random.default_rng(1); m = motif(r, k, 57, 72); a = answer(m, k, k.chord(0), 57, 72)
+    assert a[-1][2] % 12 == k.chord(0)[0] and a[:-1] == m[:-1]
+
+def test_strong_to_chord_moves_only_downbeat_notes():
+    out = strong_to_chord([(0, 2, 62), (2, 2, 62)], [9, 0, 4]); assert out[0][2] % 12 in (9, 0, 4) and out[1][2] == 62
+
+def test_role_level_used_when_level_missing():
+    trk = Track(120, 4).sections([(0, 4, "A", {"kick": 1, "hats": 1})])
+    x = np.random.default_rng(0).normal(0, .1, (trk.N, 2)).astype(np.float32)
+    trk.add("kick", x, 1.0); k = trk.mix.copy(); trk.add("hats", x * 3)
+    r = lambda z: np.sqrt(np.mean(z ** 2)); assert abs(20 * np.log10(r(trk.mix - k) / r(k)) + 15) < .3
+
+def test_duck_for_voice_dips_only_where_voice_is():
+    trk = Track(120, 8).sections([(0, 8, "A", {})]); t = trk.tt
+    trk.mix[:] = np.stack([np.sin(2 * np.pi * 1000 * t)] * 2, 1) * .3; v = trk.buf(); a, b = trk.i(4), trk.i(5); v[a:b] = .5
+    before = trk.mix.copy(); trk.duck_for_voice(v, depth_db=-6)
+    r = lambda z: np.sqrt(np.mean(z ** 2))
+    assert r(trk.mix[a + 5000:b - 5000]) < r(before[a + 5000:b - 5000]) * .6           # dips under the voice
+    assert abs(r(trk.mix[trk.i(1):trk.i(2)]) / r(before[trk.i(1):trk.i(2)]) - 1) < .02  # untouched elsewhere

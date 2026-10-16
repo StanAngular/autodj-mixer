@@ -50,3 +50,14 @@ def check_notes(events, pcs_allowed, label=""):
     """refuse out-of-key notes before rendering (notes first, groove later)"""
     bad = sorted({e[1] for e in events if e[1] % 12 not in pcs_allowed})
     if bad: raise ValueError(f"{label}: notes out of key {bad}")
+
+def hand_drum(freq=200.0, slap=0.0, decay=.18, sr=SR, seed=0):
+    """synthesised conga/bongo-like membrane: two inharmonic modes with a small pitch drop + filtered slap noise.
+    freq ~ 180-420 Hz (low conga .. bongo); slap 0..1 for the bright open-slap stroke."""
+    from scipy.signal import butter, sosfilt
+    r = np.random.default_rng(seed); n = int((decay * 4) * sr); t = np.arange(n) / sr
+    f = freq * (1 + .08 * np.exp(-t / .015))
+    body = np.sin(2 * np.pi * np.cumsum(f) / sr) * np.exp(-t / decay) + .35 * np.sin(2 * np.pi * np.cumsum(f * 1.58) / sr) * np.exp(-t / (decay * .5))
+    nz = sosfilt(butter(2, [freq * 3, min(9000, freq * 20)], "band", fs=sr, output="sos"), r.normal(0, 1, n)) * np.exp(-t / .012)
+    y = body + (.25 + slap) * nz; y[:32] *= np.linspace(0, 1, 32); y = y / np.abs(y).max()
+    return np.stack([y, y], 1).astype(np.float32)
