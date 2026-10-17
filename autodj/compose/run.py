@@ -50,14 +50,14 @@ def main(argv=None):
     raw, pre, mp3 = (os.path.join(outdir, f"{name}{s}") for s in ("_raw.wav", "_pre.wav", ".mp3"))
     with render_slot() as slot:
         print(f"render slot {slot}", flush=True); trk = mod.build(a.seed); info = trk.finish(raw, meta={"title": title, "seed": a.seed})
-        drv = meta.get("premaster_drive", 3.0); premaster(raw, pre, drive_db=drv); ms = warm(pre, mp3, target); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
+        drv = meta.get("premaster_drive", 3.0); premaster(raw, pre, drive_db=drv); ms = warm(pre, mp3, target, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
         fixed = []; eq_all, dt_all = [], 0.0
         for _ in range(2):                                         # at most two master-side rounds (an EQ cut can raise the limiter)
             eq, dt = fixes_for(bad, met, ms, meta.get("gates"))
             if not (eq or dt): break
             fixed.append({"codes": [c for c, _ in bad if c in FIXABLE], "before": {"high_db": met["high_db"], "sub_mean": met["sub_mean"], "limiter_max_db": ms["limiter_max_db"]}})
             eq_all += eq; dt_all += dt
-            premaster(raw, pre, drive_db=drv, pre_eq=eq_all); ms = warm(pre, mp3, target + dt_all); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
+            premaster(raw, pre, drive_db=drv, pre_eq=eq_all); ms = warm(pre, mp3, target + dt_all, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
     if not a.keep_wav:
         for p in (raw, pre): os.path.exists(p) and os.remove(p)
     summ = {"name": name, "title": title, "file": mp3, "dur_s": round(trk.N / trk.sr), "bpm": trk.bpm, "seed": a.seed, "master": ms,
