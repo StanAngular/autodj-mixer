@@ -33,7 +33,7 @@ def bass_note(kind, f, d, sr, rng):
 
 def build(cfg, seed):
     prof_path = os.path.join(ASSETS, "grooves", "refs", f"{cfg['ref']}.json"); import json; prof = json.load(open(prof_path))
-    trk = Track(cfg["bpm"], cfg["bars"], seed=seed).sections(cfg["tl"]); r = trk.rng; g = from_ref(cfg["ref"], r, cfg.get("feel", 1.0))
+    trk = Track(cfg["bpm"], cfg["bars"], seed=seed).sections(cfg["tl"]); r = trk.rng; trk.step_env = cfg.get("step_env", False); g = from_ref(cfg["ref"], r, cfg.get("feel", 1.0))
     key = Key(cfg["tonic"], cfg.get("mode", "minor")); lv = prof["levels_vs_kick_db"]
     trk.roles = {"bass": min(-2.0, lv["bass"]) if cfg["bass"] != "fm" else -1.5, "hats": max(-19, lv["hats"]), "perc": max(-18, lv["perc"] - 1),
                  "rim": -15, "other": max(-14, lv["other"]), "voice": max(-12, lv["vocals"]), "fx": -20, "rumble": -10, **cfg.get("roles", {})}

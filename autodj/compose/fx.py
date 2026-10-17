@@ -77,3 +77,15 @@ def pullback(trk, a, b, low_hz=350, curve=1.6):
     from pedalboard import LowpassFilter
     i0, i1 = trk.i(a), trk.i(b); c = 1 - np.linspace(0, 1, i1 - i0, dtype=np.float32)[:, None] ** curve
     trk.mix[i0:i1] = sweep(trk.mix[i0:i1].copy(), [low_hz, low_hz * 3, 2500, 9000, 18000], c, LowpassFilter)
+
+def vocoder(mod, carrier, sr=44100, n_fft=2048, hop=512, smooth_bins=12):
+    """channel-vocoder-like cross synthesis: the carrier (e.g. a saw chord in the key) speaks with the modulator's
+    spectral envelope -> robotic but clean and in key. Both (n, 2) or (n,), same length."""
+    import librosa
+    mm = mod.mean(1) if mod.ndim == 2 else mod; cc = carrier.mean(1) if carrier.ndim == 2 else carrier
+    M = librosa.stft(mm, n_fft=n_fft, hop_length=hop); C = librosa.stft(cc, n_fft=n_fft, hop_length=hop)
+    k = np.ones(smooth_bins) / smooth_bins
+    env = lambda X: np.apply_along_axis(lambda c: np.convolve(c, k, "same"), 0, np.abs(X)) + 1e-6
+    Y = C / env(C) * env(M)
+    y = librosa.istft(Y, hop_length=hop, length=len(mm)).astype(np.float32)
+    return np.stack([y, y], 1)

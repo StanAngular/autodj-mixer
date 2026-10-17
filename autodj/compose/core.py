@@ -80,7 +80,13 @@ class Track:
         for s in self.tl:
             if s[0] <= br < s[1]: return s
         return self.tl[-1]
-    def curve(self, vals, smooth_bars=1):
+    def curve(self, vals, smooth_bars=1, step=None):
+        """per-bar values -> per-sample curve. step=True (or Track.step_env): hard switches exactly on bar lines with a
+        10 ms ramp, no fades (Стас 2026-10-17: fade-in/out transitions sound cheap); otherwise linear between bars."""
+        if step if step is not None else getattr(self, "step_env", False):
+            e = np.repeat(np.array(list(vals) + [vals[-1]] * 3, np.float32), int(round(self.BAR * self.sr)))
+            e = np.pad(e, (0, max(0, self.N - len(e))), "edge")[:self.N]; k = int(.01 * self.sr)
+            return np.convolve(e, np.ones(k) / k, "same").astype(np.float32)[:, None]
         e = np.array(list(vals) + [vals[-1]] * 3, np.float32)
         if smooth_bars > 1:
             k = smooth_bars; e = np.convolve(np.pad(e, (k, k), "edge"), np.ones(k) / k, "same")[k:-k]
@@ -127,7 +133,11 @@ class Track:
         sf.write(path, m, self.sr, subtype="FLOAT")
         plan = [[a, b, nm, int(bool(lv.get("_break")))] for a, b, nm, lv in self.tl]
         from .harmony import clashes
-        ratio, top = clashes(self.notes, self.S16, min_len_s=self.S16 * 1.5) if self.notes else (0.0, [])
+        def audible(name, evs):                                    # notes of a layer muted by its section level do not clash
+            if not any(name in lv for _, _, _, lv in self.tl): return evs
+            return [e for e in evs if self.sec(int(e[0] / self.BAR))[3].get(name, 0) > .05]
+        notes = {k: audible(k, v) for k, v in self.notes.items()}
+        ratio, top = clashes(notes, self.S16, min_len_s=self.S16 * 1.5) if notes else (0.0, [])
         info = {"bpm": self.bpm, "bars": self.bars, "plan": plan, "voice": self.voice, "layers_db": self.layers,
                 "clash_ratio": round(ratio, 3), "clash_pairs": [[f"{a}+{b}", c] for (a, b), c in top], **(meta or {})}
         json.dump(info, open(path.rsplit(".", 1)[0] + ".json", "w"), ensure_ascii=False)
