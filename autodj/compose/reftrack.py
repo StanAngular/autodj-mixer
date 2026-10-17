@@ -111,6 +111,15 @@ def build(cfg, seed):
         for k in range(int(trk.bars * 16 / 3)):                        # 3-note line in a 3/16 cycle: hypnotic, never lines up with the bar
             st = k * 3; br = st // 16
             if trk.sec(br)[3].get("other"): seq.append((br * trk.BAR + (st % 16) * trk.S16, cyc[k % 3], 70 + int(20 * (k % 3 == 0)), trk.S16 * 1.5))
+        def under(t):                                                  # pad notes sounding at time t
+            br = int(t / trk.BAR); return voiced[(br // 4) % len(voiced)], chords[(br // 4) % len(chords)]
+        fixed = []
+        for t, m, v, d in seq:                                         # never rub a minor 2nd/9th against the pad
+            pv, ch = under(t)
+            if any(abs(m - p) in (1, 13, 25) for p in pv):
+                m = min([x for x in range(m - 4, m + 5) if x % 12 in ch[:4] and not any(abs(x - p) in (1, 13, 25) for p in pv)] or [m], key=lambda x: abs(x - m))
+            fixed.append((t, m, v, d))
+        seq = fixed
         check_notes(pev + seq, key.pcs, "pad/line"); trk.log_notes("pad", pev); trk.log_notes("line", seq)
         pad = vi.load(cfg.get("pad_preset", "Pads Soft String")).render(pev, trk.N / trk.sr)
         trk.add("pad", pb(Pedalboard([HighpassFilter(300), LowpassFilter(4000)]), pad), role="other", duck=-6.0)
