@@ -69,3 +69,11 @@ def analog(x, sr=44100, wow_ms=1.0, wow_hz=.45, flutter_ms=.08, flutter_hz=6.5, 
         lvl = np.sqrt(np.mean(y ** 2)) * 10 ** (hiss_db / 20) * 30
         y += pb(Pedalboard([LowpassFilter(9000)]), r.normal(0, lvl, (n, 2)).astype(np.float32), sr)
     return y
+
+def pullback(trk, a, b, low_hz=350, curve=1.6):
+    """«оттяжка»: over bars a..b the whole mix is pulled back through a closing low-pass (the groove keeps going,
+    nothing goes silent), then it snaps fully open on bar b where the drums come back. Стас 2026-10-17: short pulls
+    like this instead of long drumless breaks and instead of «build a layer, cut everything to silence, drums»."""
+    from pedalboard import LowpassFilter
+    i0, i1 = trk.i(a), trk.i(b); c = 1 - np.linspace(0, 1, i1 - i0, dtype=np.float32)[:, None] ** curve
+    trk.mix[i0:i1] = sweep(trk.mix[i0:i1].copy(), [low_hz, low_hz * 3, 2500, 9000, 18000], c, LowpassFilter)

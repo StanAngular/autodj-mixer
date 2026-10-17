@@ -44,15 +44,25 @@ def build(cfg, seed):
     rim = load_sample(S["rim"], .15) if S.get("rim") else None
     hd = cfg.get("hat_density", 1.0); pd = cfg.get("perc_density", .5)
     perc_steps = [st for st in range(16) if st % 4 and g.occupancy("perc", st) > .3]
+    fills = set(cfg.get("fills", [])); fg = None
+    if fills:
+        from .groove import Groove
+        fg = Groove(cfg.get("fill_style", "funk"), r)
     for br in range(trk.bars):
+        if br in fills:                                     # a real drummer's fill leads the drums back in
+            f = fg.fill(); kit = {"snare": [rim] if rim is not None else percs, "rim": percs, "tom": percs}
+            for c, hits in f.items():
+                if c in kit:
+                    for st, v, off in hits:
+                        trk.place(B["perc"] if c != "snare" else B["rim"], kit[c][int(r.integers(len(kit[c])))], br * trk.BAR + (st + off) * trk.S16, .5 + .5 * v, r.uniform(-.3, .3))
         roll = cfg.get("kick_roll") and br in cfg["kick_roll"]
-        for st in (range(0, 16, 2) if roll else (0, 4, 8, 12)): trk.place(B["kick"], kick, br * trk.BAR + st * trk.S16, .75 if roll and st % 4 else 1.0)
+        for st in ((range(0, 16, 2) if roll else (0, 4, 8, 12)) if br not in fills else ()): trk.place(B["kick"], kick, br * trk.BAR + st * trk.S16, .75 if roll and st % 4 else 1.0)
         for st in range(16):
             if r.random() < min(1, g.occupancy("hh", st) * hd): trk.place(B["hats"], hats[st % len(hats)], g.t(trk, br, st, "hh"), .3 + .7 * g.vel("hh", st), (.2, -.2)[st % 2])
         if br % 8 == 0: chosen = [s for s in perc_steps if r.random() < pd]                 # perc layout changes every 8 bars
         for j, st in enumerate(chosen):
             trk.place(B["perc"], percs[(j + br // 8) % len(percs)], g.t(trk, br, st, "perc"), .4 + .6 * g.vel("perc", st), (-.45, .45, .1)[j % 3])
-        if rim is not None and br % cfg.get("rim_every", 2) == cfg.get("rim_every", 2) - 1: trk.place(B["rim"], rim, g.t(trk, br, cfg.get("rim_step", 12), "perc"), .8, .1)
+        if rim is not None and br not in fills and br % cfg.get("rim_every", 2) == cfg.get("rim_every", 2) - 1: trk.place(B["rim"], rim, g.t(trk, br, cfg.get("rim_step", 12), "perc"), .8, .1)
         if S.get("fx") and br % 16 == 15: trk.place(B["fx"], load_sample(S["fx"][br // 16 % len(S["fx"])], 2.5), br * trk.BAR + 8 * trk.S16, .7)
     trk.add("kick", B["kick"], 1.0)
     if cfg.get("rumble"):
@@ -117,6 +127,7 @@ def build(cfg, seed):
                 for st in (r.choice([2, 3, 6, 10, 11, 14], 2, replace=False) if br % 2 else [6]): trk.place(sb, sh, g.t(trk, br, int(st), "perc"), .6 + .3 * r.random(), r.uniform(-.4, .4))
         trk.add("other", pb(Pedalboard([HighpassFilter(200), LowpassFilter(6000), Delay(delay_seconds=trk.S16 * 3, feedback=.35, mix=.25), Reverb(room_size=.5, wet_level=.2, dry_level=.9)]), sh_bus := sb), role="other", duck=-5.0)
     trk.mono_low(cfg.get("mono_hz", 200))
+    for a, b in cfg.get("pulls", []): fx.pullback(trk, a, b)
     for a, b in cfg.get("hp_builds", []): fx.hp_build(trk, a, b)
     for b0 in cfg.get("silences", []): fx.silence_beat(trk, b0)
     for b0 in cfg.get("stutters", []): fx.stutter(trk, b0)
