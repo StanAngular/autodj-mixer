@@ -109,3 +109,14 @@ def match(target, kind, k=5, weights=None):
             s += wt * (np.log((a + 1) / (b + 1)) if key in ("centroid", "bandwidth", "decay_ms", "pitch") else (a - b) * 3) ** 2
         return s
     return sorted(idx, key=d)[:k]
+
+def tune_kick(x, tonic_pc, sr=SR, max_st=3.0):
+    """retune a kick so its body sits on the track's root (or its fifth) — an untuned kick a semitone off the key
+    rubs against the bass in the sub (found on the Lasha Tumbai remix, kick F# vs song in E, 2026-10-17)"""
+    f = band_features(x, "kick", sr)["pitch"]; m = 12 * np.log2(f / 440) + 69
+    cands = [k for k in range(int(m) - 4, int(m) + 5) if k % 12 in (tonic_pc % 12, (tonic_pc + 7) % 12)]
+    tgt = min(cands, key=lambda k: abs(k - m)); st = float(np.clip(tgt - m, -max_st, max_st))
+    if abs(st) < .1: return x, 0.0
+    ratio = 2 ** (st / 12); n = len(x); pos = np.arange(int(n / ratio)) * ratio
+    y = np.stack([np.interp(pos, np.arange(n), x[:, c]) for c in range(x.shape[1])], 1).astype(np.float32)
+    return y, round(st, 2)

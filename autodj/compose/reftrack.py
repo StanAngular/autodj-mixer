@@ -40,6 +40,8 @@ def build(cfg, seed):
     S = cfg["sounds"]; B = {k: trk.buf() for k in ("kick", "hats", "perc", "rim", "fx")}
     kick = load_sample(S["kick"], cfg.get("kick_len", .25)); kick = pb(Pedalboard([HighpassFilter(cfg.get("kick_hp", 38))]), sat(kick, cfg.get("kick_sat", 8)))
     kick[-int(.025 * trk.sr):] *= np.linspace(1, 0, int(.025 * trk.sr))[:, None]; kick /= np.abs(kick).max()
+    from .timbre import tune_kick
+    kick, kst = tune_kick(kick, key.tonic); print(f"  kick retuned {kst:+} st to the key", flush=True)
     hats = [load_sample(p, cfg.get("hat_len", .08)) for p in S["hats"]]; percs = [load_sample(p, .2) for p in S["perc"]]
     rim = load_sample(S["rim"], .15) if S.get("rim") else None
     hd = cfg.get("hat_density", 1.0); pd = cfg.get("perc_density", .5)
