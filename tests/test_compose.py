@@ -155,3 +155,66 @@ def test_tuning_split_keeps_octaves_fixes_pitch_class():
     assert split(-13.0)[0] == 1                 # octave + semitone flat -> transpose MIDI up 1
     assert split(-5.95)[0] == 6 or split(-5.95)[0] == -6
     assert split(0.05) == (0, 5.0)
+
+
+# ---- Lakh pattern library -------------------------------------------------------------------------------------------
+import pytest
+from autodj.compose.lakh import Lakh, parse_roman, drums_aligned, plausible_tempo, ROOT as LAKH_ROOT
+from autodj.compose.harmony import Key
+
+def _lakh_lib(tmp_path):
+    g = {"songs": 3, "tempo": [100.0, 199.4, 210.0], "bass_rhythms": [["x.x.x.x.x.x.x.x.", 5]],
+         "bass_lines": [[[[[0, 0], [4, 4], [8, 7], [8, 0]], [[0, 5]], [[0, 7]], [[0, 10]]], 4]],
+         "progressions": [["minor", ["Im7", "bVImaj7"], 3], ["major", ["I", "IV"], 9]],
+         "drums": [[{"kick": [1, 5, 9, 13]}, 1000], [{"kick": [0, 4, 8, 12], "snare": [4, 12]}, 1]],
+         "entry_bar_median": {"drums": 1, "bass": 4, "keys": 1, "lead": 5}}
+    p = tmp_path / "patterns.json"; p.write_text(json.dumps({"house": g})); return str(p)
+
+def test_lakh_roman_parser_both_sides():
+    assert parse_roman("bVImaj7") == (8, "maj7") and parse_roman("IVm") == (5, "m") and parse_roman("Vsus4") == (7, "sus4")
+    assert parse_roman("VII") == (11, "") and parse_roman("#IV") == (6, "")
+    for bad in ("", "X", "Im9", "imaj7", "bVImaj"):
+        with pytest.raises(ValueError): parse_roman(bad)
+
+def test_lakh_chords_in_key(tmp_path):
+    lib = Lakh("house", _lakh_lib(tmp_path))
+    assert lib.chords(["Im7", "bVImaj7"], Key("A", "minor")) == [[9, 0, 4, 7], [5, 9, 0, 4]]
+
+def test_lakh_drums_drop_offset_bars_keep_real_ones(tmp_path):
+    assert not drums_aligned({"kick": [1, 5, 9, 13]}) and not drums_aligned({"hh": [0, 2]})
+    assert drums_aligned({"kick": [0, 4, 8, 12]}) and drums_aligned({"kick": [3, 6]})
+    lib = Lakh("house", _lakh_lib(tmp_path)); rng = np.random.default_rng(0)
+    assert all(lib.drums(rng) == {"kick": [0, 4, 8, 12], "snare": [4, 12]} for _ in range(20))   # 1000x offset bar never picked
+
+def test_lakh_tempo_folds_double_time_keeps_normal():
+    assert plausible_tempo(199.4) == 99.7 and plausible_tempo(60.0) == 120.0
+    assert plausible_tempo(124.0) == 124.0 and plausible_tempo(80.0) == 80.0 and plausible_tempo(150.0) == 150.0
+
+def test_lakh_bass_notes_snap_out_of_key_keep_in_key(tmp_path):
+    lib = Lakh("house", _lakh_lib(tmp_path)); key = Key("A", "minor")
+    notes = lib.bass_notes(lib.bass(np.random.default_rng(0)), key, lo=28, hi=52)
+    assert all(28 <= m <= 52 and m % 12 in key.pcs for _, _, m, _ in notes)
+    by = {(b, s): m for b, s, m, _ in notes}
+    assert by[(0, 0)] % 12 == 9 and by[(0, 8)] % 12 == 4               # tonic and fifth unchanged
+    assert by[(0, 4)] % 12 == 0                                          # major third C# (not in A minor) -> C
+    assert sum(1 for b, s, _, _ in notes if (b, s) == (0, 8)) == 1       # double-stop on step 8 -> one note
+    assert all(1 <= ln <= 2 for *_, ln in notes)
+
+def test_lakh_progression_mode_filter_and_fallback(tmp_path):
+    lib = Lakh("house", _lakh_lib(tmp_path)); rng = np.random.default_rng(1)
+    assert all(lib.progression(rng, "minor") == ["Im7", "bVImaj7"] for _ in range(10))
+    assert lib.progression(rng, "dorian") in (["Im7", "bVImaj7"], ["I", "IV"])   # no such mode -> any progression
+
+def test_lakh_missing_file_or_group_fails_loudly(tmp_path):
+    with pytest.raises(FileNotFoundError): Lakh("house", str(tmp_path / "nope.json"))
+    with pytest.raises(KeyError): Lakh("polka", _lakh_lib(tmp_path))
+
+@pytest.mark.skipif(not os.path.exists(os.path.join(LAKH_ROOT, "patterns.json")), reason="Lakh library not built here")
+def test_lakh_real_library_every_group_usable():
+    key = Key("F", "minor"); rng = np.random.default_rng(7)
+    for g in Lakh.groups():
+        lib = Lakh(g)
+        assert 80 <= lib.tempo() <= 150
+        for _ in range(5):
+            assert all(len(c) >= 3 for c in lib.chords(lib.progression(rng, "minor"), key))   # every top symbol parses
+            assert drums_aligned(lib.drums(rng)) and lib.bass_notes(lib.bass(rng), key)
