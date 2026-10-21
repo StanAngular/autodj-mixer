@@ -319,3 +319,33 @@ def test_house_bass_is_short_with_rests_and_leaves_beats_to_kick():
     assert len(cells) >= 20                                                              # generated, not a fixed pattern
     ev = house_bass(np.random.default_rng(1), k, lambda b: 9, 4, on_kick=True, cell=[0, 3, 6, 10, 14])
     assert any(s % 16 == 0 for s, *_ in ev)                                              # opt-in: may sit on the kick
+
+
+# --- P107 stage 5: micro-development ---
+def test_micro_plan_one_event_per_block_no_repeat_and_varies():
+    from autodj.compose.develop import micro_plan, MENU
+    plans = set()
+    for seed in range(20):
+        p = micro_plan(np.random.default_rng(seed), 64)
+        assert sorted(p) == list(range(3, 64, 4))                                    # exactly one per 4 bars, at block end
+        ev = [p[b] for b in sorted(p)]
+        assert all(e in MENU for e in ev) and all(a != b for a, b in zip(ev, ev[1:]))
+        assert len(set(ev)) >= 4                                                      # not a 2-event ping-pong
+        plans.add(tuple(ev))
+    assert len(plans) == 20
+
+def test_breathe_moves_tone_but_keeps_level_and_phrase_send_grows_to_phrase_end():
+    from autodj.compose.develop import breathe, phrase_send
+    from autodj.compose.core import Track, rms
+    trk = Track(120, 16); rng = np.random.default_rng(0)
+    x = (rng.standard_normal((trk.N, 2)) * .1).astype(np.float32)
+    y = breathe(trk, x, period_bars=8, rng=np.random.default_rng(1))
+    assert abs(20 * np.log10(rms(y) / rms(x))) < .5                                   # no level change overall
+    def bright(z):
+        X = np.abs(np.fft.rfft(z.mean(1))); f = np.fft.rfftfreq(len(z), 1 / trk.sr); return (f * X).sum() / X.sum()
+    br = [bright(y[trk.i(b):trk.i(b + 1)]) for b in range(8)]
+    assert max(br) > 1.3 * min(br)                                                    # the tone does move
+    imp = trk.buf(); imp[::trk.BEAT] = .5
+    z = phrase_send(trk, imp, period_bars=4); wet = z - imp
+    e = lambda b: rms(wet[trk.i(b):trk.i(b + 1)])
+    assert e(3) > 3 * e(0) + 1e-9 and e(7) > 3 * e(4) + 1e-9                           # send blooms at the phrase end
