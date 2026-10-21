@@ -616,3 +616,19 @@ def test_experiment_blind_labels_agreement_bias_and_human_vote(tmp_path):
     L = [k for k, v in lab.items() if v == "z"][0]
     assert ex.vote(L, note="лучше") == "z" and Experiment.load(ex.dir).data["chosen"] == "z"
     assert len(open(tmp_path / "log.jsonl").read().strip().splitlines()) == 3
+
+def test_held_melody_notes_never_sit_a_semitone_from_the_chord():
+    """p109 regression: the long-line hook held E over Fmaj7 (a maj7 = a semitone above the root) -> «не попадает»"""
+    from autodj.compose.harmony import Key, tension_progression, lead_voices, chord_of, stable_tone
+    from autodj.compose.ideas import long_line
+    assert not stable_tone(4, chord_of(5, "maj7")) and stable_tone(9, chord_of(5, "maj7"))   # E on Fmaj7 no, A yes
+    assert stable_tone(10, chord_of(0, "7")) and stable_tone(4, chord_of(0, "7"))           # b7 and 3rd of C7 fine
+    for tonic in ("A", "D", "E"):
+        k = Key(tonic, "minor")
+        for seed in range(20):
+            prog = tension_progression(np.random.default_rng(seed), k, 1); cp = lambda b: prog[b % 8]["pcs"]
+            o = long_line(np.random.default_rng(seed), k, cp)
+            for s, l, m, v in o["hook"]:
+                pcs = cp(s // 16)
+                if l >= 8: assert stable_tone(m % 12, pcs), (tonic, seed, s, m, prog[(s // 16) % 8]["name"])
+                assert not any((m - q) % 12 in (1, 11) for q in pcs) or m % 12 in pcs and l < 8 or stable_tone(m % 12, pcs)

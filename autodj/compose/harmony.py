@@ -250,3 +250,9 @@ def lead_voices(chords_pcs, lo, hi, n=4, max_step=2, prev=None):
             if best: break
         prev = best or voicing(c, lo, hi, prev, n); out.append(sorted(prev))
     return out
+
+
+def stable_tone(pc, chord_pcs):
+    """a tone that can be HELD in a melody: a chord tone with no other chord tone a semitone away. E over Fmaj7 is a
+    chord tone but sits a semitone above F: held for bars it sounds like a missed note (Стас on p109: «не попадает»)."""
+    return pc % 12 in chord_pcs and not any((pc - q) % 12 in (1, 11) for q in chord_pcs if q != pc % 12)

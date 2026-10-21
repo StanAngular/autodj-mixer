@@ -10,6 +10,7 @@ with notes only from the key or the bar's chord (check_notes-safe).
 - bass_hook:   the BASS carries the hook: a melodic syncopated riff over an octave; no top hook"""
 import numpy as np
 from .hook import anchor_hook, _nearest
+from .harmony import stable_tone
 from .bass import house_bass
 
 FAMILIES = ("anchor_dialog", "riff", "arp_cycle", "long_line", "bass_hook")
@@ -50,16 +51,21 @@ def arp_cycle(rng, key, chord_of_bar, voices_of_bar, bars=8):
 def long_line(rng, key, chord_of_bar, bars=8, lo=64, hi=79):
     out, prev = [], None
     for b in range(0, bars, 2):
-        pcs = chord_of_bar(b); guide = [pcs[1]] + [x for x in pcs[3:4] if (x - pcs[0]) % 12 in (10, 11)] or [pcs[1]]
-        cands = [m for m in range(lo, hi + 1) if m % 12 in guide]
+        pcs = chord_of_bar(b)
+        guide = [q for q in (pcs[1], pcs[2]) + tuple(x for x in pcs[3:4] if (x - pcs[0]) % 12 == 10) if stable_tone(q, pcs)] or [pcs[0]]
+        cands = [m for m in range(lo, hi + 1) if m % 12 in guide]                # held = 3rd/5th/b7 that do not rub (p109)
         m = _nearest(cands, prev if prev is not None else (lo + hi) // 2); prev = m
         st = int(rng.choice([0, 2, 3]))                                       # often anticipated, off the downbeat
-        out.append((16 * b + st, 16 - st + 6, m, 92))
-        nb = [x for x in key.scale_notes(m - 2, m + 2) if x != m and (x % 12 in pcs or x % 12 in key.pcs)]
-        if nb:
-            n = nb[int(rng.integers(len(nb)))]; out.append((16 * (b + 1) + 8, 3, n, 70)); out.append((16 * (b + 1) + 12, 4, m, 82))
+        nxt = chord_of_bar(b + 1); keep = stable_tone(m % 12, nxt)
+        out.append((16 * b + st, 16 - st + (6 if keep else 0), m, 92))       # do not hold it into a chord it rubs against
+        back = m if keep else _nearest([x for x in range(lo, hi + 1) if stable_tone(x % 12, nxt)] or [m], m)   # sus4 -> 3rd
+        if not keep: out.append((16 * (b + 1), 6, back, 84))                  # the suspension resolves with the chord
+        nb = [x for x in key.scale_notes(back - 2, back + 2) if x != back and not any((x - q) % 12 in (1, 11) for q in nxt)]
+        if nb:                                                                # passing note: never a semitone off the chord
+            n = nb[int(rng.integers(len(nb)))]; out.append((16 * (b + 1) + 8, 3, n, 70)); out.append((16 * (b + 1) + 12, 4, back, 82))
+        prev = back
     bass = house_bass(rng, key, lambda b: chord_of_bar(b)[0], bars, onsets=(5, 6))            # busy bass under long notes
-    return {"family": "long_line", "desc": "медленная линия по направляющим тонам (3-я/7-я), длинные ноты, предъём, бас плотнее", "hook": out,
+    return {"family": "long_line", "desc": "медленная линия по устойчивым тонам (3-я/5-я/малая 7-я без полутона к аккорду), длинные ноты, предъём, бас плотнее", "hook": out,
             "hook_inst": "piano", "bass": bass, "chords": "comp"}
 
 def bass_hook(rng, key, chord_of_bar, bars=8, lo=33, hi=52):
