@@ -672,3 +672,15 @@ def test_fader_dip_only_hits_the_last_beat_and_swell_grows():
     assert np.allclose(trk.mix[:i - beat - 10], .5) and np.allclose(trk.mix[i + 400:], .5)   # everything else untouched
     s = fx.swell(trk, 1, 3)
     assert s[trk.i(.5)] == 0 and s[trk.i(3.5)] == 1 and 0 < s[trk.i(2)] < .5         # silent, then accelerating, then full
+
+def test_autopan_moves_between_ears_keeps_power_and_float_gain_stays_in_range():
+    from autodj.compose import fx
+    from autodj.compose.core import Track, rms
+    trk = Track(120, 8).sections([(0, 8, "a", {})]); x = np.stack([np.sin(2 * np.pi * 300 * trk.tt)] * 2, 1).astype(np.float32) * .3
+    y = fx.autopan(trk, x, period_bars=8, depth=.8)
+    q = trk.i(2); h = trk.i(6)                                                   # quarter and three quarters of the cycle
+    l1, r1 = rms(y[q - 2000:q + 2000, 0]), rms(y[q - 2000:q + 2000, 1]); l2, r2 = rms(y[h - 2000:h + 2000, 0]), rms(y[h - 2000:h + 2000, 1])
+    assert r1 > 2 * l1 and l2 > 2 * r2                                            # right ear, then left ear
+    assert abs(20 * np.log10(rms(y) / rms(x))) < .5                               # same power overall
+    assert np.allclose(fx.autopan(trk, x, depth=0), x, atol=1e-5)                 # depth 0 = untouched (pass side)
+    g = 20 * np.log10(fx.float_gain(trk, 4, 3.0)); assert -1.6 < g.min() < -1.4 and 1.4 < g.max() < 1.6

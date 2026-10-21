@@ -103,3 +103,13 @@ def swell(trk, a, b, power=2.0, floor=0.0):
     grows in instead of switching on"""
     x = np.clip((trk.tt / trk.BAR - a) / max(1e-9, b - a), 0, 1)
     return (floor + (1 - floor) * x ** power).astype(np.float32)[:, None]
+
+def autopan(trk, x, period_bars=8, depth=.5, phase=0.0):
+    """the layer drifts slowly from ear to ear (constant power); depth 1 = fully left <-> fully right"""
+    p = depth * np.sin(2 * np.pi * (trk.tt[:len(x)] / (period_bars * trk.BAR) + phase)).astype(np.float32)
+    th = (p + 1) * np.pi / 4; m = x.mean(1); s = (x[:, 0] - x[:, 1]) / 2                # keep the layer's own width as side
+    return np.stack([m * np.cos(th) * np.sqrt(2) + s, m * np.sin(th) * np.sqrt(2) - s], 1).astype(np.float32)
+
+def float_gain(trk, period_bars=16, depth_db=3.0, phase=0.0):
+    """slow floating volume (n,1): +-depth_db/2 around 0 dB, for an overlay that breathes instead of sitting still"""
+    return (10 ** (depth_db / 2 * np.sin(2 * np.pi * (trk.tt / (period_bars * trk.BAR) + phase)) / 20)).astype(np.float32)[:, None]
