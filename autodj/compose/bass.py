@@ -37,7 +37,8 @@ def house_bass(rng, key, roots_pc_of_bar, bars, lo=28, hi=48, on_kick=False, cel
             ln = max(1, ln)
             m = r
             if j == len(st) - 1 and nxt != r and s >= 12:                 # approach into the next root
-                m = nxt + (1 if rng.random() < .4 else -1) if rng.random() < .5 else max(lo, min(hi, key.snap(nxt - 1) if nxt - 1 >= lo else nxt + 2))
+                if rng.random() < .15: m = nxt + (1 if rng.random() < .5 else -1)       # chromatic: rare (sounds harsh, critique 10-21)
+                else: m = max(lo, min(hi, key.snap(nxt - 1) if nxt - 1 >= lo else nxt + 2))  # a scale step into the next root
             elif j and rng.random() < octave_p and r + 12 <= hi: m = r + 12
             elif j and rng.random() < fifth_p and r + 7 <= hi: m = r + 7
             v = accents(s) + (10 if j == 0 else 0)

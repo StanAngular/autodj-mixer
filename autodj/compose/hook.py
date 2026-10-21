@@ -138,9 +138,10 @@ def dialog_cell(rng, bass_steps):
 
 def anchor_hook(rng, key, chord_of_bar, bass_steps_of_bar, lo=62, hi=81, bars=8, home_pcs=None):
     """the hook over `bars` (pairs = question/answer). Pitches come ONLY from the 2-3 anchors, except: the question
-    ends on a non-root anchor (tension), the answer's last note resolves to the chord root. The rhythm is the dialog
-    cell of each bar (fresh bass -> fresh cell), the A' repeats keep pitches by position. Velocity: notes off the
-    beat are accented (108), on the beat softer (84), fill notes lighter (72). Returns [(step, len, midi, vel)]."""
+    ends on a non-root anchor (tension), the answer's last note resolves toward home: a tone shared by the bar's
+    chord and the home (tonic) chord, else the chord root (Gemini draft critique 2026-10-21: C over Cadd9 = no rest). The rhythm is the dialog
+    cell of each bar (same bass -> same cell), A' A'' rotate the anchors. Velocity: off the beat accented (108,
+    fill 86), on the beat softer (84, fill 68). Returns [(step, len, midi, vel)]."""
     home = home_pcs or chord_of_bar(0); an = anchors(rng, key, home, lo, hi); out = []
     order = [int(x) for x in rng.permutation(len(an))]; cells = {}
     for b in range(bars):
@@ -154,8 +155,9 @@ def anchor_hook(rng, key, chord_of_bar, bass_steps_of_bar, lo=62, hi=81, bars=8,
             elif l >= 2: m = _unrub(m, l, pcs, lo, hi, key)
             if j == n - 1 and b % 2 == 0:                                         # question: open, never the root
                 if m % 12 == pcs[0]: m = next((a for a in an if a % 12 != pcs[0]), m)
-            if j == n - 1 and b % 2 == 1:                                         # answer: resolve to the root
-                m = _nearest([x for x in range(lo, hi + 1) if x % 12 == pcs[0]], m)
-            v = 72 if l == 1 and n > 2 else (108 if s % 4 else 84)
+            if j == n - 1 and b % 2 == 1:                                         # answer: resolve TOWARD HOME
+                home_tones = [x for x in range(lo, hi + 1) if x % 12 in pcs and x % 12 in home[:3]]
+                m = _nearest(home_tones or [x for x in range(lo, hi + 1) if x % 12 == pcs[0]], m)
+            v = (86 if s % 4 else 68) if l == 1 and n > 2 else (108 if s % 4 else 84)       # weak beats lead, fills lighter
             out.append((16 * b + s, int(l), int(m), int(v)))
     return out, an

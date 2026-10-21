@@ -466,7 +466,7 @@ def test_anchor_hook_two_three_notes_weak_beat_accents_and_bass_dialog():
         assert 2 <= len(an) <= 3 and max(an) - min(an) <= 7
         body = [m for s, l, m, v in hook if not (s // 16 % 2 == 1 and s == max(x[0] for x in hook if x[0] // 16 == s // 16))]
         assert len({m for m in body} - set(an)) <= 2                              # lives on the anchors
-        offv = [v for s, _, _, v in hook if s % 4 and v > 72]; onv = [v for s, _, _, v in hook if s % 4 == 0]
+        offv = [v for s, _, _, v in hook if s % 4]; onv = [v for s, _, _, v in hook if s % 4 == 0]
         assert offv and (not onv or np.mean(offv) > np.mean(onv))                # weak beats accented
         for b in range(8):
             notes = [(s % 16, l) for s, l, _, _ in hook if s // 16 == b]
@@ -478,9 +478,12 @@ def test_anchor_hook_two_three_notes_weak_beat_accents_and_bass_dialog():
             if notes:
                 busy = sorted({x for s, l in notes for x in range(s, s + l)})
                 assert max(b2 - a - 1 for a, b2 in zip([-1] + busy, busy + [16])) >= 3   # a rest is part of the rhythm
-        for b in range(1, 8, 2):                                                   # answers resolve to the chord root
+        home = prog[0]["pcs"][:3]
+        for b in range(1, 8, 2):                                                   # answers resolve toward home
             last = max((x for x in hook if x[0] // 16 == b), key=lambda x: x[0], default=None)
-            if last: assert last[2] % 12 == prog[b]["pcs"][0]
+            if not last: continue
+            pcs = prog[b]["pcs"]; shared = [p_ for p_ in pcs if p_ in home]
+            assert last[2] % 12 in (shared or pcs[:1])
     assert played_quiet > 0                                                        # the fills do happen (pass side)
 
 def test_anchor_hook_rhythm_repeats_when_bass_repeats():
@@ -492,3 +495,19 @@ def test_anchor_hook_rhythm_repeats_when_bass_repeats():
     assert rh(0) == rh(2) == rh(4) and rh(1) == rh(3)                              # A A' A A'' keep the rhythm
     pitches = lambda b: [m for s, _, m, _ in h if s // 16 == b]
     assert pitches(0) == pitches(4) and pitches(0) != pitches(2) or len(set(pitches(0))) == 1   # A' varies the notes
+
+def test_tension_progression_moves_roots_and_prefers_the_dominant():
+    from autodj.compose.harmony import Key, tension_progression
+    v = total = 0
+    for seed in range(60):
+        prog = tension_progression(np.random.default_rng(seed), Key("E", "minor"), 1)
+        roots = [b["root"] for b in prog[::2]]
+        assert all(a != b for a, b in zip(roots, roots[1:]))                        # a chord change is a real change
+        total += 1; v += prog[-1]["root"] == Key("E", "minor").degree_pc(4)
+    assert v / total > .55                                                          # mostly V/V7, VII only sometimes
+
+def test_pad_dyad_exists_for_every_quality_and_root():
+    from autodj.compose.harmony import pad_dyad, chord_of, QUALITY
+    for q in QUALITY:
+        for r in range(12):
+            d = pad_dyad(chord_of(r, q), 65, 84); assert d and len(d) == 2 and {x % 12 for x in d} <= set(chord_of(r, q))

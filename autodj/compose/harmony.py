@@ -151,13 +151,16 @@ def shell(chord_pcs, lo, hi, prev=None):
 
 def pad_dyad(chord_pcs, lo, hi, prev=None):
     """pad under keys/stabs plays only the guide tones (3rd + 7th, or 3rd + 5th), never the full chord"""
-    g = [chord_pcs[1], chord_pcs[3] if len(chord_pcs) > 3 else chord_pcs[2]]; best, bc = None, 1e9
-    for a in (m for m in range(lo, hi + 1) if m % 12 == g[0]):
-        for b in (m for m in range(lo, hi + 1) if m % 12 == g[1]):
-            if not 3 <= abs(a - b) <= 11: continue
-            v = sorted([a, b]); c = sum(min(abs(x - y) for y in prev) for x in v) if prev else abs(np.mean(v) - (lo + hi) / 2)
-            if c < bc: best, bc = v, c
-    return best
+    c0 = chord_pcs; real7 = len(c0) > 3 and (c0[3] - c0[0]) % 12 in (10, 11)
+    for g in ([c0[1], c0[3] if real7 else c0[2]], [c0[1], c0[2]], [c0[0], c0[2]]):   # 3rd+7th, else 3rd+5th, else 1+5
+        best, bc = None, 1e9
+        for a in (m for m in range(lo, hi + 1) if m % 12 == g[0]):
+            for b in (m for m in range(lo, hi + 1) if m % 12 == g[1]):
+                if not 3 <= abs(a - b) <= 11: continue
+                v = sorted([a, b]); c = sum(min(abs(x - y) for y in prev) for x in v) if prev else abs(np.mean(v) - (lo + hi) / 2)
+                if c < bc: best, bc = v, c
+        if best: return best
+    return None
 
 
 def clashes(layers, step_s, min_len_s=0.0):
@@ -210,8 +213,9 @@ def tension_progression(rng, key, phrases=1, chords=4, bars_per_chord=2):
         fns = ["T"] + [str(rng.choice(["T", "S"], p=[.35, .65])) if i < chords - 2 else "S" for i in range(1, chords - 1)] + ["D"]
         prev = None
         for fn in fns:
-            opts = [(d, q) for d, qs in F[fn] for q in qs if (d, q) != prev and not (fn == "T" and prev is None and d != 0)]
-            d, q = opts[int(rng.integers(len(opts)))]; prev = (d, q)
+            opts = [(d, q) for d, qs in F[fn] for q in qs if (prev is None or d != prev[0]) and not (fn == "T" and prev is None and d != 0)]
+            w = np.array([(2.3 if d == 4 else .7) if fn == "D" else 1.0 for d, _ in opts]); w = w / w.sum()   # V(7) is THE tension
+            d, q = opts[int(rng.choice(len(opts), p=w))]; prev = (d, q)                                         # never the same root twice
             root = key.degree_pc(d)
             seq = [q] * bars_per_chord
             if fn == "D" and d == 4 and fam == "minor" and q == "7" and bars_per_chord >= 2 and rng.random() < .6: seq = ["7sus4"] + ["7"] * (bars_per_chord - 1)
@@ -240,6 +244,7 @@ def lead_voices(chords_pcs, lo, hi, n=4, max_step=2, prev=None):
                 cost += sum(3 for a, b in zip(prev, combo) if a % 12 in c and a != b)            # a common tone moved
                 cost += 10 * sum(1 for x, y in zip(s, s[1:]) if y - x == 1)                        # m2 between voices
                 cost += 4 * (len(combo) - len(got))                                                 # doubled pcs block later steps
+                cost += 6 * sum(1 for x, y in zip(s, s[1:]) if y - x == 2 and x < 79)               # a 2nd at 300-800 Hz = mud
                 cost += 2 * sum(1 for i in range(len(combo)) for j in range(i + 1, len(combo)) if (prev[i] - prev[j]) * (combo[i] - combo[j]) < 0)  # crossing
                 if cost < bc: best, bc = list(combo), cost
             if best: break
