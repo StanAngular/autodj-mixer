@@ -118,6 +118,17 @@ class Track:
         e = np.clip(e / (np.percentile(e[e > 1e-4], 90) if np.any(e > 1e-4) else 1), 0, 1)
         g = 1 - (1 - 10 ** (depth_db / 20)) * e
         self.mix[:] = self.mix - bp + bp * g[:, None]
+    def focus(self, buf, depth_db=-4.0, band=None, attack_ms=10, release_ms=200):
+        """Make one layer THE focus of the moment (Gemini/Стас: «все слои борются, каша»): while `buf` sounds, the rest
+        of the mix gives way in that layer's own band. Call after the supporting layers are added, before adding `buf`.
+        band=None -> one octave around the focus layer's spectral centroid."""
+        if band is None:
+            m = buf.mean(1); B = 2048; blk = m[:len(m) // B * B].reshape(-1, B)
+            blk = blk[np.sqrt((blk ** 2).mean(1)) > 1e-4][: int(30 * self.sr / B)]   # whole active blocks: dropping single
+            if not len(blk): return                                                 # samples tears the wave into clicks
+            P = (np.abs(np.fft.rfft(blk * np.hanning(B), axis=1)) ** 2).sum(0); f = np.fft.rfftfreq(B, 1 / self.sr)
+            c = float((f * P).sum() / (P.sum() + 1e-12)); band = (max(150.0, c / 2), min(9000.0, c * 2))
+        self.duck_for_voice(buf, band=band, depth_db=depth_db, attack_ms=attack_ms, release_ms=release_ms)
     def mono_low(self, cut=120):
         lo = sosfiltfilt(butter(8, cut / (self.sr / 2), "low", output="sos"), self.mix, axis=0).astype(np.float32)
         self.mix[:] = (self.mix - lo) + lo.mean(1, keepdims=True)

@@ -157,6 +157,16 @@ def test_tuning_split_keeps_octaves_fixes_pitch_class():
     assert split(0.05) == (0, 5.0)
 
 
+def test_muted_layer_notes_do_not_count_as_clashes(tmp_path):
+    trk = Track(120, 8).sections([(0, 4, "A", {"bass": 1}), (4, 8, "B", {"pad": 1})])
+    trk.log_notes("bass", [(br * trk.BAR, 37, 90, trk.BAR) for br in range(8)])         # C# bass, but muted in B
+    trk.log_notes("pad", [(4 * trk.BAR, 62, 60, 4 * trk.BAR)])
+    trk.mix[:] = .01; assert trk.finish(str(tmp_path / "x.wav"))["clash_ratio"] == 0
+    trk2 = Track(120, 8).sections([(0, 8, "A", {"bass": 1, "pad": 1})])
+    trk2.log_notes("bass", [(br * trk2.BAR, 37, 90, trk2.BAR) for br in range(8)]); trk2.log_notes("pad", [(4 * trk2.BAR, 62, 60, 4 * trk2.BAR)])
+    trk2.mix[:] = .01; assert trk2.finish(str(tmp_path / "y.wav"))["clash_ratio"] > 0
+
+
 # ---- Lakh pattern library -------------------------------------------------------------------------------------------
 import pytest
 from autodj.compose.lakh import Lakh, parse_roman, drums_aligned, plausible_tempo, ROOT as LAKH_ROOT
@@ -218,3 +228,40 @@ def test_lakh_real_library_every_group_usable():
         for _ in range(5):
             assert all(len(c) >= 3 for c in lib.chords(lib.progression(rng, "minor"), key))   # every top symbol parses
             assert drums_aligned(lib.drums(rng)) and lib.bass_notes(lib.bass(rng), key)
+
+# ---- P107 stage 1-2: focus + hook ----
+from autodj.compose import hook as H
+
+def test_rhythm_cell_is_syncopated_with_a_rest_both_sides():
+    r = np.random.default_rng(3)
+    for _ in range(30):
+        c = H.rhythm_cell(r); gaps = [b - a for a, b in zip(c, c[1:] + [16 + c[0]])]
+        assert sum(1 for s in c if s % 2) >= 2 and max(gaps) >= 2 and not all(s in c for s in (0, 4, 8, 12))
+
+def test_hook_question_open_answer_closed_strong_beats_on_chord():
+    k = Key("A", "minor"); chords = [k.chord(0), k.chord(5)]; r = np.random.default_rng(1)
+    for seed in range(10):
+        ph = H.phrase(np.random.default_rng(seed), k, lambda b: chords[b], 57, 76)
+        q = [x for x in ph if x[0] < 16]; a = [x for x in ph if x[0] >= 16]
+        assert q[-1][2] % 12 != chords[0][0]                    # question stays open
+        assert a[-1][2] % 12 == chords[1][0]                    # answer lands on the root
+        assert all(m % 12 in k.pcs for _, _, m in ph)
+        assert all(m % 12 in chords[s // 16] for s, _, m in ph if s % 4 == 0)
+        assert max(m for *_, m in ph) - min(m for *_, m in ph) <= 17
+
+def test_eight_bars_repeat_keeps_rhythm_but_varies_tail():
+    k = Key("D", "minor"); ch = [k.chord(d) for d in (0, 5, 3, 4, 0, 5, 3, 4)]
+    seq = H.eight_bars(np.random.default_rng(4), k, lambda b: ch[b % 8], 57, 76)
+    blocks = [[(s % 32, m) for s, _, m in seq if i * 32 <= s < (i + 1) * 32] for i in range(4)]
+    rh = lambda b: [s for s, _ in b if s >= 0]
+    assert rh(blocks[0]) == rh(blocks[2]) and set(rh(blocks[0])) <= set(rh(blocks[1])) | set(rh(blocks[1]))
+    assert blocks[0] != blocks[1] or blocks[0] != blocks[3]       # variation exists
+
+def test_focus_dips_mix_only_while_focus_layer_sounds():
+    trk = Track(120, 8).sections([(0, 8, "A", {})]); t = trk.tt
+    trk.mix[:] = np.stack([np.sin(2 * np.pi * 900 * t)] * 2, 1) * .3
+    lead = trk.buf(); a, b = trk.i(4), trk.i(5); lead[a:b] = np.stack([np.sin(2 * np.pi * 900 * t[a:b])] * 2, 1) * .5
+    before = trk.mix.copy(); trk.focus(lead, depth_db=-6)
+    r = lambda z: np.sqrt(np.mean(z ** 2))
+    assert r(trk.mix[a + 5000:b - 5000]) < r(before[a + 5000:b - 5000]) * .7
+    assert abs(r(trk.mix[trk.i(1):trk.i(2)]) / r(before[trk.i(1):trk.i(2)]) - 1) < .02
