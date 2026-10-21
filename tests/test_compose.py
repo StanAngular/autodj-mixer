@@ -418,3 +418,77 @@ def test_held_passing_notes_do_not_rub_but_short_ones_stay_free():
         for s, l, m in eight_bars(rng, k, cp, 62, 79):
             pcs = cp(s // 16)
             if l >= 2: assert m % 12 in pcs or not any((m - p) % 12 in (1, 11) for p in pcs)
+
+
+# --- P107b: voice leading + tension/release (Стас: «запрети тупой перенос формы аккорда») ---
+def test_lead_voices_holds_common_tones_and_moves_others_by_step():
+    from autodj.compose.harmony import Key, tension_progression, lead_voices
+    tot = good = near = 0
+    for mode in ("minor", "major", "dorian"):
+        for seed in range(40):
+            k = Key("A", mode); prog = tension_progression(np.random.default_rng(seed), k, 2)
+            pcs = [b["pcs"] for b in prog[::1]]; v = lead_voices(pcs, 55, 79, 4)
+            for (a, b), c in zip(zip(v, v[1:]), pcs[1:]):
+                if a == b: continue
+                tot += 1; mv = [abs(x - y) for x, y in zip(a, b)]
+                held = all(x in b for x in a if x % 12 in c)                    # every common tone stays put
+                good += max(mv) <= 2 and held; near += max(mv) <= 3
+                need = {c[1]} | {x for x in c[3:4] if (x - c[0]) % 12 in (10, 11)}
+                assert need <= {x % 12 for x in b}                               # 3rd/sus + 7th always present
+    assert good / tot > .85 and near / tot > .97                                # stepwise is the rule; no real leaps
+
+def test_tension_progression_ends_phrases_on_dominant_and_resolves_to_tonic():
+    from autodj.compose.harmony import Key, tension_progression
+    shapes, sus = set(), 0
+    for seed in range(40):
+        k = Key("D", "minor"); prog = tension_progression(np.random.default_rng(seed), k, 3)
+        assert len(prog) == 24
+        for ph in range(3):
+            bars = prog[8 * ph: 8 * ph + 8]
+            assert bars[0]["fn"] == "T" and bars[0]["root"] == k.tonic             # each phrase starts on the tonic (release)
+            assert bars[-1]["fn"] == "D"                                           # ...and ends in tension
+            if "sus" in bars[-2]["name"] and bars[-2]["root"] == bars[-1]["root"]: sus += 1
+            shapes.add(tuple(b["name"] for b in bars))
+        d7 = [b for b in prog if b["name"].endswith("A7")]
+        assert all(1 in b["pcs"] for b in d7)                                      # V7 in D minor has the raised C#
+    assert len(shapes) >= 30 and sus >= 10                                         # drawn per phrase; suspensions resolve
+
+def test_anchor_hook_two_three_notes_weak_beat_accents_and_bass_dialog():
+    from autodj.compose.harmony import Key, tension_progression
+    from autodj.compose.bass import house_bass
+    from autodj.compose.hook import anchor_hook
+    k = Key("D", "minor"); played_quiet = 0
+    for seed in range(30):
+        rng = np.random.default_rng(seed); prog = tension_progression(rng, k, 1)
+        bass = house_bass(rng, k, lambda b: prog[b % 8]["root"], 8)
+        bsteps = lambda b: {s % 16 for s, *_ in bass if s // 16 == b}
+        hook, an = anchor_hook(rng, k, lambda b: prog[b % 8]["pcs"], bsteps, bars=8)
+        assert 2 <= len(an) <= 3 and max(an) - min(an) <= 7
+        body = [m for s, l, m, v in hook if not (s // 16 % 2 == 1 and s == max(x[0] for x in hook if x[0] // 16 == s // 16))]
+        assert len({m for m in body} - set(an)) <= 2                              # lives on the anchors
+        offv = [v for s, _, _, v in hook if s % 4 and v > 72]; onv = [v for s, _, _, v in hook if s % 4 == 0]
+        assert offv and (not onv or np.mean(offv) > np.mean(onv))                # weak beats accented
+        for b in range(8):
+            notes = [(s % 16, l) for s, l, _, _ in hook if s // 16 == b]
+            assert not ({s for s, _ in notes} & bsteps(b))                       # never on a bass onset
+            for h in (0, 8):
+                nb = len([s for s in bsteps(b) if h <= s < h + 8]); mine = [(s, l) for s, l in notes if h <= s < h + 8]
+                if nb >= 2: assert len(mine) <= 1                                 # bass busy -> lead holds / waits
+                if nb <= 1 and mine: played_quiet += 1; assert all(l == 1 for _, l in mine)  # bass rests -> short fill
+            if notes:
+                busy = sorted({x for s, l in notes for x in range(s, s + l)})
+                assert max(b2 - a - 1 for a, b2 in zip([-1] + busy, busy + [16])) >= 3   # a rest is part of the rhythm
+        for b in range(1, 8, 2):                                                   # answers resolve to the chord root
+            last = max((x for x in hook if x[0] // 16 == b), key=lambda x: x[0], default=None)
+            if last: assert last[2] % 12 == prog[b]["pcs"][0]
+    assert played_quiet > 0                                                        # the fills do happen (pass side)
+
+def test_anchor_hook_rhythm_repeats_when_bass_repeats():
+    from autodj.compose.harmony import Key
+    from autodj.compose.hook import anchor_hook
+    k = Key("A", "minor"); bs = lambda b: {2, 7, 10}
+    h, _ = anchor_hook(np.random.default_rng(3), k, lambda b: [9, 0, 4, 7], bs, bars=8)
+    rh = lambda b: [(s % 16, l) for s, l, _, _ in h if s // 16 == b]
+    assert rh(0) == rh(2) == rh(4) and rh(1) == rh(3)                              # A A' A A'' keep the rhythm
+    pitches = lambda b: [m for s, _, m, _ in h if s // 16 == b]
+    assert pitches(0) == pitches(4) and pitches(0) != pitches(2) or len(set(pitches(0))) == 1   # A' varies the notes

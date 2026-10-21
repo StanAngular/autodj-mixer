@@ -183,3 +183,65 @@ def clashes(layers, step_s, min_len_s=0.0):
                         if abs(a - b) in (1, 13, 25): pairs[(names[i], names[j])] += 1; hit = True
         bad += hit
     return (bad / busy if busy else 0.0), pairs.most_common(4)
+
+
+# --- P107b (Стас, отзыв на демо): voice leading instead of planing, tension -> release ---------------------------
+QUALITY = {"m": [0, 3, 7], "m7": [0, 3, 7, 10], "madd9": [0, 3, 7, 14], "": [0, 4, 7], "maj7": [0, 4, 7, 11], "add9": [0, 4, 7, 14],
+           "7": [0, 4, 7, 10], "7sus4": [0, 5, 7, 10], "sus4": [0, 5, 7], "sus2": [0, 2, 7], "m7b5": [0, 3, 6, 10]}
+FUNCTIONS = {   # degree (0-based) -> quality choices per function; "D" chords use the raised 7th of harmonic minor
+    "minor": {"T": [(0, ["m", "m7", "madd9"]), (5, ["maj7", "add9"]), (2, ["maj7"])],
+              "S": [(3, ["m", "m7", "sus2"]), (5, ["maj7"]), (1, ["m7b5"]), (6, ["", "add9"])],
+              "D": [(4, ["7", "7sus4"]), (6, ["", "sus2"])]},
+    "major": {"T": [(0, ["", "maj7", "add9"]), (5, ["m7", "m"]), (2, ["m7"])],
+              "S": [(3, ["", "maj7", "sus2"]), (1, ["m7", "m"])],
+              "D": [(4, ["7", "7sus4", "sus4"]), (6, ["m7b5"])]}}
+
+def chord_of(root_pc, quality, name_tonic=None):
+    """pcs ordered [root, 3rd-or-sus, 5th, 7th/9th]: hook endings use pcs[1:3] (an open end on a sus note = tension)"""
+    iv = QUALITY[quality]; return [(root_pc + i) % 12 for i in iv]
+
+def tension_progression(rng, key, phrases=1, chords=4, bars_per_chord=2):
+    """functional chain per phrase: T ... S ... D -> (next phrase starts on T = the release). Each phrase is drawn
+    anew (no fixed list), the dominant often comes as a suspension that resolves inside its own chord span
+    (7sus4 -> 7, sus4 -> major). Returns per-BAR list of dicts {name, root, pcs, fn}."""
+    fam = "major" if key.mode in ("major", "mixolydian", "lydian") else "minor"; F = FUNCTIONS[fam]; NM = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    out = []
+    for ph in range(phrases):
+        fns = ["T"] + [str(rng.choice(["T", "S"], p=[.35, .65])) if i < chords - 2 else "S" for i in range(1, chords - 1)] + ["D"]
+        prev = None
+        for fn in fns:
+            opts = [(d, q) for d, qs in F[fn] for q in qs if (d, q) != prev and not (fn == "T" and prev is None and d != 0)]
+            d, q = opts[int(rng.integers(len(opts)))]; prev = (d, q)
+            root = key.degree_pc(d)
+            seq = [q] * bars_per_chord
+            if fn == "D" and d == 4 and fam == "minor" and q == "7" and bars_per_chord >= 2 and rng.random() < .6: seq = ["7sus4"] + ["7"] * (bars_per_chord - 1)
+            if fn == "D" and q == "7sus4": seq = ["7sus4"] * (bars_per_chord - 1) + ["7"]           # suspension resolves
+            if fn == "D" and q == "sus4": seq = ["sus4"] * (bars_per_chord - 1) + [""]
+            for qq in seq: out.append({"name": NM[root] + qq, "root": root, "pcs": chord_of(root, qq), "fn": fn})
+    return out
+
+def lead_voices(chords_pcs, lo, hi, n=4, max_step=2, prev=None):
+    """classical voice leading: a voice whose note belongs to the next chord STAYS (common tone); the others move by
+    at most `max_step` semitones to the nearest tone of the next chord; the 3rd/sus note and the 7th must be present.
+    Only if no such move exists is a voice allowed to go further (then the smallest leap wins). Root may be left out:
+    the bass plays it."""
+    out = []
+    for c in chords_pcs:
+        need = [c[1]] + [x for x in c[3:4] if (x - c[0]) % 12 in (10, 11)]          # 3rd/sus + a REAL 7th (a 9th is colour)
+        if prev is None:
+            prev = voicing(c, lo, hi, None, n); out.append(sorted(prev)); continue
+        best, bc = None, 1e9
+        for reach in (max_step, max_step + 2, 7):
+            opts = [[m + d for d in range(-reach, reach + 1) if (m + d) % 12 in c and lo <= m + d <= hi] or [m] for m in prev]
+            for combo in itertools.product(*opts):
+                got = {x % 12 for x in combo}
+                if not all(g in got for g in need) or len(set(combo)) < len(combo): continue
+                s = sorted(combo); cost = sum(abs(a - b) for a, b in zip(prev, combo))
+                cost += sum(3 for a, b in zip(prev, combo) if a % 12 in c and a != b)            # a common tone moved
+                cost += 10 * sum(1 for x, y in zip(s, s[1:]) if y - x == 1)                        # m2 between voices
+                cost += 4 * (len(combo) - len(got))                                                 # doubled pcs block later steps
+                cost += 2 * sum(1 for i in range(len(combo)) for j in range(i + 1, len(combo)) if (prev[i] - prev[j]) * (combo[i] - combo[j]) < 0)  # crossing
+                if cost < bc: best, bc = list(combo), cost
+            if best: break
+        prev = best or voicing(c, lo, hi, prev, n); out.append(sorted(prev))
+    return out
