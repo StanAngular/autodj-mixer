@@ -574,3 +574,45 @@ def test_house_bass_never_leaves_the_key():
             ev = house_bass(np.random.default_rng(seed), k, lambda b: prog[b % 8]["root"], 32)
             chord = lambda s: prog[(s // 16) % 8]["pcs"]
             assert all(m % 12 in k.pcs or m % 12 in chord(s) for s, _, m, _ in ev)   # V7 leading tone allowed as a chord tone
+
+
+# --- P109: competing ideas + experiment memory ---
+def test_idea_families_are_different_and_stay_in_key():
+    from autodj.compose.harmony import Key, tension_progression, lead_voices
+    from autodj.compose.bass import house_bass
+    from autodj.compose.ideas import make, FAMILIES
+    k = Key("B", "minor")
+    for seed in range(8):
+        rng = np.random.default_rng(seed); prog = tension_progression(rng, k, 1); cp = lambda b: prog[b % 8]["pcs"]
+        vo = lead_voices([b["pcs"] for b in prog], 55, 74, 4); bass = house_bass(rng, k, lambda b: prog[b % 8]["root"], 8)
+        bs = lambda b: {s % 16 for s, *_ in bass if s // 16 == b}
+        out = {f: make(f, np.random.default_rng(seed), k, cp, lambda b: vo[b % 8], bs) for f in FAMILIES}
+        rhythms = set()
+        for f, o in out.items():
+            ev = o["hook"] or o["bass"]
+            assert ev, f
+            for s, l, m, v in ev: assert m % 12 in k.pcs or m % 12 in cp(s // 16), (f, s, m)
+            rhythms.add(tuple(sorted({s % 16 for s, *_ in ev if s < 16})))
+        assert len(rhythms) >= 4                                                   # different identities, not one pattern
+        assert out["bass_hook"]["hook"] == [] and out["bass_hook"]["bass"]         # the bass carries that idea
+        assert max(l for _, l, _, _ in out["long_line"]["hook"]) >= 10              # long notes really are long
+        assert sum(1 for s, *_ in out["arp_cycle"]["hook"] if s < 16) >= 12         # the shimmer is continuous
+
+def test_experiment_blind_labels_agreement_bias_and_human_vote(tmp_path):
+    from autodj.compose.experiment import Experiment
+    ex = Experiment("hooks", "какой хук", root=str(tmp_path), seed=1)
+    for v in ("x", "y", "z"):
+        f = tmp_path / f"{v}.mp3"; f.write_bytes(b"0"); ex.add(v, str(f), f"idea {v}")
+    try: ex.add("x", str(tmp_path / "x.mp3"), "again"); assert False
+    except AssertionError as e: assert "never overwrite" in str(e)
+    lab = ex.blind(); assert sorted(lab.values()) == ["x", "y", "z"]
+    true = {"y": 0, "x": 1, "z": 2}                                                  # y is really best
+    honest = lambda items, p: "РЕЙТИНГ: " + " > ".join(sorted([L for L, _ in items], key=lambda L: true[lab[L]])) + "\nГИПОТЕЗА: h"
+    r = ex.judge("t", ask=lambda i, p: "**" + honest(i, p).replace("РЕЙТИНГ:", "РЕЙТИНГ:**"), guide_path="/nonexistent.json")
+    assert lab[r["agreed_best"]] == "y" and not r["position_bias_suspect"]          # markdown «**РЕЙТИНГ:**» parsed
+    first = lambda items, p: "РЕЙТИНГ: " + " > ".join(L for L, _ in items)        # always «the first one»
+    r = ex.judge("t", ask=first, guide_path="/nonexistent.json")
+    assert r["agreed_best"] is None and r["position_bias_suspect"]
+    L = [k for k, v in lab.items() if v == "z"][0]
+    assert ex.vote(L, note="лучше") == "z" and Experiment.load(ex.dir).data["chosen"] == "z"
+    assert len(open(tmp_path / "log.jsonl").read().strip().splitlines()) == 3

@@ -18,9 +18,9 @@ def bass_cell(rng, on_kick=False, onsets=(3, 6)):
         if all(b - a >= 2 for a, b in zip(st, st[1:])) and (16 + st[0] - st[-1]) >= 2 and sum(1 for s in st if s % 2) >= 1:
             return st
 
-def house_bass(rng, key, roots_pc_of_bar, bars, lo=28, hi=48, on_kick=False, cell=None):
+def house_bass(rng, key, roots_pc_of_bar, bars, lo=28, hi=48, on_kick=False, cell=None, onsets=(3, 6)):
     """[(step_abs, len_16ths, midi, vel)] over `bars`; roots_pc_of_bar(bar) -> root pitch class of that bar"""
-    cell = cell or bass_cell(rng, on_kick); out = []
+    cell = cell or bass_cell(rng, on_kick, onsets); out = []
     octave_p = float(rng.uniform(.15, .35)); fifth_p = float(rng.uniform(.05, .2))
     def root_midi(pc):
         return next(m for m in range(lo, hi + 1) if m % 12 == pc)       # lowest root in range: octave stays available
