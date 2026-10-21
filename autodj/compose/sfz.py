@@ -192,3 +192,20 @@ class SFZ:
 
 def available():
     return {k: os.path.exists(os.path.join(SFZ_ROOT, v)) for k, v in LIBS.items()}
+
+def oneshot(wav, keycenter=None, release=.12, lokey=0, hikey=127, cache_dir=None):
+    """any one-shot (W.A. bass/pluck/lead shots ...) as a playable SFZ instrument: one region, pitch measured once
+    (pyin) if keycenter is None, then the usual per-sample cents calibration of SFZ()."""
+    cache_dir = cache_dir or os.path.join(SFZ_ROOT, "_oneshots"); os.makedirs(cache_dir, exist_ok=True)
+    name = re.sub(r"\W+", "_", os.path.splitext(os.path.basename(wav))[0]); path = os.path.join(cache_dir, name + ".sfz")
+    if keycenter is None:
+        import json, librosa
+        kc_file = os.path.join(cache_dir, "_keycenters.json"); kcs = json.load(open(kc_file)) if os.path.exists(kc_file) else {}
+        if wav not in kcs:
+            y, s = sf.read(wav, dtype="float32", always_2d=True); y = librosa.resample(y.mean(1)[:int(s * 1.2)], orig_sr=s, target_sr=22050)
+            f0, v, _ = librosa.pyin(y, fmin=30, fmax=1500, sr=22050, frame_length=4096)
+            kcs[wav] = int(round(float(librosa.hz_to_midi(np.nanmedian(f0[v]))))) if np.any(v) else 60
+            json.dump(kcs, open(kc_file, "w"), indent=0)
+        keycenter = kcs[wav]
+    open(path, "w").write(f"<region> sample={wav} lokey={lokey} hikey={hikey} pitch_keycenter={keycenter} ampeg_release={release}\n")
+    return SFZ(path)

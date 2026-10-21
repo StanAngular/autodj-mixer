@@ -78,6 +78,8 @@ def bass_hook(rng, key, chord_of_bar, bars=8, lo=33, hi=52):
         for j, s in enumerate(on):
             m = r + shape[j]
             if not ok(m): m = key.snap(m)
+            if any((m - q) % 12 in (1, 11) for q in pcs) and m % 12 not in pcs:   # rubs with what sounds: nearest chord tone
+                m = _nearest([x for x in range(lo, hi + 1) if x % 12 in pcs], m)
             if m > hi: m -= 12
             ln = min(2, (on[j + 1] if j + 1 < len(on) else 16) - s - 1) or 1
             out.append((16 * b + s, ln, int(m), 108 if s % 4 else 92))

@@ -18,8 +18,10 @@ def bass_cell(rng, on_kick=False, onsets=(3, 6)):
         if all(b - a >= 2 for a, b in zip(st, st[1:])) and (16 + st[0] - st[-1]) >= 2 and sum(1 for s in st if s % 2) >= 1:
             return st
 
-def house_bass(rng, key, roots_pc_of_bar, bars, lo=28, hi=48, on_kick=False, cell=None, onsets=(3, 6)):
-    """[(step_abs, len_16ths, midi, vel)] over `bars`; roots_pc_of_bar(bar) -> root pitch class of that bar"""
+def house_bass(rng, key, roots_pc_of_bar, bars, lo=28, hi=48, on_kick=False, cell=None, onsets=(3, 6), chord_of_bar=None):
+    """[(step_abs, len_16ths, midi, vel)] over `bars`; roots_pc_of_bar(bar) -> root pitch class of that bar.
+    chord_of_bar(bar) -> the pitch classes that really SOUND there (e.g. a fixed stab over a moving bass): every note
+    but the root must then not sit a semitone from them (A under a Gm7 stab rubs with Bb, experiment 3)."""
     cell = cell or bass_cell(rng, on_kick, onsets); out = []
     octave_p = float(rng.uniform(.15, .35)); fifth_p = float(rng.uniform(.05, .2))
     def root_midi(pc):
@@ -44,6 +46,9 @@ def house_bass(rng, key, roots_pc_of_bar, bars, lo=28, hi=48, on_kick=False, cel
                     m = below if below >= lo else above                                       # (not nxt+2: F# is not in A minor)
             elif j and rng.random() < octave_p and r + 12 <= hi: m = r + 12
             elif j and rng.random() < fifth_p and (r + 7) % 12 in key.pcs and r + 7 <= hi: m = r + 7   # m7b5: no perfect 5th
+            if chord_of_bar is not None and m != r:
+                snd = chord_of_bar(b)
+                if any((m - q) % 12 in (1, 11) for q in snd) and m % 12 not in snd: m = r          # fall back to the root
             v = accents(s) + (10 if j == 0 else 0)
             out.append((16 * b + s, ln, int(m), int(min(127, v))))
     return out

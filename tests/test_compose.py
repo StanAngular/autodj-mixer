@@ -632,3 +632,32 @@ def test_held_melody_notes_never_sit_a_semitone_from_the_chord():
                 pcs = cp(s // 16)
                 if l >= 8: assert stable_tone(m % 12, pcs), (tonic, seed, s, m, prog[(s // 16) % 8]["name"])
                 assert not any((m - q) % 12 in (1, 11) for q in pcs) or m % 12 in pcs and l < 8 or stable_tone(m % 12, pcs)
+
+def test_oneshot_plays_any_shot_at_the_asked_pitch(tmp_path):
+    import soundfile as sf
+    from autodj.compose.sfz import oneshot
+    t = np.arange(44100) / 44100; w = tmp_path / "g4.wav"
+    sf.write(w, (np.sin(2 * np.pi * 392.0 * t) * np.exp(-t * 2) * .5).astype(np.float32), 44100)
+    inst = oneshot(str(w), cache_dir=str(tmp_path / "c"))                      # pitch measured: G4 = 67
+    y = inst.render([(0.0, 69, 100, .6)], 1.0)                                  # ask for A4
+    X = np.abs(np.fft.rfft(y[:30000, 0], 30000 * 4)); f = np.fft.rfftfreq(30000 * 4, 1 / 44100)
+    assert abs(f[np.argmax(X)] - 440) < 3
+    assert np.abs(y[int(.75 * 44100):]).max() < .05                             # released after the note
+
+def test_bass_respects_what_really_sounds_over_it():
+    """experiment 3: fixed Gm7 stab over a G|Eb|F|D bass -> the bass's A (5th of D) rubbed with the stab's Bb"""
+    from autodj.compose.harmony import Key
+    from autodj.compose.bass import house_bass
+    from autodj.compose.ideas import bass_hook
+    k = Key("G", "minor"); roots = [7, 7, 3, 5, 2, 2, 3, 5]
+    snd = {7: [7, 10, 2, 5], 3: [3, 7, 10, 2], 5: [5, 7, 10, 2], 2: [2, 5, 7, 10]}; cp = lambda b: snd[roots[b % 8]]
+    rub = lambda m, pcs: m % 12 not in pcs and any((m - q) % 12 in (1, 11) for q in pcs)
+    free = 0
+    for seed in range(30):
+        ev = house_bass(np.random.default_rng(seed), k, lambda b: roots[b % 8], 16, lo=31, hi=50, chord_of_bar=cp, onsets=(5, 6))
+        assert not any(rub(m, cp(s // 16)) for s, l, m, v in ev)
+        bh = bass_hook(np.random.default_rng(seed), k, cp, 16, lo=31, hi=50)["bass"]
+        assert not any(rub(m, cp(s // 16)) for s, l, m, v in bh)
+        plain = house_bass(np.random.default_rng(seed), k, lambda b: roots[b % 8], 16, lo=31, hi=50, onsets=(5, 6))
+        free += any(rub(m, cp(s // 16)) for s, l, m, v in plain)
+    assert free > 0                                                      # without the chord the old rubs do happen
