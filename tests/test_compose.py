@@ -265,3 +265,57 @@ def test_focus_dips_mix_only_while_focus_layer_sounds():
     r = lambda z: np.sqrt(np.mean(z ** 2))
     assert r(trk.mix[a + 5000:b - 5000]) < r(before[a + 5000:b - 5000]) * .7
     assert abs(r(trk.mix[trk.i(1):trk.i(2)]) / r(before[trk.i(1):trk.i(2)]) - 1) < .02
+
+
+# --- P107 stage 3: house harmony ---
+def test_parallel_progression_keeps_one_shape_and_limits_outside_notes():
+    from autodj.compose.harmony import Key, parallel_progression, stab_voicing, SHAPES
+    k = Key("A", "minor"); seen_chromatic = False
+    for seed in range(20):
+        roots = parallel_progression(np.random.default_rng(seed), k, "m9", 4, max_out=1)
+        assert roots[0] == k.tonic and len(roots) == 4 and all(a != b for a, b in zip(roots, roots[1:]))
+        for r in roots: assert sum((r + i) % 12 not in k.pcs for i in SHAPES["m9"]) <= 1
+        seen_chromatic |= any((r + i) % 12 not in k.pcs for r in roots for i in SHAPES["m9"])
+        v = stab_voicing(roots, "m9", 55, 84)
+        assert all([x - c[0] for x in c] == SHAPES["m9"] for c in v)          # identical shape = parallel motion
+        assert all(abs(a[0] - b[0]) <= 8 for a, b in zip(v, v[1:]))           # slides (up to a 5th), never leaps
+        assert 52 <= min(c[0] for c in v) and max(c[-1] for c in v) <= 87      # stays in the register asked for
+    assert seen_chromatic                                                     # the slide does add colour (passes side)
+    for seed in range(10):                                                    # max_out=0 -> strictly diatonic
+        roots = parallel_progression(np.random.default_rng(seed), k, "m7", 4, max_out=0)
+        assert all((r + i) % 12 in k.pcs for r in roots for i in SHAPES["m7"])
+
+def test_shell_is_root_third_seventh_and_pad_is_two_guide_tones():
+    from autodj.compose.harmony import Key, shell, pad_dyad
+    k = Key("D", "dorian"); prev = pv = None
+    for d in (0, 3, 6, 4):
+        c = k.chord(d, 4); v = shell(c, 45, 72, prev)
+        assert len(v) == 3 and v[0] % 12 == c[0] and {x % 12 for x in v} == {c[0], c[1], c[3]}
+        p = pad_dyad(c, 60, 79, pv)
+        assert len(p) == 2 and {x % 12 for x in p} == {c[1], c[3]} and 3 <= p[1] - p[0] <= 11
+        prev, pv = v, p
+    tri = shell(k.chord(0, 3), 45, 72)                                        # triad still works: 1-3-5
+    assert {x % 12 for x in tri} == set(k.chord(0, 3))
+
+
+# --- P107 stage 4: short bass ---
+def test_house_bass_is_short_with_rests_and_leaves_beats_to_kick():
+    from autodj.compose.harmony import Key
+    from autodj.compose.bass import house_bass, bass_cell
+    from autodj.compose.hook import accents
+    k = Key("A", "minor"); roots = [9, 5, 0, 7]; cells = set()
+    for seed in range(30):
+        rng = np.random.default_rng(seed); ev = house_bass(rng, k, lambda b: roots[b % 4], 8)
+        cells.add(tuple(bass_cell(np.random.default_rng(seed))))
+        assert ev and all(1 <= l <= 2 for _, l, _, _ in ev)                              # <= 1/8
+        assert all(b[0] - (a[0] + a[1]) >= 1 for a, b in zip(ev, ev[1:]))               # a rest after every note
+        assert all(s % 4 for s, _, _, _ in ev)                                           # beats belong to the kick
+        assert all(28 <= m <= 48 for _, _, m, _ in ev)
+        assert all(v in (accents(s), accents(s) + 10) for s, _, _, v in ev)              # accent grid
+        for s, _, m, _ in ev:                                                             # root/octave/5th, approach only at bar end
+            r = roots[(s // 16) % 4]
+            assert (m - r) % 12 in (0, 7) or s % 16 >= 12
+        assert len({v for *_, v in ev}) >= 2                                             # not one flat velocity
+    assert len(cells) >= 20                                                              # generated, not a fixed pattern
+    ev = house_bass(np.random.default_rng(1), k, lambda b: 9, 4, on_kick=True, cell=[0, 3, 6, 10, 14])
+    assert any(s % 16 == 0 for s, *_ in ev)                                              # opt-in: may sit on the kick

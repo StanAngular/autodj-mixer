@@ -100,6 +100,60 @@ def strong_to_chord(m, chord_pcs):
         out.append((s, l, n))
     return out
 
+# --- house harmony (P107 stage 3): one chord SHAPE moved in parallel, shell voicings, 2-note pads ------------------
+SHAPES = {"m7": [0, 3, 7, 10], "m9": [0, 3, 7, 10, 14], "m11": [0, 7, 10, 15, 17], "maj7": [0, 4, 7, 11],
+          "maj9": [0, 4, 7, 11, 14], "quartal": [0, 5, 10, 15], "sus7": [0, 5, 7, 10], "add9": [0, 4, 7, 14]}
+
+def parallel_progression(rng, key, shape, n=4, max_out=1):
+    """house/garage move: the SAME chord shape slid onto n roots (the colour comes from the slide, not from diatonic
+    rules). Starts on the tonic; each root keeps at most `max_out` shape tones outside the key, so the stab rubs a
+    little but never fights the melody. Returns [root_pc, ...]."""
+    iv = SHAPES[shape] if isinstance(shape, str) else list(shape)
+    ok = [r for r in range(12) if sum((r + i) % 12 not in key.pcs for i in iv) <= max_out]
+    if key.tonic not in ok: ok.append(key.tonic)
+    out = [key.tonic]
+    while len(out) < n:
+        c = [r for r in ok if r != out[-1] and (len(out) < n - 1 or r != out[0])]
+        w = np.array([3.0 if r in key.pcs else 1.0 for r in c]); out.append(int(rng.choice(c, p=w / w.sum())))
+    return out
+
+def shape_pcs(root_pc, shape):
+    iv = SHAPES[shape] if isinstance(shape, str) else list(shape)
+    return [(root_pc + i) % 12 for i in iv]
+
+def stab_voicing(roots_pc, shape, lo, hi):
+    """place the shape on each root with IDENTICAL intervals (true parallel motion); each root is the one closest
+    to the previous root so the stab slides instead of jumping. Returns [[midi, ...], ...]."""
+    iv = SHAPES[shape] if isinstance(shape, str) else list(shape); span = iv[-1] - iv[0]; mid = (lo + hi - span) / 2
+    opts = [[m for m in range(lo - 12, hi + 1) if m % 12 == r and lo - 12 <= m <= hi - span + 12] for r in roots_pc]
+    def cost(c):                                                    # whole line at once: a greedy walk drifts to the edge
+        steps = [abs(x - y) for x, y in zip(c, c[1:])]
+        return sum(steps) + 4 * sum(max(0, s - 7) for s in steps) + 2 * sum(max(0, lo - m) + max(0, m + span - hi) for m in c) \
+            + .1 * abs(np.mean(c) - mid)
+    best = min(itertools.product(*opts), key=cost)
+    return [[m + i for i in iv] for m in best]
+
+def shell(chord_pcs, lo, hi, prev=None):
+    """shell voicing 1-3-7 (1-3-5 for a triad): root at the bottom, 3rd and 7th above, nothing else. Open (root,
+    7th, 10th) or closed (root, 3rd, 7th), whichever moves least from `prev`."""
+    r, t, top = chord_pcs[0], chord_pcs[1], chord_pcs[3] if len(chord_pcs) > 3 else chord_pcs[2]; best, bc = None, 1e9
+    for b in (m for m in range(lo, hi + 1) if m % 12 == r):
+        for v in ([b, b + (t - r) % 12, b + (top - r) % 12], [b, b + (top - r) % 12, b + 12 + (t - r) % 12]):
+            if v[-1] > hi: continue
+            c = sum(min(abs(a - x) for x in prev) for a in v) if prev else abs(np.mean(v) - (lo + hi) / 2)
+            if c < bc: best, bc = v, c
+    return best or voicing(chord_pcs, lo, hi, prev, 3)
+
+def pad_dyad(chord_pcs, lo, hi, prev=None):
+    """pad under keys/stabs plays only the guide tones (3rd + 7th, or 3rd + 5th), never the full chord"""
+    g = [chord_pcs[1], chord_pcs[3] if len(chord_pcs) > 3 else chord_pcs[2]]; best, bc = None, 1e9
+    for a in (m for m in range(lo, hi + 1) if m % 12 == g[0]):
+        for b in (m for m in range(lo, hi + 1) if m % 12 == g[1]):
+            if not 3 <= abs(a - b) <= 11: continue
+            v = sorted([a, b]); c = sum(min(abs(x - y) for y in prev) for x in v) if prev else abs(np.mean(v) - (lo + hi) / 2)
+            if c < bc: best, bc = v, c
+    return best
+
 
 def clashes(layers, step_s, min_len_s=0.0):
     """layers: {name: [(t, midi, vel, dur), ...]} -> how often notes of DIFFERENT layers sound a minor 2nd / minor 9th
