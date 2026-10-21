@@ -37,10 +37,13 @@ def house_bass(rng, key, roots_pc_of_bar, bars, lo=28, hi=48, on_kick=False, cel
             ln = max(1, ln)
             m = r
             if j == len(st) - 1 and nxt != r and s >= 12:                 # approach into the next root
-                if rng.random() < .15: m = nxt + (1 if rng.random() < .5 else -1)       # chromatic: rare (sounds harsh, critique 10-21)
-                else: m = max(lo, min(hi, key.snap(nxt - 1) if nxt - 1 >= lo else nxt + 2))  # a scale step into the next root
+                semi = [x for x in (nxt - 1, nxt + 1) if x % 12 in key.pcs and lo <= x <= hi]   # a semitone only if it is in the key
+                if semi and rng.random() < .15: m = semi[0]
+                else:                                                                         # a scale step into the next root
+                    below = key.snap(nxt - 1); above = (key.scale_notes(nxt + 1, nxt + 3) or [nxt])[0]
+                    m = below if below >= lo else above                                       # (not nxt+2: F# is not in A minor)
             elif j and rng.random() < octave_p and r + 12 <= hi: m = r + 12
-            elif j and rng.random() < fifth_p and r + 7 <= hi: m = r + 7
+            elif j and rng.random() < fifth_p and (r + 7) % 12 in key.pcs and r + 7 <= hi: m = r + 7   # m7b5: no perfect 5th
             v = accents(s) + (10 if j == 0 else 0)
             out.append((16 * b + s, ln, int(m), int(min(127, v))))
     return out

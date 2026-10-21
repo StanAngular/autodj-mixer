@@ -166,7 +166,8 @@ def rate_clips(clips, question, scales=("живость", "теплота", "с�
             if abs(a - b) <= tol: row[s] = (a + b) / 2; agree += 1
             else: row[s] = None
         scores.append(row)
-    total = [float(np.mean([v for v in r.values() if v is not None])) if any(v is not None for v in r.values()) else None for r in scores]
+    half = (len(scales) + 1) // 2                                            # one lucky scale is not a verdict
+    total = [float(np.mean([v for v in r.values() if v is not None])) if sum(v is not None for v in r.values()) >= half else None for r in scores]
     ok = [(t, i) for i, t in enumerate(total) if t is not None]
     best = max(ok)[1] if ok and (len(ok) == 1 or sorted(ok)[-1][0] - sorted(ok)[-2][0] >= 1.0) else None   # a real margin
     return {"scores": scores, "total": total, "best": best, "agree": agree / total_pairs if total_pairs else 0.0, "order": perm}

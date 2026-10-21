@@ -561,3 +561,16 @@ def test_rate_clips_cancels_position_bias_and_keeps_real_preferences():
     r = rate_clips(["preset.wav", "live.wav", "mid.wav"], ask=biased, seed=1, **q)
     assert r["best"] is None                                                           # «the last one is best» cancels out
     assert r["agree"] < 1.0
+    lucky = lambda files, pr: "\n".join(f"ОТРЫВОК {k + 1}: живость={3 + 3 * k}; теплота=7" for k in range(len(files)))
+    assert rate_clips(["preset.wav", "live.wav", "mid.wav"], ask=lucky, seed=1, **q)["best"] is None   # 1 of 2 scales agree: no verdict
+
+def test_house_bass_never_leaves_the_key():
+    from autodj.compose.harmony import Key, tension_progression
+    from autodj.compose.bass import house_bass
+    for tonic in ("B", "C#", "F#", "A"):
+        k = Key(tonic, "minor")
+        for seed in range(25):
+            prog = tension_progression(np.random.default_rng(seed), k, 1)
+            ev = house_bass(np.random.default_rng(seed), k, lambda b: prog[b % 8]["root"], 32)
+            chord = lambda s: prog[(s // 16) % 8]["pcs"]
+            assert all(m % 12 in k.pcs or m % 12 in chord(s) for s, _, m, _ in ev)   # V7 leading tone allowed as a chord tone
