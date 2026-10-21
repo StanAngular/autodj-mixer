@@ -113,3 +113,17 @@ def autopan(trk, x, period_bars=8, depth=.5, phase=0.0):
 def float_gain(trk, period_bars=16, depth_db=3.0, phase=0.0):
     """slow floating volume (n,1): +-depth_db/2 around 0 dB, for an overlay that breathes instead of sitting still"""
     return (10 ** (depth_db / 2 * np.sin(2 * np.pi * (trk.tt / (period_bars * trk.BAR) + phase)) / 20)).astype(np.float32)[:, None]
+
+def tame(x, crest_db=14.0, sr=44100, hold_ms=30, smooth_ms=4):
+    """keep a spiky layer's peaks within crest_db of its own RMS (step 0, 2026-10-22: pluck stabs / claps / congas
+    peaked 10 dB over the kick after RMS levelling, and the whole track was normalised down by them). Look-ahead gain
+    reduction only around the peaks (never a gain-up); a layer already within the crest passes unchanged."""
+    from scipy.ndimage import minimum_filter1d, uniform_filter1d
+    act = x[np.abs(x).max(1) > 1e-5]
+    if not len(act): return x
+    r = float(np.sqrt((act ** 2).mean())); thr = r * 10 ** (crest_db / 20)
+    if float(np.abs(x).max()) <= thr: return x
+    need = np.minimum(1.0, thr / (np.abs(x).max(1) + 1e-12))
+    h = max(3, int(hold_ms * sr / 1000)); w = max(3, int(smooth_ms * sr / 1000))
+    g = uniform_filter1d(minimum_filter1d(need, h + w), w)                  # min over a wider window, then smooth inside it
+    return (x * g[:, None]).astype(np.float32)

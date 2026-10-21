@@ -684,3 +684,14 @@ def test_autopan_moves_between_ears_keeps_power_and_float_gain_stays_in_range():
     assert abs(20 * np.log10(rms(y) / rms(x))) < .5                               # same power overall
     assert np.allclose(fx.autopan(trk, x, depth=0), x, atol=1e-5)                 # depth 0 = untouched (pass side)
     g = 20 * np.log10(fx.float_gain(trk, 4, 3.0)); assert -1.6 < g.min() < -1.4 and 1.4 < g.max() < 1.6
+
+def test_tame_caps_spiky_peaks_and_leaves_smooth_layers_alone():
+    from autodj.compose import fx
+    from autodj.compose.core import rms
+    sr = 44100; t = np.arange(sr * 2) / sr
+    smooth = np.stack([np.sin(2 * np.pi * 220 * t)] * 2, 1).astype(np.float32) * .2
+    assert np.allclose(fx.tame(smooth, 14.0), smooth)                            # crest 3 dB: untouched
+    spiky = smooth * .05; spiky[sr // 2:sr // 2 + 40] = .9                       # a 25+ dB spike
+    y = fx.tame(spiky, 14.0)
+    a0 = spiky[np.abs(spiky).max(1) > 1e-5]; over = 20 * np.log10(np.abs(y).max() / np.sqrt((a0 ** 2).mean()))
+    assert over < 14.3 and abs(20 * np.log10(rms(y[sr:]) / rms(spiky[sr:]))) < .1    # peak at the cap, body untouched
