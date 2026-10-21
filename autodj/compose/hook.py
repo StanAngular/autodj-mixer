@@ -19,6 +19,21 @@ def rhythm_cell(rng, onsets=(3, 6)):
 def _nearest(cands, x):
     return min(cands, key=lambda c: (abs(c - x), c)) if cands else x
 
+def _tones(pcs, lo, hi):
+    return [x for x in range(lo, hi + 1) if x % 12 in pcs]
+
+def _end(m, pcs, bar, lo, hi):
+    """question (even bar) ends OPEN on the 3rd/5th, answer (odd bar) CLOSED on the root"""
+    return _nearest(_tones(pcs[1:3] if bar % 2 == 0 else pcs[:1], lo, hi), m)
+
+def _refit(ph, chord_pcs_of_bar, lo, hi):
+    """after a repeat/variation under other chords: strong beats -> chord tones, bar endings -> open/closed"""
+    out = [(s, l, _nearest(_tones(chord_pcs_of_bar(s // 16), lo, hi), m) if s % 4 == 0 else m) for s, l, m in ph]
+    for bar in {s // 16 for s, _, _ in out}:
+        j = max(k for k, x in enumerate(out) if x[0] // 16 == bar); s, l, m = out[j]
+        out[j] = (s, l, _end(m, chord_pcs_of_bar(bar), bar, lo, hi))
+    return out
+
 def phrase(rng, key, chord_pcs_of_bar, lo=60, hi=76, cell=None):
     """2 bars: question (bar 0) + answer (bar 1). Returns [(step 0..31, length_16ths, midi)]"""
     cell = cell or rhythm_cell(rng); scale = key.scale_notes(lo, hi); out = []
@@ -28,19 +43,18 @@ def phrase(rng, key, chord_pcs_of_bar, lo=60, hi=76, cell=None):
         for j, s in enumerate(cell):
             f = j / max(1, n - 1)
             target = prev + (2 if f < .6 else -1) if bar == 0 else prev + (-2 if f < .6 else 1)
-            if s % 4 == 0: m = _nearest([x for x in scale if x % 12 in pcs], target)
+            if s % 4 == 0: m = _nearest(_tones(pcs, lo, hi), target)
             else: m = _nearest(scale, target)
             if j == n - 1:
                 root = pcs[0]
-                if bar == 0: m = _nearest([x for x in scale if x % 12 in pcs[1:3]], m)            # open end
-                else: m = _nearest([x for x in scale if x % 12 == root], m)                     # closed on the root
+                m = _end(m, pcs, bar, lo, hi)
             ln = ((cell[j + 1] if j + 1 < n else 16) - s)
             out.append((bar * 16 + s, int(min(ln, 4 if j + 1 < n else 6)), int(m))); prev = m
     span = max(m for _, _, m in out) - min(m for _, _, m in out)
     if span > 17:                                                                               # squeeze range
         mid = (max(m for _, _, m in out) + min(m for _, _, m in out)) / 2
         out = [(s, l, _nearest(scale, m - 12 if m > mid + 8 else m + 12 if m < mid - 8 else m)) for s, l, m in out]
-    return out
+    return _refit(out, chord_pcs_of_bar, lo, hi)                                                 # squeezing may move an ending
 
 def vary(ph, key, kind, rng, lo=60, hi=76):
     """A' = new tail, A'' = pickup into bar 1 / peak moved; the rhythm cell is kept"""
@@ -61,10 +75,9 @@ def eight_bars(rng, key, chord_pcs_of_bar, lo=60, hi=76):
         ph = phrase(rng, key, lambda b, i=i: chord_pcs_of_bar(2 * i + b), lo, hi, cell)
         if i == 0: base = ph
         else:
-            ph = [(s, l, m) for s, l, m in base]                                                 # the SAME phrase returns
-            # keep strong-beat notes on the current chord (chords may differ between repeats)
-            ph = [(s, l, (_nearest([x for x in key.scale_notes(lo, hi) if x % 12 in chord_pcs_of_bar(2 * i + s // 16)], m) if s % 4 == 0 else m)) for s, l, m in ph]
+            ph = list(base)                                                                     # the SAME phrase returns
             if kind: ph = vary(ph, key, kind, rng, lo, hi)
+        ph = _refit(ph, lambda b, i=i: chord_pcs_of_bar(2 * i + b), lo, hi)                     # fit THIS pair of chords
         seq += [(32 * i + s, l, m) for s, l, m in ph]
     return seq
 

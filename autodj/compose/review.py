@@ -39,6 +39,8 @@ def review(mp3, summ, info, meta, out_txt, models=("gemini-3-flash-preview", "ge
                       layers=", ".join(f"{k} {v}" for k, v in info.get("layers_db", {}).items()), high_db=summ["high_db"], sub=round(summ["sub_mean"] * 100),
                       lim=summ["master"]["limiter_max_db"], jump=summ["jump_db"], clash=round(info.get("clash_ratio", 0) * 100, 1),
                       voice=", ".join(f"{t:.0f}" for t, _ in info.get("voice", [])) or "нет")
+    from .teacher import guide_text
+    p = guide_text(meta.get("genre")) + "\n\n" + p                       # same rules as the draft critique (P107 6c)
     uri = _upload(mp3, key)
     body = {"contents": [{"parts": [{"file_data": {"mime_type": "audio/mpeg", "file_uri": uri}}, {"text": p}]}]}
     for m in models:

@@ -349,3 +349,44 @@ def test_breathe_moves_tone_but_keeps_level_and_phrase_send_grows_to_phrase_end(
     z = phrase_send(trk, imp, period_bars=4); wet = z - imp
     e = lambda b: rms(wet[trk.i(b):trk.i(b + 1)])
     assert e(3) > 3 * e(0) + 1e-9 and e(7) > 3 * e(4) + 1e-9                           # send blooms at the phrase end
+
+
+# --- P107 stage 6: Gemini teacher loop ---
+def test_style_guide_dedupes_puts_stas_first_and_parses_rules(tmp_path):
+    from autodj.compose import teacher as T
+    p = str(tmp_path / "g.json")
+    assert T.add_rule("Бас короткий, 1/8", "gemini", path=p)
+    assert not T.add_rule("бас  короткий 1/8!", "gemini", path=p)                    # duplicate (normalised)
+    assert T.add_rule("Без фейдов", "stas", path=p)
+    assert T.add_rule("Техно: бас длиннее", "gemini", genre="techno", path=p)
+    T.add_verdict("demo1", "плохо", "каша", path=p)
+    g = T.guide_text("house", path=p); lines = g.splitlines()
+    assert lines[1].startswith("- [Стас]") and "Без фейдов" in lines[1]               # Стас outranks the teacher
+    assert "Техно" not in g and "Техно" in T.guide_text("techno", path=p)              # genre filter both ways
+    assert "demo1: плохо — каша" in g
+    txt = "1. ...\nПРАВИЛО: хук не длиннее 2 тактов, 3-6 нот\n- ПРАВИЛО: ok\nобычная строка с ПРАВИЛО внутри"
+    assert T.parse_rules(txt) == ["хук не длиннее 2 тактов, 3-6 нот"]
+
+def test_ab_pick_counts_only_consistent_answers():
+    from autodj.compose.teacher import ab_pick
+    likes_a = lambda x, y, p: "чище\nВЫБОР: X" if x == "a.wav" else "чище\nВЫБОР: Y"
+    always_first = lambda x, y, p: "ВЫБОР: X"                                          # order bias = no real preference
+    assert ab_pick("a.wav", "b.wav", "?", ask=likes_a, path="/nonexistent.json") == "a"
+    assert ab_pick("b.wav", "a.wav", "?", ask=likes_a, path="/nonexistent.json") == "b"
+    assert ab_pick("a.wav", "b.wav", "?", ask=always_first, path="/nonexistent.json") == "tie"
+
+def test_hook_endings_follow_slid_chords_in_every_repeat():
+    """regression: Gemini's draft critique caught a question ending on F over Am9; repeats kept the old chord's
+    endings, and chord tones outside the key (slid chords) were never offered"""
+    from autodj.compose.harmony import Key, parallel_progression, shape_pcs
+    from autodj.compose.hook import eight_bars
+    passing = 0
+    for seed in range(40):
+        rng = np.random.default_rng(seed); k = Key("A", "minor"); roots = parallel_progression(rng, k, "m9", 4)
+        cp = lambda b: shape_pcs(roots[(b // 2) % 4], "m9"); h = eight_bars(rng, k, cp, 62, 79)
+        for bar in range(8):
+            n = [x for x in h if x[0] // 16 == bar]; pcs = cp(bar)
+            assert n[-1][2] % 12 in (pcs[1:3] if bar % 2 == 0 else pcs[:1])
+            assert all(m % 12 in pcs for s, _, m in n if s % 4 == 0)
+            passing += sum(1 for s, _, m in n if s % 4 and m % 12 not in pcs)
+    assert passing > 0                                                   # the line still moves through passing tones
