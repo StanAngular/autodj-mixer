@@ -19,19 +19,31 @@ def rhythm_cell(rng, onsets=(3, 6)):
 def _nearest(cands, x):
     return min(cands, key=lambda c: (abs(c - x), c)) if cands else x
 
-def _tones(pcs, lo, hi):
+def _tones(pcs, lo, hi, key=None):
+    """chord tones in range; with a key, the ones inside the key win (a slid chord's outside tone only if nothing else)"""
+    if key is not None and any(p in key.pcs for p in pcs): pcs = [p for p in pcs if p in key.pcs]
     return [x for x in range(lo, hi + 1) if x % 12 in pcs]
 
-def _end(m, pcs, bar, lo, hi):
+def _end(m, pcs, bar, lo, hi, key=None):
     """question (even bar) ends OPEN on the 3rd/5th, answer (odd bar) CLOSED on the root"""
-    return _nearest(_tones(pcs[1:3] if bar % 2 == 0 else pcs[:1], lo, hi), m)
+    return _nearest(_tones(pcs[1:3] if bar % 2 == 0 else pcs[:1], lo, hi, key), m)
 
-def _refit(ph, chord_pcs_of_bar, lo, hi):
+def _unrub(m, l, pcs, lo, hi, key=None):
+    """a passing note that is HELD (>= 2 sixteenths) must not sit a semitone from a chord tone: over stabs/pads that
+    is the m2/m9 rub (P107 demo: stabs+hook clashed in 15% of beats). Short (1/16) passing notes stay free."""
+    if l < 2 or m % 12 in pcs or not any((m - p) % 12 in (1, 11) for p in pcs): return m
+    ok = [x for x in range(lo, hi + 1) if (key is None or x % 12 in key.pcs or x % 12 in pcs)
+          and (x % 12 in pcs or not any((x - p) % 12 in (1, 11) for p in pcs))]
+    inkey = [x for x in ok if key is None or x % 12 in key.pcs]                # a slid chord's outside tone: last resort
+    return _nearest(inkey or ok, m)
+
+def _refit(ph, chord_pcs_of_bar, lo, hi, key=None):
     """after a repeat/variation under other chords: strong beats -> chord tones, bar endings -> open/closed"""
-    out = [(s, l, _nearest(_tones(chord_pcs_of_bar(s // 16), lo, hi), m) if s % 4 == 0 else m) for s, l, m in ph]
+    out = [(s, l, _nearest(_tones(chord_pcs_of_bar(s // 16), lo, hi, key), m) if s % 4 == 0 else _unrub(m, l, chord_pcs_of_bar(s // 16), lo, hi, key))
+           for s, l, m in ph]
     for bar in {s // 16 for s, _, _ in out}:
         j = max(k for k, x in enumerate(out) if x[0] // 16 == bar); s, l, m = out[j]
-        out[j] = (s, l, _end(m, chord_pcs_of_bar(bar), bar, lo, hi))
+        out[j] = (s, l, _end(m, chord_pcs_of_bar(bar), bar, lo, hi, key))
     return out
 
 def phrase(rng, key, chord_pcs_of_bar, lo=60, hi=76, cell=None):
@@ -43,18 +55,18 @@ def phrase(rng, key, chord_pcs_of_bar, lo=60, hi=76, cell=None):
         for j, s in enumerate(cell):
             f = j / max(1, n - 1)
             target = prev + (2 if f < .6 else -1) if bar == 0 else prev + (-2 if f < .6 else 1)
-            if s % 4 == 0: m = _nearest(_tones(pcs, lo, hi), target)
+            if s % 4 == 0: m = _nearest(_tones(pcs, lo, hi, key), target)
             else: m = _nearest(scale, target)
             if j == n - 1:
                 root = pcs[0]
-                m = _end(m, pcs, bar, lo, hi)
+                m = _end(m, pcs, bar, lo, hi, key)
             ln = ((cell[j + 1] if j + 1 < n else 16) - s)
             out.append((bar * 16 + s, int(min(ln, 4 if j + 1 < n else 6)), int(m))); prev = m
     span = max(m for _, _, m in out) - min(m for _, _, m in out)
     if span > 17:                                                                               # squeeze range
         mid = (max(m for _, _, m in out) + min(m for _, _, m in out)) / 2
         out = [(s, l, _nearest(scale, m - 12 if m > mid + 8 else m + 12 if m < mid - 8 else m)) for s, l, m in out]
-    return _refit(out, chord_pcs_of_bar, lo, hi)                                                 # squeezing may move an ending
+    return _refit(out, chord_pcs_of_bar, lo, hi, key)                                                 # squeezing may move an ending
 
 def vary(ph, key, kind, rng, lo=60, hi=76):
     """A' = new tail, A'' = pickup into bar 1 / peak moved; the rhythm cell is kept"""
@@ -77,7 +89,7 @@ def eight_bars(rng, key, chord_pcs_of_bar, lo=60, hi=76):
         else:
             ph = list(base)                                                                     # the SAME phrase returns
             if kind: ph = vary(ph, key, kind, rng, lo, hi)
-        ph = _refit(ph, lambda b, i=i: chord_pcs_of_bar(2 * i + b), lo, hi)                     # fit THIS pair of chords
+        ph = _refit(ph, lambda b, i=i: chord_pcs_of_bar(2 * i + b), lo, hi, key)                     # fit THIS pair of chords
         seq += [(32 * i + s, l, m) for s, l, m in ph]
     return seq
 

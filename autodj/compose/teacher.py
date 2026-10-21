@@ -21,12 +21,21 @@ def save(g, path=None):
     p = path or GUIDE; tmp = p + ".tmp"
     json.dump(g, open(tmp, "w"), ensure_ascii=False, indent=1); os.replace(tmp, p)
 
-def add_rule(text, source="gemini", genre="*", path=None):
-    """dedupe by normalised text; returns True if new"""
+def add_rule(text, source="gemini", genre="*", path=None, status=None):
+    """dedupe by normalised text; returns True if new. A rule Gemini invents in a critique starts as "proposed"
+    (the 2026-10-21 critique also invented rules like «each layer's release twice shorter»); "confirmed" after a
+    check or a listening test; "rejected" rules stay in the file (so they are not re-added) but never reach a prompt."""
     g = load(path); n = _norm(text)
     if not n or any(_norm(r["text"]) == n for r in g["rules"]): return False
-    g["rules"].append({"text": text.strip(), "source": source, "genre": genre, "added": datetime.date.today().isoformat()}); save(g, path)
+    g["rules"].append({"text": text.strip(), "source": source, "genre": genre, "added": datetime.date.today().isoformat(),
+                       "status": status or ("confirmed" if source == "stas" else "proposed")}); save(g, path)
     return True
+
+def set_status(substr, status, path=None):
+    g = load(path); n = 0
+    for r in g["rules"]:
+        if _norm(substr) in _norm(r["text"]): r["status"] = status; n += 1
+    save(g, path); return n
 
 def add_verdict(track, verdict, note="", who="stas", path=None):
     g = load(path); g["verdicts"].append({"track": track, "who": who, "verdict": verdict, "note": note,
@@ -35,8 +44,10 @@ def add_verdict(track, verdict, note="", who="stas", path=None):
 def guide_text(genre=None, path=None, max_rules=40, max_verdicts=8):
     """rules for the prompt: Стас first, then Gemini; genre-specific + general"""
     g = load(path); ok = lambda r: r.get("genre", "*") in ("*", genre) or genre is None
-    rs = sorted([r for r in g["rules"] if ok(r)], key=lambda r: r["source"] != "stas")[:max_rules]
-    out = ["ПРАВИЛА (сначала от слушателя-заказчика, они главнее):"] + [f"- [{'Стас' if r['source'] == 'stas' else 'учитель'}] {r['text']}" for r in rs]
+    st = lambda r: r.get("status", "confirmed")
+    rs = sorted([r for r in g["rules"] if ok(r) and st(r) != "rejected"], key=lambda r: (r["source"] != "stas", st(r) == "proposed"))[:max_rules]
+    tag = lambda r: "Стас" if r["source"] == "stas" else "учитель" if st(r) == "confirmed" else "учитель, не проверено"
+    out = ["ПРАВИЛА (сначала от слушателя-заказчика, они главнее):"] + [f"- [{tag(r)}] {r['text']}" for r in rs]
     vs = [v for v in g["verdicts"] if v["who"] == "stas"][-max_verdicts:]
     if vs: out += ["ОТЗЫВЫ ЗАКАЗЧИКА на прошлые треки:"] + [f"- {v['track']}: {v['verdict']}{' — ' + v['note'] if v['note'] else ''}" for v in vs]
     return "\n".join(out)

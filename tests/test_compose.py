@@ -390,3 +390,31 @@ def test_hook_endings_follow_slid_chords_in_every_repeat():
             assert all(m % 12 in pcs for s, _, m in n if s % 4 == 0)
             passing += sum(1 for s, _, m in n if s % 4 and m % 12 not in pcs)
     assert passing > 0                                                   # the line still moves through passing tones
+
+def test_guide_hides_rejected_marks_proposed_and_hook_prefers_in_key_chord_tones(tmp_path):
+    from autodj.compose import teacher as T
+    from autodj.compose.harmony import Key, thin, SHAPES
+    from autodj.compose.hook import _tones
+    p = str(tmp_path / "g.json")
+    T.add_rule("выдуманное правило про релизы", path=p); T.add_rule("полезное правило", path=p); T.add_rule("правило Стаса", "stas", path=p)
+    assert T.set_status("выдуманное", "rejected", path=p) == 1
+    g = T.guide_text(path=p)
+    assert "выдуманное" not in g and "[учитель, не проверено] полезное" in g and "[Стас] правило Стаса" in g
+    assert not T.add_rule("Выдуманное правило про релизы!", path=p)              # a rejected rule is not re-learned
+    k = Key("D", "minor")
+    assert {x % 12 for x in _tones([0, 3, 7, 10, 2], 60, 72, k)} == {0, 7, 10, 2}  # Cm9 over D minor: Eb only as last resort
+    assert {x % 12 for x in _tones([3], 60, 72, k)} == {3}                         # ...and still available if it is all there is
+    assert thin("m9") == [0, 3, 10, 14] and thin("m7") == SHAPES["m7"]
+
+def test_held_passing_notes_do_not_rub_but_short_ones_stay_free():
+    from autodj.compose.harmony import Key, parallel_progression, shape_pcs
+    from autodj.compose.hook import eight_bars, _unrub
+    k = Key("D", "minor"); cm9 = shape_pcs(0, "m9")                          # C Eb G Bb D
+    assert _unrub(61, 1, cm9, 55, 80, k) == 61                              # 1/16 passing C# stays (free side)
+    assert _unrub(64, 2, cm9, 55, 80, k) in (62, 65)                        # held E (a semitone over Eb) moves
+    assert _unrub(65, 4, cm9, 55, 80, k) == 65                              # held F: a tension, no semitone -> kept
+    for seed in range(30):
+        rng = np.random.default_rng(seed); roots = parallel_progression(rng, k, "m9", 4); cp = lambda b: shape_pcs(roots[(b // 2) % 4], "m9")
+        for s, l, m in eight_bars(rng, k, cp, 62, 79):
+            pcs = cp(s // 16)
+            if l >= 2: assert m % 12 in pcs or not any((m - p) % 12 in (1, 11) for p in pcs)

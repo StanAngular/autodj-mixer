@@ -121,6 +121,11 @@ def shape_pcs(root_pc, shape):
     iv = SHAPES[shape] if isinstance(shape, str) else list(shape)
     return [(root_pc + i) % 12 for i in iv]
 
+def thin(shape):
+    """a stab of 5+ notes is a cluster (Gemini draft critique): drop the 5th, keep 1-3-7-9(-11)"""
+    iv = SHAPES[shape] if isinstance(shape, str) else list(shape)
+    return [i for i in iv if i % 12 != 7] if len(iv) > 4 and 7 in iv else iv
+
 def stab_voicing(roots_pc, shape, lo, hi):
     """place the shape on each root with IDENTICAL intervals (true parallel motion); each root is the one closest
     to the previous root so the stab slides instead of jumping. Returns [[midi, ...], ...]."""
