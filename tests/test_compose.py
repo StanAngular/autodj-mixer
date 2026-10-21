@@ -511,3 +511,53 @@ def test_pad_dyad_exists_for_every_quality_and_root():
     for q in QUALITY:
         for r in range(12):
             d = pad_dyad(chord_of(r, q), 65, 84); assert d and len(d) == 2 and {x % 12 for x in d} <= set(chord_of(r, q))
+
+
+# --- P108: SFZ player + «оживление» ---
+def test_sfz_parser_notes_includes_defines_and_cc_conditions(tmp_path):
+    import soundfile as sf
+    from autodj.compose.sfz import SFZ, note_num, parse
+    assert note_num("C4") == 60 and note_num("A0") == 21 and note_num("F#3") == 54 and note_num("Bb1") == 34 and note_num("62") == 62
+    t = np.arange(44100) / 44100; sf.write(tmp_path / "a.wav", (np.sin(2 * np.pi * 440 * t) * .5).astype(np.float32), 44100)
+    (tmp_path / "inc.sfz").write_text("<region> sample=a.wav lokey=60 hikey=72 pitch_keycenter=$KC seq_length=2 seq_position=1\n"
+                                      "<region> sample=a.wav lokey=60 hikey=72 pitch_keycenter=$KC seq_length=2 seq_position=2 volume=-6\n")
+    (tmp_path / "i.sfz").write_text('<control> set_cc100=127\n#define $KC 69\n// comment\n<group> locc100=64\n#include "inc.sfz"\n'
+                                    '<group> hicc100=10\n<region> sample=a.wav lokey=0 hikey=127 pitch_keycenter=69\n')
+    s = SFZ(str(tmp_path / "i.sfz"), tune=False)
+    assert len(s.regions) == 2                                                  # the hicc100=10 group is off (cc100=127)
+    assert all(r["_kc"] == 69 for r in s.regions)                               # #define reached the included file
+    assert len(SFZ(str(tmp_path / "i.sfz"), cc={100: 0}, tune=False).regions) == 1   # ...and the other side passes
+    a, b = s.pick(64, 90), s.pick(64, 90)
+    assert len(a) == len(b) == 1 and a[0] is not b[0]                           # round robin rotates
+    assert s.pick(50, 90) == []                                                 # outside the key range: silent
+    y = s.render([(0.0, 72, 100, .5)], 1.0); X = np.abs(np.fft.rfft(y[:22050, 0], 22050 * 8)); f = np.fft.rfftfreq(22050 * 8, 1 / 44100)
+    assert abs(f[np.argmax(X)] - 523.25) < 1.5                                  # 3 semitones above the key centre
+
+def test_drift_wanders_a_few_cents_and_room_is_shared():
+    from autodj.compose.alive import drift, Room, mechanics
+    from autodj.compose.core import Track, rms
+    sr = 44100; t = np.arange(sr * 4) / sr; x = np.stack([np.sin(2 * np.pi * 440 * t)] * 2, 1).astype(np.float32) * .5
+    y = drift(x, sr, cents=6, seed=1)
+    def f0(seg):
+        X = np.abs(np.fft.rfft(seg * np.hanning(len(seg)), len(seg) * 8)); return np.fft.rfftfreq(len(seg) * 8, 1 / sr)[np.argmax(X)]
+    c = [1200 * np.log2(f0(y[i:i + 8192, 0]) / 440) for i in range(4410, len(y) - 8192, 8192)]
+    assert 1.5 < max(np.abs(c)) < 12                                            # it moves, but only a few cents
+    assert abs(20 * np.log10(rms(y) / rms(x))) < .3                              # level untouched
+    assert np.allclose(drift(x, sr, cents=0), x, atol=1e-4)                     # 0 cents = transparent (pass side)
+    trk = Track(120, 4); room = Room(trk, seed=3); a = trk.buf(); a[1000] = 1; room.send(a, .3); room.send(a * 0, .3)
+    w = room.render(); assert np.abs(w[:1000]).max() < 1e-6 and np.abs(w[2000:44100]).max() > 0   # causal tail after the hit
+    m = mechanics([(0.5, 60, 100, .5)], 2.0, ref=x[:88200])
+    assert np.abs(m[:int(.49 * sr)]).max() == 0 and np.abs(m[int(.5 * sr):int(.52 * sr)]).max() > 0
+    assert -33 < 20 * np.log10(rms(m) / rms(x[:88200])) < -27                    # quiet: about -30 dB under the instrument
+
+def test_rate_clips_cancels_position_bias_and_keeps_real_preferences():
+    from autodj.compose.teacher import rate_clips
+    q = dict(question="?", path="/nonexistent.json", scales=("живость", "теплота"))
+    real = {"live.wav": 8, "preset.wav": 3, "mid.wav": 5}
+    honest = lambda files, pr: "\n".join(f"ОТРЫВОК {k + 1}: живость={real[f]}; теплота={real[f]}" for k, f in enumerate(files))
+    r = rate_clips(["preset.wav", "live.wav", "mid.wav"], ask=honest, seed=1, **q)
+    assert r["best"] == 1 and r["agree"] == 1.0 and r["total"][1] == 8               # a real preference survives
+    biased = lambda files, pr: "\n".join(f"ОТРЫВОК {k + 1}: живость={3 + 3 * k}; теплота={3 + 3 * k}" for k in range(len(files)))
+    r = rate_clips(["preset.wav", "live.wav", "mid.wav"], ask=biased, seed=1, **q)
+    assert r["best"] is None                                                           # «the last one is best» cancels out
+    assert r["agree"] < 1.0

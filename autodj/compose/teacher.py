@@ -6,6 +6,7 @@
  (d) every rule from Gemini and every verdict from Стас lands in style_guide.json and is prepended to all prompts.
 Стас's rules and verdicts outrank Gemini's: they are listed first and are never replaced by a Gemini rule."""
 import datetime, json, os, re, time, urllib.request
+import numpy as np
 
 GUIDE = os.environ.get("AUTODJ_STYLE_GUIDE", os.path.join(os.path.dirname(__file__), "style_guide.json"))
 MODELS = ("gemini-3-flash-preview", "gemini-2.5-flash")
@@ -120,3 +121,52 @@ def ab_pick(a, b, question, genre=None, path=None, ask=None):
     r1 = pick(ask(a, b, p)); r2 = pick(ask(b, a, p))
     w1 = {"X": "a", "Y": "b"}.get(r1); w2 = {"X": "b", "Y": "a"}.get(r2)
     return w1 if w1 and w1 == w2 else "tie"
+
+# ---------------------------------------------------------------- P108: short-clip ratings with order swap
+RATE = """Оцени короткие звуковые отрывки (каждый 4-8 секунд) для трека. Задача: {question}
+{guide}
+Порядок отрывков случайный, номер ничего не значит. Оцени КАЖДЫЙ отрывок отдельно по шкалам от 1 до 10:
+{scales}
+Ответь строго, по одной строке на отрывок, в порядке прослушивания:
+ОТРЫВОК 1: {fmt}
+ОТРЫВОК 2: ...
+Потом одну строку: что именно в лучшем отрывке звучит лучше."""
+SCALES = {"живость": "звучит как сыгранный/записанный инструмент, а не как пресет (1 = пластик, 10 = живая запись)",
+          "теплота": "мягкость, приятная сатурация, без резкого верха",
+          "современность": "звучит как звук 2020-х в этом жанре, а не как 90-е/2010-е",
+          "сочетание": "сочетается с остальными звуками отрывка (одна комната, не выпирает)"}
+
+def _parse_rates(text, n, scales):
+    out = {}
+    for k, body in re.findall(r"ОТРЫВОК\s*(\d+)\s*:\s*([^\n]+)", text):
+        k = int(k) - 1
+        if 0 <= k < n: out[k] = {s: int(v) for s, v in re.findall(r"([а-яё]+)\s*=\s*(\d+)", body.lower()) if s in scales}
+    return out
+
+def rate_clips(clips, question, scales=("живость", "теплота", "современность", "сочетание"), genre=None, path=None, ask=None, seed=None, tol=2):
+    """clips: list of audio paths (4-8 s). Asked twice: a random order, then the REVERSED order. A score counts only if
+    both rounds agree within `tol` (Gemini prefers positions in A/B; rotation cancels that). Returns
+    {"scores": [{scale: mean or None}], "total": [mean of reliable scales or None], "best": index or None, "agree": share}."""
+    rng = np.random.default_rng(seed); n = len(clips); perm = [int(i) for i in rng.permutation(n)]
+    p = RATE.format(question=question, guide=guide_text(genre, path), scales="\n".join(f"- {s}: {SCALES.get(s, '')}" for s in scales),
+                    fmt="; ".join(f"{s}=N" for s in scales))
+    ask = ask or (lambda files, pr: _call([_audio_part(f) for f in files] + [{"text": pr}])[1])
+    rounds = []
+    sh = max(1, n // 2); second = perm[sh:] + perm[:sh]                      # every clip moves to ANOTHER position
+    for order in (perm, second):                                            # (plain reversal keeps the middle one put)
+        got = _parse_rates(ask([clips[i] for i in order], p), n, scales)
+        rounds.append({order[k]: v for k, v in got.items()})
+    scores, agree, total_pairs = [], 0, 0
+    for i in range(n):
+        row = {}
+        for s in scales:
+            a, b = rounds[0].get(i, {}).get(s), rounds[1].get(i, {}).get(s)
+            if a is None or b is None: row[s] = None; continue
+            total_pairs += 1
+            if abs(a - b) <= tol: row[s] = (a + b) / 2; agree += 1
+            else: row[s] = None
+        scores.append(row)
+    total = [float(np.mean([v for v in r.values() if v is not None])) if any(v is not None for v in r.values()) else None for r in scores]
+    ok = [(t, i) for i, t in enumerate(total) if t is not None]
+    best = max(ok)[1] if ok and (len(ok) == 1 or sorted(ok)[-1][0] - sorted(ok)[-2][0] >= 1.0) else None   # a real margin
+    return {"scores": scores, "total": total, "best": best, "agree": agree / total_pairs if total_pairs else 0.0, "order": perm}
