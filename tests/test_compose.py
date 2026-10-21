@@ -661,3 +661,14 @@ def test_bass_respects_what_really_sounds_over_it():
         plain = house_bass(np.random.default_rng(seed), k, lambda b: roots[b % 8], 16, lo=31, hi=50, onsets=(5, 6))
         free += any(rub(m, cp(s // 16)) for s, l, m, v in plain)
     assert free > 0                                                      # without the chord the old rubs do happen
+
+def test_fader_dip_only_hits_the_last_beat_and_swell_grows():
+    from autodj.compose import fx
+    from autodj.compose.core import Track
+    trk = Track(120, 4).sections([(0, 4, "a", {})]); trk.mix[:] = .5
+    fx.fader_dip(trk, 2, beats=1)
+    beat = trk.BEAT; i = trk.i(2)
+    assert np.abs(trk.mix[i - beat // 2:i - 100]).max() < .5 * 10 ** (-25 / 20)     # the beat before bar 2 is down
+    assert np.allclose(trk.mix[:i - beat - 10], .5) and np.allclose(trk.mix[i + 400:], .5)   # everything else untouched
+    s = fx.swell(trk, 1, 3)
+    assert s[trk.i(.5)] == 0 and s[trk.i(3.5)] == 1 and 0 < s[trk.i(2)] < .5         # silent, then accelerating, then full

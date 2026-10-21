@@ -89,3 +89,17 @@ def vocoder(mod, carrier, sr=44100, n_fft=2048, hop=512, smooth_bins=12):
     Y = C / env(C) * env(M)
     y = librosa.istft(Y, hop_length=hop, length=len(mm)).astype(np.float32)
     return np.stack([y, y], 1)
+
+def fader_dip(trk, bar, beats=1, depth_db=-30.0, down_ms=50, up_ms=4):
+    """DJ fader trick (Стас 2026-10-21: «крутони громкость вниз и потом вверх на бит»): the whole mix drops on the last
+    `beats` before `bar` (fast pull-down) and slams back exactly on the downbeat of `bar`."""
+    i1 = trk.i(bar); i0 = i1 - beats * trk.BEAT; g = 10 ** (depth_db / 20); d = int(down_ms * trk.sr / 1000); u = int(up_ms * trk.sr / 1000)
+    env = np.full(i1 - i0, g, np.float32); env[:d] = np.linspace(1, g, d) ** 2 if d else g
+    trk.mix[i0:i1] *= env[:, None]
+    if u: trk.mix[i1:i1 + u] *= np.linspace(g, 1, u)[:, None]
+
+def swell(trk, a, b, power=2.0, floor=0.0):
+    """per-sample gain (n,1): 0 before bar a, rising (accelerating, power>1) to 1 at bar b, 1 after — a layer that
+    grows in instead of switching on"""
+    x = np.clip((trk.tt / trk.BAR - a) / max(1e-9, b - a), 0, 1)
+    return (floor + (1 - floor) * x ** power).astype(np.float32)[:, None]
