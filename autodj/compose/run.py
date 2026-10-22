@@ -3,7 +3,7 @@
 A score is a .py file with  build(seed) -> Track  (and optional META = {"title":..., "target":..., "gates": {...}}).
 Pipeline: render slot -> build -> bus wav -> premaster -> warm master -> checks/gates -> ONE automatic master-side fix
 (top shelf / low shelf / lower target) -> re-check -> summary JSON (+ registry line, + Telegram if --send)."""
-import argparse, datetime, getpass, importlib.util, json, os, sys, time
+import argparse, datetime, getpass, importlib.util, json, os, re, sys, time
 from .lock import render_slot
 from .master import premaster, warm
 from .checks import analyze, gates
@@ -14,6 +14,23 @@ def load_score(path):
     spec = importlib.util.spec_from_file_location("score", path); mod = importlib.util.module_from_spec(spec)
     sys.path.insert(0, os.path.dirname(os.path.abspath(path))); spec.loader.exec_module(mod); return mod
 
+ARTIST = os.environ.get("AUTODJ_ARTIST", "StanPo")                     # P111, Стас 2026-10-23: «автор StanPo у всех»
+
+def clean_title(title):
+    """P111: titles are «Name (style)», the artist goes to the performer field / ID3 tag, never into the title"""
+    t = re.sub(r"^\s*StanPo\s*[-–—:]\s*", "", title or "", flags=re.I).strip()
+    return t or (title or "")
+
+def tag_mp3(path, title, genre=""):
+    """write ID3 artist/title/genre in place (stream copy, no re-encode)"""
+    import subprocess, tempfile
+    tmp = tempfile.mktemp(suffix=".mp3", dir=os.path.dirname(os.path.abspath(path)))
+    r = subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", path, "-c", "copy", "-map_metadata", "-1", "-metadata", f"title={title}",
+                        "-metadata", f"artist={ARTIST}", "-metadata", f"genre={genre}", tmp], capture_output=True)
+    if r.returncode == 0: os.replace(tmp, path); return True
+    if os.path.exists(tmp): os.remove(tmp)
+    return False
+
 def send_telegram(path, title):
     import urllib.request, uuid
     tok, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("ALLOWED_CHAT_ID")
@@ -21,7 +38,7 @@ def send_telegram(path, title):
     b = uuid.uuid4().hex; data = open(path, "rb").read()
     body = b"".join([f"--{b}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{chat}\r\n".encode(),
                      f"--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\n{title}\r\n".encode(),
-                     f"--{b}\r\nContent-Disposition: form-data; name=\"performer\"\r\n\r\nКлод\r\n".encode(),
+                     f"--{b}\r\nContent-Disposition: form-data; name=\"performer\"\r\n\r\n{ARTIST}\r\n".encode(),
                      f"--{b}\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"{os.path.basename(path)}\"\r\nContent-Type: audio/mpeg\r\n\r\n".encode(),
                      data, f"\r\n--{b}--\r\n".encode()])
     req = urllib.request.Request(f"https://api.telegram.org/bot{tok}/sendAudio", data=body, headers={"Content-Type": f"multipart/form-data; boundary={b}"})
@@ -46,7 +63,7 @@ def main(argv=None):
     a = ap.parse_args(argv); t0 = time.time()
     mod = load_score(a.score); meta = getattr(mod, "META", {}); name = a.name or os.path.splitext(os.path.basename(a.score))[0]
     outdir = a.outdir or os.path.join(os.path.dirname(os.path.abspath(a.score)), "out"); os.makedirs(outdir, exist_ok=True)
-    target = a.target if a.target is not None else meta.get("target", -14.0); title = a.title or meta.get("title", name)
+    target = a.target if a.target is not None else meta.get("target", -14.0); title = clean_title(a.title or meta.get("title", name))
     raw, pre, mp3 = (os.path.join(outdir, f"{name}{s}") for s in ("_raw.wav", "_pre.wav", ".mp3"))
     with render_slot() as slot:
         if a.seed is None:                                                   # Стас 2026-10-22: the same seed only for variations of
@@ -69,6 +86,7 @@ def main(argv=None):
             "sections": [[s["name"], s["rms"], round(s["sub"] * 100)] for s in met["sections"]],
             "auto_fixed": fixed, "problems": [m for _, m in bad], "render_min": round((time.time() - t0) / 60, 1)}
     summ["clash_ratio"] = info.get("clash_ratio"); summ["clash_pairs"] = info.get("clash_pairs")
+    summ["tagged"] = tag_mp3(mp3, title, meta.get("genre", ""))
     if a.review:
         from .review import review
         summ["review"] = review(mp3, summ, info, meta, os.path.join(outdir, f"{name}.review.txt"))

@@ -30,7 +30,7 @@ def _upload(path, key):
         time.sleep(3); f = json.load(urllib.request.urlopen(f"https://generativelanguage.googleapis.com/v1beta/{f['name']}?key={key}"))
     return f["uri"]
 
-def review(mp3, summ, info, meta, out_txt, models=("gemini-3-flash-preview", "gemini-2.5-flash")):
+def review(mp3, summ, info, meta, out_txt, models=("gemini-3.8-flash", "gemini-3-flash-preview", "gemini-2.5-flash")):
     key = os.environ.get("GOOGLE_API_KEY")
     if not key: return {"error": "no GOOGLE_API_KEY"}
     bar = 240 / summ["bpm"]

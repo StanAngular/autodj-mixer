@@ -9,7 +9,7 @@ import datetime, json, os, re, time, urllib.request
 import numpy as np
 
 GUIDE = os.environ.get("AUTODJ_STYLE_GUIDE", os.path.join(os.path.dirname(__file__), "style_guide.json"))
-MODELS = ("gemini-3-flash-preview", "gemini-2.5-flash")
+MODELS = ("gemini-3.8-flash", "gemini-3-flash-preview", "gemini-2.5-flash")   # P112: 3.8 first (test 2026-10-23: 3-flash-preview invented a structure)
 
 def _norm(s):
     return re.sub(r"[^\wа-яё]+", " ", s.lower()).strip()

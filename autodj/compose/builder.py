@@ -121,7 +121,7 @@ def build_concept(name, seed, **override):
     # ---- bass
     BS = oneshot(c["bass"], release=.05)
     if c["hook"] == "bass_hook":
-        bl = fresh_hook(name, c, h, seed, lambda g: bass_hook(g, key, cp, NB, lo=33, hi=48)["bass"])
+        bl = fresh_hook(name, c, "bass_hook", seed, lambda g: bass_hook(g, key, cp, NB, lo=33, hi=48)["bass"])   # P110: `h` was not set yet here
     else:
         bl = house_bass(np.random.default_rng(seed + 1), key, lambda b: roots[b % 8], NB, lo=29, hi=45, onsets=(4, 6), chord_of_bar=cp)   # shot stays near G1
     trk.log_notes("bass", ev(bl))

@@ -718,3 +718,50 @@ def test_builder_fresh_hook_avoids_another_tracks_rhythm_unless_asked(tmp_path, 
     assert fp(B.fresh_hook("track_one", {}, "riff", 5, gen)) == fp(a)        # the same track re-renders identically
     c = B.fresh_hook("track_three", {"reuse_hook": True, "seed_salt": B._zlib.crc32(b"track_one") % 100000}, "riff", 5, gen)
     assert fp(c) == fp(a)                                                    # explicit request: reuse is allowed
+
+# ---- P110 / P111 / P112 (2026-10-23)
+def test_builder_bass_hook_concept_builds_and_other_hooks_still_build(tmp_path, monkeypatch):
+    """P110: a bass_hook concept crashed with UnboundLocalError (`h` used before it was set). Both sides: it builds now and
+    registers its rhythm under bass_hook; a non-bass concept still builds as before."""
+    from autodj.compose import builder as B
+    monkeypatch.setattr(B, "USED", str(tmp_path / "used.json"))
+    sec = [(0, 8, "A", dict(kick=1, hats=1, bass=1, hook=1))]
+    t = B.build_concept("bass_groove", 5, bars=8, sections=sec, pulls=[])
+    assert t.notes.get("bass") and np.isfinite(t.mix).all()
+    reg = json.load(open(tmp_path / "used.json")); assert any(k.startswith("bass_hook|") for k in reg)
+    t2 = B.build_concept("lead_riff", 5, bars=8, sections=sec, pulls=[], dip=False)
+    assert t2.notes.get("hook") and any(k.startswith("lead_riff|") for k in json.load(open(tmp_path / "used.json")))
+
+def test_clean_title_strips_artist_but_keeps_real_titles():
+    from autodj.compose.run import clean_title
+    assert clean_title("StanPo - Gated Depths (deep techno)") == "Gated Depths (deep techno)"
+    assert clean_title("StanPo – Shimmer in the Deep") == "Shimmer in the Deep"
+    assert clean_title("Gated Depths (deep techno)") == "Gated Depths (deep techno)"
+    assert clean_title("StanPolis Lights (house)") == "StanPolis Lights (house)"            # a word, not the artist prefix
+
+def test_send_telegram_performer_is_stanpo(tmp_path, monkeypatch):
+    import io, autodj.compose.run as R
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "x"); monkeypatch.setenv("ALLOWED_CHAT_ID", "1"); got = {}
+    def fake(req, timeout=0): got["body"] = req.data; return io.BytesIO(b'{"ok": true}')
+    import urllib.request; monkeypatch.setattr(urllib.request, "urlopen", fake)
+    p = tmp_path / "a.mp3"; p.write_bytes(b"ID3")
+    assert R.send_telegram(str(p), "Gated Depths (deep techno)") == "sent"
+    assert b'name="performer"\r\n\r\nStanPo\r\n' in got["body"] and "Клод".encode() not in got["body"]
+
+def test_tag_mp3_writes_artist_and_title(tmp_path):
+    import subprocess
+    from autodj.compose.run import tag_mp3
+    p = tmp_path / "t.mp3"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=f=440:d=1", "-q:a", "9", str(p)], check=True)
+    assert tag_mp3(str(p), "Pulse (melodic house)", "house")
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format_tags=artist,title", "-of", "json", str(p)], capture_output=True, text=True).stdout
+    tags = {k.lower(): v for k, v in json.loads(out)["format"]["tags"].items()}
+    assert tags["artist"] == "StanPo" and tags["title"] == "Pulse (melodic house)"
+    assert not tag_mp3(str(tmp_path / "missing.mp3"), "x")                                  # a broken input fails cleanly
+
+def test_gemini_listener_prefers_3_8_flash_with_fallbacks():
+    import inspect
+    from autodj.compose import teacher, review
+    assert teacher.MODELS[0] == "gemini-3.8-flash" and "gemini-3-flash-preview" in teacher.MODELS[1:]
+    d = inspect.signature(review.review).parameters["models"].default
+    assert d[0] == "gemini-3.8-flash" and len(d) >= 2
