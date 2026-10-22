@@ -41,7 +41,7 @@ def fixes_for(bad, met, ms, g):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="autodj.compose run"); ap.add_argument("cmd", choices=["run"]); ap.add_argument("score")
-    ap.add_argument("--seed", type=int, default=1); ap.add_argument("--name"); ap.add_argument("--title"); ap.add_argument("--target", type=float)
+    ap.add_argument("--seed", type=int, default=None); ap.add_argument("--name"); ap.add_argument("--title"); ap.add_argument("--target", type=float)
     ap.add_argument("--outdir"); ap.add_argument("--send", action="store_true"); ap.add_argument("--keep-wav", action="store_true"); ap.add_argument("--review", action="store_true", help="Gemini second ear on the final mp3")
     a = ap.parse_args(argv); t0 = time.time()
     mod = load_score(a.score); meta = getattr(mod, "META", {}); name = a.name or os.path.splitext(os.path.basename(a.score))[0]
@@ -49,6 +49,9 @@ def main(argv=None):
     target = a.target if a.target is not None else meta.get("target", -14.0); title = a.title or meta.get("title", name)
     raw, pre, mp3 = (os.path.join(outdir, f"{name}{s}") for s in ("_raw.wav", "_pre.wav", ".mp3"))
     with render_slot() as slot:
+        if a.seed is None:                                                   # Стас 2026-10-22: the same seed only for variations of
+            import zlib                                                       # ONE track; a new track gets its own seed (from its name)
+            a.seed = zlib.crc32((a.name or os.path.basename(a.score)).encode()) % 100000
         print(f"render slot {slot}", flush=True); trk = mod.build(a.seed); info = trk.finish(raw, meta={"title": title, "seed": a.seed})
         drv = meta.get("premaster_drive", 3.0); premaster(raw, pre, drive_db=drv); ms = warm(pre, mp3, target, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
         fixed = []; eq_all, dt_all = [], 0.0
