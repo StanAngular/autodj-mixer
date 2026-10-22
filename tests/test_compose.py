@@ -706,3 +706,15 @@ def test_riff_root_always_exists_in_range():
         o = riff(np.random.default_rng(seed), k, lambda b: ch[b % 8], 16, lo=62, hi=78)
         for s, l, m, v in o["hook"]:
             assert m % 12 in k.pcs or m % 12 in ch[(s // 16) % 8], (seed, s, m)
+
+def test_builder_fresh_hook_avoids_another_tracks_rhythm_unless_asked(tmp_path, monkeypatch):
+    from autodj.compose import builder as B
+    monkeypatch.setattr(B, "USED", str(tmp_path / "used.json"))
+    gen = lambda rng: [(int(s), 1, 60, 90) for s in sorted(rng.choice(16, 4, replace=False))]
+    a = B.fresh_hook("track_one", {}, "riff", 5, gen)
+    b = B.fresh_hook("track_two", {}, "riff", 5, gen)
+    fp = lambda e: tuple(x[0] % 16 for x in e if x[0] < 16)
+    assert fp(a) != fp(b)                                                    # a new track does not repeat another's rhythm
+    assert fp(B.fresh_hook("track_one", {}, "riff", 5, gen)) == fp(a)        # the same track re-renders identically
+    c = B.fresh_hook("track_three", {"reuse_hook": True, "seed_salt": B._zlib.crc32(b"track_one") % 100000}, "riff", 5, gen)
+    assert fp(c) == fp(a)                                                    # explicit request: reuse is allowed
