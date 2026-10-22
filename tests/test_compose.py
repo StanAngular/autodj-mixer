@@ -695,3 +695,14 @@ def test_tame_caps_spiky_peaks_and_leaves_smooth_layers_alone():
     y = fx.tame(spiky, 14.0)
     a0 = spiky[np.abs(spiky).max(1) > 1e-5]; over = 20 * np.log10(np.abs(y).max() / np.sqrt((a0 ** 2).mean()))
     assert over < 14.3 and abs(20 * np.log10(rms(y[sr:]) / rms(spiky[sr:]))) < .1    # peak at the cap, body untouched
+
+def test_riff_root_always_exists_in_range():
+    """2026-10-22: with lo=62 hi=78 a Db root had no candidate in 62..66 and _nearest returned the fallback E (64) ->
+    an out-of-key note over Dbmaj7 in every track-D riff"""
+    from autodj.compose.harmony import Key, chord_of
+    from autodj.compose.ideas import riff
+    k = Key("F", "minor"); ch = [chord_of(5, "m7")] * 4 + [chord_of(1, "maj7")] * 2 + [chord_of(3, "")] * 2
+    for seed in range(20):
+        o = riff(np.random.default_rng(seed), k, lambda b: ch[b % 8], 16, lo=62, hi=78)
+        for s, l, m, v in o["hook"]:
+            assert m % 12 in k.pcs or m % 12 in ch[(s // 16) % 8], (seed, s, m)

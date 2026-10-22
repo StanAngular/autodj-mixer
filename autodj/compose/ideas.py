@@ -30,7 +30,8 @@ def riff(rng, key, chord_of_bar, bars=8, lo=60, hi=76):
     g = groupings(rng); on = list(np.cumsum([0] + g[:-1])); out = []
     jump_at = int(rng.integers(1, len(on)))                                   # one accent jumps an octave
     for b in range(bars):
-        pcs = chord_of_bar(b); r = _nearest([m for m in range(lo, hi - 11) if m % 12 == pcs[0]], (lo + hi) // 2 - 6)
+        pcs = chord_of_bar(b)                                                 # the root must exist: widen the search
+        r = _nearest([m for m in range(lo - 12, hi - 11) if m % 12 == pcs[0]] or [m for m in range(lo - 12, hi + 1) if m % 12 == pcs[0]], (lo + hi) // 2 - 6)
         for j, s in enumerate(on):
             m = r + 12 if j == jump_at else r
             if j == len(on) - 1 and b % 2: m = _nearest([x for x in range(lo, hi + 1) if x % 12 in pcs[1:3]], r + 7)   # tail answers
