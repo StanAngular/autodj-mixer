@@ -765,3 +765,47 @@ def test_gemini_listener_prefers_3_8_flash_with_fallbacks():
     assert teacher.MODELS[0] == "gemini-3.8-flash" and "gemini-3-flash-preview" in teacher.MODELS[1:]
     d = inspect.signature(review.review).parameters["models"].default
     assert d[0] == "gemini-3.8-flash" and len(d) >= 2
+
+# ---- P113 energy curve / P114 timbre guard (2026-10-23)
+def _trk(bars=8):
+    from autodj.compose import Track
+    return Track(120, bars, seed=1)
+
+def test_energy_controls_stay_inside_bounds_and_follow_the_curve():
+    from autodj.compose import energy
+    t = _trk(); e = energy.curve(t, [(0, -1.0), (4, .5), (8, 2.0)])
+    assert e.min() >= 0 and e.max() <= 1                                     # clipped to 0..1
+    g = energy.gain(e, -1.0, .8); assert g.min() >= 10 ** (-1 / 20) - 1e-6 and g.max() <= 10 ** (.8 / 20) + 1e-6
+    rng = np.random.default_rng(0); x = (rng.normal(0, .1, (t.N, 2))).astype(np.float32)
+    w0 = energy.width(x, np.zeros_like(e), 1.0, 1.0); assert np.allclose(w0, x, atol=1e-6)   # width 1 = untouched
+    lo = energy.filter_open(x, np.zeros_like(e), 500, 8000); hi = energy.filter_open(x, np.ones_like(e), 500, 8000)
+    def bright(y): S = np.abs(np.fft.rfft(y[:, 0])); f = np.fft.rfftfreq(len(y), 1 / t.sr); return S[f > 3000].sum() / S.sum()
+    assert bright(lo) < bright(hi)                                           # e=0 darker than e=1
+    fast = energy.lfo(t, np.ones_like(e), 16, 1); slow = energy.lfo(t, np.zeros_like(e), 16, 1)
+    cross = lambda y: int((np.diff(np.sign(y[:, 0] - .5)) != 0).sum())
+    assert cross(fast) > cross(slow)                                         # higher energy = faster LFO
+
+def test_energy_from_sections_default_is_silent_noop():
+    from autodj.compose import energy
+    t = _trk().sections([(0, 8, "A", {"kick": 1})]); e = energy.from_sections(t)
+    assert float(e.max()) == 0.0                                             # no "energy" key = no movement
+
+def _note(kind, midi, sr=44100):
+    tt = np.arange(int(1.2 * sr)) / sr; f = 440 * 2 ** ((midi - 69) / 12); env = np.minimum(1, tt / .01) * np.exp(-tt / 2)
+    y = np.sin(2 * np.pi * f * tt) if kind == "sine" else sum(np.sin(2 * np.pi * f * k * tt) / k for k in range(1, 30) if f * k < 15000)
+    y = (y * env).astype(np.float32); return np.stack([y, y], 1)
+
+def test_timbre_guard_flags_a_rejected_kind_and_passes_a_liked_one(tmp_path):
+    from autodj.compose import timbre_guard as tg
+    db = str(tmp_path / "v.json")
+    for m in (60, 67): tg.add_verdict(f"sine@{m}", _note("sine", m), False, "lead", path=db); tg.add_verdict(f"saw@{m}", _note("saw", m), True, "lead", path=db)
+    bad = tg.check(_note("sine", 64), "lead", path=db); good = tg.check(_note("saw", 64), "lead", path=db)
+    assert not bad["ok"] and any("rejected" in r for r in bad["reasons"])   # blocks what Стас rejected
+    assert good["ok"], good["reasons"]                                       # lets through what he liked
+
+def test_timbre_guard_genre_bounds_both_sides(tmp_path):
+    from autodj.compose import timbre_guard as tg
+    db = str(tmp_path / "empty.json")                                        # no verdicts: only the bounds work
+    bright = _note("saw", 84); dark = _note("saw", 48)
+    assert not tg.check(bright, "lead", mood="dark", path=db)["ok"]
+    assert tg.check(dark, "lead", mood="dark", path=db)["ok"]
