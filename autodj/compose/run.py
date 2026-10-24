@@ -83,7 +83,7 @@ def main(argv=None):
     summ = {"name": name, "title": title, "file": mp3, "dur_s": round(trk.N / trk.sr), "bpm": trk.bpm, "seed": a.seed, "master": ms,
             "high_db": met["high_db"], "sub_mean": met["sub_mean"], "jump_db": met["jump_db"], "break_drop_db": met["break_drop_db"],
             "voice_max_lift": max([v[2] for v in met["voice_lift"]] or [None], key=lambda v: v or -99), "spikes": met["spikes"],
-            "sections": [[s["name"], s["rms"], round(s["sub"] * 100)] for s in met["sections"]],
+            "sections": [[s["name"], s["rms"], round(s["sub"] * 100)] for s in met["sections"]], "mono_low": met.get("mono_low"), "mono_fold_db": met.get("mono_fold_db"), "rhythm": met.get("rhythm"),
             "auto_fixed": fixed, "problems": [m for _, m in bad], "render_min": round((time.time() - t0) / 60, 1)}
     summ["clash_ratio"] = info.get("clash_ratio"); summ["clash_pairs"] = info.get("clash_pairs")
     summ["tagged"] = tag_mp3(mp3, title, meta.get("genre", ""))

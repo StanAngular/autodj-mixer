@@ -809,3 +809,58 @@ def test_timbre_guard_genre_bounds_both_sides(tmp_path):
     bright = _note("saw", 84); dark = _note("saw", 48)
     assert not tg.check(bright, "lead", mood="dark", path=db)["ok"]
     assert tg.check(dark, "lead", mood="dark", path=db)["ok"]
+
+# ---- P115 operators + registry, P116 micro-timing, P117 mono/rhythm metrics (2026-10-24)
+def _four(bars): return [(b, s, 100) for b in bars for s in (0, 4, 8, 12)]
+
+def test_operators_never_move_the_anchor_but_move_other_layers():
+    import pytest
+    from autodj.compose import operators as O
+    kick = _four(range(8)); hats = [(b, s, 80) for b in range(8) for s in (2, 6, 10, 14)]
+    for f in (lambda: O.ant(kick, "kick", [3]), lambda: O.rot(kick, "kick", [3], 3), lambda: O.ghost(kick, "kick", [3], (7,))):
+        with pytest.raises(ValueError): f()
+    moved = O.rot(hats, "hats", [3], 3)
+    assert [st for b, st, _ in moved if b == 3] == [1, 5, 9, 13] and [st for b, st, _ in moved if b == 2] == [2, 6, 10, 14]   # only bar 3
+
+def test_drop_of_the_anchor_needs_full_bars_around():
+    import pytest
+    from autodj.compose import operators as O
+    kick = _four(range(10))
+    assert (5, 0) not in {(b, s) for b, s, _ in O.drop(kick, "kick", 5, (0,))}          # allowed: bars 3-7 are full
+    thin = [e for e in kick if not (e[0] == 4 and e[1] == 8)]
+    with pytest.raises(ValueError): O.drop(thin, "kick", 5, (0,))                      # bar 4 is not full -> refused
+
+def test_poly_ratio_must_be_simple_and_ghost_leaves_a_clean_bar():
+    import pytest
+    from autodj.compose import operators as O
+    ev = O.poly(3, 4, range(4)); assert len(ev) == 48                                   # 3 per 4 sixteenths over 4 bars
+    with pytest.raises(ValueError): O.poly(13, 17, range(4))
+    g = O.ghost([], "snare", range(8), (7,), vel=80); assert {v for *_, v in g} == {35} and 3 not in {b for b, _, _ in g}
+
+def test_registry_avoids_recent_and_signature_but_keeps_liked(tmp_path):
+    from autodj.compose import operators as O
+    p = str(tmp_path / "reg.json")
+    O.register("t1", ["ROT", "FREEZE"], path=p, signature="ROT"); O.register("t2", ["CRUSH"], path=p)
+    picks = {t for _ in range(30) for t in O.pick(2, rng=np.random.default_rng(_), path=p, recent_tracks=2)}
+    assert not picks & {"ROT", "FREEZE", "CRUSH"} and len(picks) > 3                   # fresh techniques only, still varied
+    O.vote("GATE", 1, path=p); O.vote("GATE", 0, path=p); v = O.load(p)["votes"]["GATE"]
+    assert v == {"like": 1, "dislike": 0, "neutral": 1}
+
+def test_microtiming_is_bounded_correlated_and_deterministic():
+    from autodj.compose import Track, microtiming as MT
+    t = Track(124, 16, seed=1); a, b = MT.Ensemble(t, 7), MT.Ensemble(t, 7)
+    offs = [a.offset_ms(br, st, "snare") for br in range(16) for st in range(16)]
+    assert max(abs(x) for x in offs) <= 25.0 and offs == [b.offset_ms(br, st, "snare") for br in range(16) for st in range(16)]
+    d = np.diff(a.drift); assert np.std(d) < np.std(a.drift)                          # neighbours close: a drift, not white noise
+    assert MT.accent(0, 96) > MT.accent(3, 96) and MT.accent(4, 96) > MT.accent(5, 96)
+
+def test_mono_gates_both_sides():
+    from autodj.compose.checks import mono_metrics, gates
+    sr = 22050; t = np.arange(sr * 2) / sr; lo = np.sin(2 * np.pi * 60 * t).astype(np.float32)
+    mono = np.stack([lo, lo], 1); wide = np.stack([lo, -lo * .6], 1)
+    good, bad = mono_metrics(mono, sr), mono_metrics(wide, sr)
+    assert good["mono_low"] < .01 and good["mono_fold_db"] < .1
+    assert bad["mono_low"] > .01 and bad["mono_fold_db"] > 1.5
+    assert mono_metrics(np.zeros((sr, 2), np.float32), sr)["mono_low"] is None        # silence is not a false pass
+    base = ok_metrics(); codes_ok = {c for c, _ in gates({**base, **good}, OK_MASTER)}; codes_bad = {c for c, _ in gates({**base, **bad}, OK_MASTER)}
+    assert not codes_ok & {"mono_low", "mono_fold"} and {"mono_low", "mono_fold"} <= codes_bad

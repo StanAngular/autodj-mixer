@@ -1,0 +1,130 @@
+{
+"uses": [
+{
+"track": "Low Pulse X (experimental tech house)",
+"technique": "ROT",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Low Pulse X (experimental tech house)",
+"technique": "FREEZE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Low Pulse X (experimental tech house)",
+"technique": "CRUSH",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Low Pulse X (experimental tech house)",
+"technique": "PINGPONG",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Low Pulse X (experimental tech house)",
+"technique": "TELEPHONE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Low Pulse X (experimental tech house)",
+"technique": "POLY",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Low Pulse X (experimental tech house)",
+"technique": "GHOST",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Low Pulse X (experimental tech house)",
+"technique": "DROP",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Slow Minimal (minimal)",
+"technique": "FREEZE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Slow Minimal (minimal)",
+"technique": "DROP",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Slow Minimal (minimal)",
+"technique": "PMETER",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Night Bus Fast Half (experimental deep house)",
+"technique": "HALF",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Night Bus Fast Half (experimental deep house)",
+"technique": "DROP",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Night Bus Fast Half (experimental deep house)",
+"technique": "OFF+",
+"date": "2026-10-24",
+"signature": false
+}
+],
+"votes": {
+"ROT": {
+"like": 1,
+"dislike": 0,
+"neutral": 0
+},
+"FREEZE": {
+"like": 1,
+"dislike": 0,
+"neutral": 0
+},
+"CRUSH": {
+"like": 1,
+"dislike": 0,
+"neutral": 0
+},
+"PINGPONG": {
+"like": 1,
+"dislike": 0,
+"neutral": 0
+},
+"TELEPHONE": {
+"like": 1,
+"dislike": 0,
+"neutral": 0
+},
+"POLY": {
+"like": 1,
+"dislike": 0,
+"neutral": 0
+},
+"GHOST": {
+"like": 1,
+"dislike": 0,
+"neutral": 0
+},
+"DROP": {
+"like": 1,
+"dislike": 0,
+"neutral": 0
+}
+}
+}

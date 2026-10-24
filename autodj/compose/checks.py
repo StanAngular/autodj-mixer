@@ -5,7 +5,7 @@ import numpy as np, soundfile as sf
 from scipy.signal import butter, sosfilt
 
 # high_db = 3-14 kHz band vs whole mix: Sieben v1 (-15.8, «шик-шик») failed by ear, Sieben v2 (-23.1) passed.
-GATES = dict(clash_ratio=.12, limiter_max_db=3.0, high_db=-19.0, sub_mean=.35, sub_max=.50, jump_db=4.0, break_drop_db=8.0, voice_lift_db=6.0, spikes=0)
+GATES = dict(mono_low=.01, mono_fold_db=1.5, clash_ratio=.12, limiter_max_db=3.0, high_db=-19.0, sub_mean=.35, sub_max=.50, jump_db=4.0, break_drop_db=8.0, voice_lift_db=6.0, spikes=0)
 BANDS = [(20, 60, "sub"), (60, 150, "bass"), (150, 400, "lowmid"), (400, 2000, "mid"), (2000, 6000, "himid"), (6000, 16000, "air")]
 
 def _read(path):
@@ -37,6 +37,33 @@ def analyze(path, info):
     st = 3 * sr; k = len(m) // st; L = 20 * np.log10(np.sqrt((m[:k * st].reshape(k, st) ** 2).mean(1)) + 1e-9)
     med3 = np.array([np.median(L[max(0, i - 5):i + 5]) for i in range(k)]); out["spikes"] = [round(float(i) * 3 / 60, 1) for i in np.where(L - med3 > 2.5)[0]]
     out["clash_ratio"] = info.get("clash_ratio", 0.0)
+    out.update(mono_metrics(a, sr)); out["rhythm"] = rhythm_metrics(m, sr, info["bpm"])
+    return out
+
+def mono_metrics(a, sr):
+    """P117: low end in mono (side energy 20-150 Hz < 1 %) and loss when folded to mono (< 1.5 dB)"""
+    if a.ndim != 2 or a.shape[1] < 2: return {"mono_low": 0.0, "mono_fold_db": 0.0}
+    L, R = a[:, 0].astype(np.float64), a[:, 1].astype(np.float64); sos = butter(4, [20, 150], "band", fs=sr, output="sos")
+    lm, ls = sosfilt(sos, (L + R) / 2), sosfilt(sos, (L - R) / 2); em, es = float(np.mean(lm ** 2)), float(np.mean(ls ** 2))
+    low = es / (em + es) if em + es > 1e-12 else None
+    est = (float(np.mean(L ** 2)) + float(np.mean(R ** 2))) / 2; emo = float(np.mean(((L + R) / 2) ** 2))
+    fold = 10 * np.log10(est / emo) if emo > 1e-12 and est > 1e-12 else None
+    return {"mono_low": None if low is None else round(low, 4), "mono_fold_db": None if fold is None else round(float(fold), 2)}
+
+def rhythm_metrics(m, sr, bpm, block_bars=8):
+    """P117: per 8 bars, onset density (onsets per bar) and the share of onset strength on weak 16ths (a syncopation proxy)"""
+    import librosa
+    y = librosa.resample(m.astype(np.float32), orig_sr=sr, target_sr=11025) if sr != 11025 else m; sr2 = 11025
+    env = librosa.onset.onset_strength(y=y, sr=sr2, hop_length=128); fr = 128 / sr2; s16 = 15 / bpm; out = {"density": [], "offbeat": []}
+    nb = int(len(env) * fr / (16 * s16))
+    for b0 in range(0, nb, block_bars):
+        steps = np.zeros(16)
+        for br in range(b0, min(nb, b0 + block_bars)):
+            for st in range(16):
+                i = int((br * 16 + st) * s16 / fr); steps[st] += env[i:i + 2].max() if i + 2 <= len(env) else 0
+        on = librosa.onset.onset_detect(onset_envelope=env[int(b0 * 16 * s16 / fr):int((b0 + block_bars) * 16 * s16 / fr)], sr=sr2, hop_length=128)
+        out["density"].append(round(len(on) / block_bars, 1)); tot = steps.sum()
+        out["offbeat"].append(round(float(steps[[1, 3, 5, 7, 9, 11, 13, 15]].sum() / tot), 2) if tot > 0 else 0.0)
     return out
 
 def gates(metrics, master, g=None):
@@ -51,4 +78,6 @@ def gates(metrics, master, g=None):
     loud = [v for v in metrics["voice_lift"] if v[2] > g["voice_lift_db"]]
     if loud: bad.append(("voice", "голос выпирает: " + ", ".join(f"{lab}@{t:.0f}s +{d}" for t, lab, d in loud[:5])))
     if len(metrics["spikes"]) > g["spikes"]: bad.append(("spikes", f"всплески громкости на {metrics['spikes'][:6]} мин"))
+    if metrics.get("mono_low") is not None and metrics["mono_low"] > g["mono_low"]: bad.append(("mono_low", f"бас не в моно: стерео в 20-150 Гц {metrics['mono_low']:.1%}"))
+    if metrics.get("mono_fold_db") is not None and metrics["mono_fold_db"] > g["mono_fold_db"]: bad.append(("mono_fold", f"в моно теряется {metrics['mono_fold_db']} дБ"))
     return bad
