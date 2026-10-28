@@ -864,3 +864,90 @@ def test_mono_gates_both_sides():
     assert mono_metrics(np.zeros((sr, 2), np.float32), sr)["mono_low"] is None        # silence is not a false pass
     base = ok_metrics(); codes_ok = {c for c, _ in gates({**base, **good}, OK_MASTER)}; codes_bad = {c for c, _ in gates({**base, **bad}, OK_MASTER)}
     assert not codes_ok & {"mono_low", "mono_fold"} and {"mono_low", "mono_fold"} <= codes_bad
+
+# ---------------- P119-P122 (2026-10-28): every gate on both sides
+import soundfile as sf
+from autodj.compose import sfz as _sfz, stereo as _st, soundq as _sq, abc as _abc
+
+def _tone_wav(path, midi=31, secs=2.0, sr=44100):
+    t = np.arange(int(secs * sr)) / sr; f = 440 * 2 ** ((midi - 69) / 12)
+    y = (np.sin(2 * np.pi * f * t) + .3 * np.sin(4 * np.pi * f * t)) * np.exp(-t / 1.2); sf.write(path, (y * .5).astype(np.float32), sr); return str(path)
+
+def test_register_guard_flags_a_squeezed_note_and_passes_a_near_one(tmp_path):
+    w = _tone_wav(tmp_path / "g1.wav", 31); _sfz.SQUEEZE_LOG.clear()
+    o = _sfz.oneshot(w, keycenter=31, cache_dir=str(tmp_path)); o.render([(0, 36, 100, 1.0)], 1.5)      # +5 st: fine
+    assert _sfz.squeezed_report() == []
+    o.render([(0, 60, 100, 1.0)], 1.5)                                                                   # +29 st: squeezed
+    rep = _sfz.squeezed_report(); assert len(rep) == 1 and rep[0]["max_shift"] == 29 and rep[0]["share"] == 1.0
+
+def test_register_policy_fold_and_error(tmp_path):
+    w = _tone_wav(tmp_path / "g1.wav", 31); _sfz.SQUEEZE_LOG.clear()
+    assert _sfz.fold_note(60, 31) == 36 and _sfz.fold_note(33, 31) == 33 and _sfz.fold_note(20, 31) == 32          # folds by octaves, leaves near notes alone
+    o = _sfz.oneshot(w, keycenter=31, cache_dir=str(tmp_path), policy="fold"); o.render([(0, 60, 100, 1.0)], 1.5)
+    assert _sfz.squeezed_report() == []                                                                  # folded notes sit near the pitch: nothing to report
+    o = _sfz.oneshot(w, keycenter=31, cache_dir=str(tmp_path), policy="error")
+    try: o.render([(0, 60, 100, 1.0)], 1.5); raise AssertionError("must refuse")
+    except _sfz.RegisterError: pass
+    o.render([(0, 34, 100, 1.0)], 1.5)                                                                   # near note passes even under "error"
+
+def test_keycenter_report_agrees_for_a_clean_tone_and_flags_a_wrong_class(tmp_path):
+    w = _tone_wav(tmp_path / "a2.wav", 45, 2.0)
+    r = _sfz.keycenter_report(w); assert r["ok"] and r["kc_pyin"] % 12 == 9
+    assert (r["kc_pyin"] + 1) % 12 != r["chroma_pc"]                                                     # a stored class one semitone off would be flagged
+
+def test_register_gate_both_sides():
+    assert "register" in codes(ok_metrics(squeezed=[{"sample": "Pd_01", "mean_shift": 27.4}]))
+    assert "register" not in codes(ok_metrics(squeezed=[]))
+    assert "register" not in codes(ok_metrics())
+
+def test_stereo_gates_both_sides():
+    assert "lr_motion" in codes(ok_metrics(lr_balance_std=3.2)) and "lr_motion" not in codes(ok_metrics(lr_balance_std=.4))
+    assert "click" in codes(ok_metrics(hf_step_dbfs=-10.5)) and "click" not in codes(ok_metrics(hf_step_dbfs=-29.0))
+    assert "true_peak" in codes(ok_metrics(true_peak_db=-0.2)) and "true_peak" not in codes(ok_metrics(true_peak_db=-1.7))
+
+def test_stereo_metrics_see_an_autopan_but_not_a_static_width():
+    from autodj.compose.checks import stereo_metrics
+    sr = 44100; t = np.arange(sr * 8) / sr; rng = np.random.default_rng(0); n = rng.normal(0, .2, len(t))
+    pan = .5 + .45 * np.sin(2 * np.pi * t / 4); moving = np.stack([n * np.sqrt(1 - pan), n * np.sqrt(pan)], 1).astype(np.float32)          # 4 s autopan
+    wide = _st.ms_widen(np.stack([n, n], 1).astype(np.float32) + rng.normal(0, .05, (len(t), 2)).astype(np.float32), 1.8, 400, sr)           # static width
+    assert stereo_metrics(moving, sr)["lr_balance_std"] > 1.0
+    assert stereo_metrics(wide, sr)["lr_balance_std"] < 1.0
+    assert stereo_metrics(wide, sr)["width_high"] > _st.width_high(np.stack([n, n], 1).astype(np.float32), sr)
+
+def test_ms_widen_keeps_the_low_end_mono_and_decorr_is_static():
+    sr = 44100; rng = np.random.default_rng(1); m = rng.normal(0, .2, sr * 3); x = np.stack([m, m], 1).astype(np.float32)
+    w = _st.decorr(m, sr, 1, wet=.9); from autodj.compose.checks import mono_metrics
+    assert _st.width_high(w, sr) > .2 and _st.width_high(x, sr) < .01
+    low = np.stack([np.sin(2 * np.pi * 60 * np.arange(sr * 3) / sr)] * 2, 1).astype(np.float32) * .3
+    assert mono_metrics(_st.ms_widen(low, 2.0, 400, sr), sr)["mono_low"] < .01                          # widening above 400 Hz leaves 60 Hz mono
+
+def test_headroom_and_voice_level_from_the_mix():
+    trk = Track(120, 4, seed=1); trk.mix[:] = np.random.default_rng(2).normal(0, .1, trk.mix.shape).astype(np.float32); trk.mix[1000, :] = 1.6
+    trk.headroom(.7); assert np.abs(trk.mix).max() <= .7001
+    t2 = Track(120, 4, seed=1); t2.mix[:] = np.random.default_rng(2).normal(0, .1, t2.mix.shape).astype(np.float32); pk0 = np.abs(t2.mix).max()
+    t2.headroom(.7) if pk0 > .7 else None; assert np.abs(t2.mix).max() <= max(pk0, .7) + 1e-6          # an already quiet sum is not touched
+    v = trk.buf(); v[1000:30000, :] = np.random.default_rng(3).normal(0, .5, (29000, 2)).astype(np.float32)
+    r0 = float(np.sqrt((trk.mix.mean(1) ** 2).mean())); g = trk.add_voice_from_mix(v, under_db=10, depth_db=-3.0); assert g is not None and 0 < g < 1
+
+def test_soundq_scores_the_squeezed_pad_below_the_native_one(tmp_path):
+    import librosa
+    w = _tone_wav(tmp_path / "pad.wav", 31, 4.0, 22050); y = _sq._mono(w); mn = _sq.metrics(y); assert mn is not None and _sq.score(mn) > 60
+    squeezed = librosa.effects.time_stretch(y, rate=5.0) * 1.0                                           # 5x faster = what resampling +28 st does to length
+    ms = _sq.metrics(np.pad(squeezed, (0, 22050))); assert ms is None or _sq.score(ms, "pad") < _sq.score(mn, "pad")
+
+def test_soundq_pick_respects_register_and_score():
+    cat = {"a": {"path": "a", "role": "pad", "kc": 57, "score": 90}, "b": {"path": "b", "role": "pad", "kc": 31, "score": 95}, "c": {"path": "c", "role": "pad", "kc": 57, "score": 40}, "d": {"path": "d", "role": "lead", "kc": 57, "score": 99}}
+    got = [e["path"] for e in _sq.pick("pad", 52, 62, catalog=cat, use_verdicts=False)]
+    assert got == ["a"]                                                                                   # b: wrong register, c: low score, d: wrong role
+
+def test_abc_variants_are_loudness_matched_but_really_differ():
+    sr = 44100; rng = np.random.default_rng(5); t = np.arange(sr * 4) / sr
+    x = np.stack([np.sin(2 * np.pi * 220 * t) * .3 + rng.normal(0, .03, len(t)), np.sin(2 * np.pi * 330 * t) * .3 + rng.normal(0, .03, len(t))], 1).astype(np.float32)
+    v = _abc.variants(x, sr); r = {k: _abc._rms_db(a) for k, a in v.items()}
+    assert max(r.values()) - min(r.values()) < .5                                                         # same loudness
+    assert not np.allclose(v["A"], v["B"], atol=1e-3) and not np.allclose(v["A"], v["C"], atol=1e-3)     # but different signals
+
+def test_decorr_channels_really_differ_for_any_seed():
+    sr = 44100; m = np.random.default_rng(9).normal(0, .2, sr * 2)
+    for seed in range(12):                                                                                   # the old version gave identical channels for some seeds
+        w = _st.decorr(m, sr, seed, wet=.9); assert _st.width_high(w, sr) > .2, seed

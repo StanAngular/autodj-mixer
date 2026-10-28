@@ -132,6 +132,18 @@ class Track:
     def mono_low(self, cut=120):
         lo = sosfiltfilt(butter(8, cut / (self.sr / 2), "low", output="sos"), self.mix, axis=0).astype(np.float32)
         self.mix[:] = (self.mix - lo) + lo.mean(1, keepdims=True)
+    def headroom(self, limit=.7):
+        """P121: scale the whole sum so its peak is at most `limit` (-3 dBFS) before the master: a layer can never push the sum over 0 dBFS
+        (the 2026-10-28 voice overload: voice peak -2.3 dB, 4 dB under the mix rms)"""
+        pk = float(np.abs(self.mix).max())
+        if pk > limit: self.mix *= limit / pk
+        return pk
+    def add_voice_from_mix(self, vbuf, under_db=10.0, depth_db=-3.0):
+        """P121: set a voice buffer's level from the MIX (its active rms = mix rms - under_db), then duck the voice band and add it"""
+        mm = self.mix.mean(1); act = np.abs(mm) > 1e-4; vm = vbuf.mean(1); va = np.abs(vm) > 1e-4
+        if not (act.any() and va.any()): return None
+        g = float(np.sqrt((mm[act] ** 2).mean()) * 10 ** (-under_db / 20) / np.sqrt((vm[va] ** 2).mean())); v = (vbuf * g).astype(np.float32)
+        self.duck_for_voice(v, depth_db=depth_db); self.mix += v; self.layers["voice"] = float(round(20 * np.log10(np.sqrt((v.mean(1)[va] ** 2).mean()) + 1e-9), 1)); return g
     def log_notes(self, name, events):
         """register a tonal layer's notes (t, midi, vel, dur) for the clash check"""
         self.notes.setdefault(name, []).extend(events)

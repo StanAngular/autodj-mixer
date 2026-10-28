@@ -5,6 +5,7 @@ Pipeline: render slot -> build -> bus wav -> premaster -> warm master -> checks/
 (top shelf / low shelf / lower target) -> re-check -> summary JSON (+ registry line, + Telegram if --send)."""
 import argparse, datetime, getpass, importlib.util, json, os, re, sys, time
 from .lock import render_slot
+from . import sfz
 from .master import premaster, warm
 from .checks import analyze, gates
 
@@ -69,7 +70,7 @@ def main(argv=None):
         if a.seed is None:                                                   # Стас 2026-10-22: the same seed only for variations of
             import zlib                                                       # ONE track; a new track gets its own seed (from its name)
             a.seed = zlib.crc32((a.name or os.path.basename(a.score)).encode()) % 100000
-        print(f"render slot {slot}", flush=True); trk = mod.build(a.seed); info = trk.finish(raw, meta={"title": title, "seed": a.seed})
+        print(f"render slot {slot}", flush=True); sfz.SQUEEZE_LOG.clear(); trk = mod.build(a.seed); info = trk.finish(raw, meta={"title": title, "seed": a.seed}); info["squeezed"] = sfz.squeezed_report()
         drv = meta.get("premaster_drive", 3.0); premaster(raw, pre, drive_db=drv); ms = warm(pre, mp3, target, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
         fixed = []; eq_all, dt_all = [], 0.0
         for _ in range(2):                                         # at most two master-side rounds (an EQ cut can raise the limiter)
@@ -85,7 +86,7 @@ def main(argv=None):
             "voice_max_lift": max([v[2] for v in met["voice_lift"]] or [None], key=lambda v: v or -99), "spikes": met["spikes"],
             "sections": [[s["name"], s["rms"], round(s["sub"] * 100)] for s in met["sections"]], "mono_low": met.get("mono_low"), "mono_fold_db": met.get("mono_fold_db"), "rhythm": met.get("rhythm"),
             "auto_fixed": fixed, "problems": [m for _, m in bad], "render_min": round((time.time() - t0) / 60, 1)}
-    summ["clash_ratio"] = info.get("clash_ratio"); summ["clash_pairs"] = info.get("clash_pairs")
+    summ["squeezed"] = info.get("squeezed", []); summ.update({k: met.get(k) for k in ("width_high", "lr_balance_std", "hf_step_dbfs", "true_peak_db")}); summ["clash_ratio"] = info.get("clash_ratio"); summ["clash_pairs"] = info.get("clash_pairs")
     summ["tagged"] = tag_mp3(mp3, title, meta.get("genre", ""))
     if a.review:
         from .review import review

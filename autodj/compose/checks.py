@@ -5,7 +5,7 @@ import numpy as np, soundfile as sf
 from scipy.signal import butter, sosfilt
 
 # high_db = 3-14 kHz band vs whole mix: Sieben v1 (-15.8, «шик-шик») failed by ear, Sieben v2 (-23.1) passed.
-GATES = dict(mono_low=.01, mono_fold_db=1.5, clash_ratio=.12, limiter_max_db=3.0, high_db=-19.0, sub_mean=.35, sub_max=.50, jump_db=4.0, break_drop_db=8.0, voice_lift_db=6.0, spikes=0)
+GATES = dict(mono_low=.01, mono_fold_db=1.5, clash_ratio=.12, limiter_max_db=3.0, high_db=-19.0, sub_mean=.35, sub_max=.50, jump_db=4.0, break_drop_db=8.0, voice_lift_db=6.0, spikes=0, lr_balance_std=1.0, click_dbfs=-20.0, true_peak_db=-1.0)
 BANDS = [(20, 60, "sub"), (60, 150, "bass"), (150, 400, "lowmid"), (400, 2000, "mid"), (2000, 6000, "himid"), (6000, 16000, "air")]
 
 def _read(path):
@@ -37,7 +37,7 @@ def analyze(path, info):
     st = 3 * sr; k = len(m) // st; L = 20 * np.log10(np.sqrt((m[:k * st].reshape(k, st) ** 2).mean(1)) + 1e-9)
     med3 = np.array([np.median(L[max(0, i - 5):i + 5]) for i in range(k)]); out["spikes"] = [round(float(i) * 3 / 60, 1) for i in np.where(L - med3 > 2.5)[0]]
     out["clash_ratio"] = info.get("clash_ratio", 0.0)
-    out.update(mono_metrics(a, sr)); out["rhythm"] = rhythm_metrics(m, sr, info["bpm"])
+    out.update(mono_metrics(a, sr)); out.update(stereo_metrics(a, sr)); out["squeezed"] = info.get("squeezed", []); out["rhythm"] = rhythm_metrics(m, sr, info["bpm"])
     return out
 
 def mono_metrics(a, sr):
@@ -49,6 +49,17 @@ def mono_metrics(a, sr):
     est = (float(np.mean(L ** 2)) + float(np.mean(R ** 2))) / 2; emo = float(np.mean(((L + R) / 2) ** 2))
     fold = 10 * np.log10(est / emo) if emo > 1e-12 and est > 1e-12 else None
     return {"mono_low": None if low is None else round(low, 4), "mono_fold_db": None if fold is None else round(float(fold), 2)}
+
+def stereo_metrics(a, sr):
+    """P121: static width (side/mid above 400 Hz), L/R balance swing, true peak (4x oversampled) and the biggest ABSOLUTE step in the 6+ kHz band
+    (a relative click detector false-alarms on very dark mixes; an absolute one does not)"""
+    from scipy.signal import resample_poly
+    from .stereo import width_high, balance_std
+    m = a.mean(1) if a.ndim == 2 else a; hi = sosfilt(butter(4, 6000, "high", fs=sr, output="sos"), m)
+    out = {"hf_step_dbfs": round(float(20 * np.log10(np.abs(np.diff(hi)).max() + 1e-9)), 1) if len(hi) > 1 else -99.0,
+           "true_peak_db": round(float(20 * np.log10(np.abs(resample_poly(a, 4, 1, axis=0)).max() + 1e-9)), 2)}
+    if a.ndim == 2 and a.shape[1] == 2 and len(a) > 3 * sr: out["width_high"] = round(width_high(a, sr), 2); out["lr_balance_std"] = round(balance_std(a, sr), 2)
+    return out
 
 def rhythm_metrics(m, sr, bpm, block_bars=8):
     """P117: per 8 bars, onset density (onsets per bar) and the share of onset strength on weak 16ths (a syncopation proxy)"""
@@ -80,4 +91,9 @@ def gates(metrics, master, g=None):
     if len(metrics["spikes"]) > g["spikes"]: bad.append(("spikes", f"всплески громкости на {metrics['spikes'][:6]} мин"))
     if metrics.get("mono_low") is not None and metrics["mono_low"] > g["mono_low"]: bad.append(("mono_low", f"бас не в моно: стерео в 20-150 Гц {metrics['mono_low']:.1%}"))
     if metrics.get("mono_fold_db") is not None and metrics["mono_fold_db"] > g["mono_fold_db"]: bad.append(("mono_fold", f"в моно теряется {metrics['mono_fold_db']} дБ"))
+    if metrics.get("lr_balance_std") is not None and metrics["lr_balance_std"] > g["lr_balance_std"]: bad.append(("lr_motion", f"баланс лево/право качается ({metrics['lr_balance_std']} дБ): автопан или ping-pong"))
+    if metrics.get("hf_step_dbfs") is not None and metrics["hf_step_dbfs"] > g["click_dbfs"]: bad.append(("click", f"резкий щелчок в верху {metrics['hf_step_dbfs']} дБFS"))
+    if metrics.get("true_peak_db") is not None and metrics["true_peak_db"] > g["true_peak_db"]: bad.append(("true_peak", f"true peak {metrics['true_peak_db']} дБ (> {g['true_peak_db']})"))
+    if metrics.get("squeezed"):
+        bad.append(("register", "семплы сыграны далеко от своей высоты: " + ", ".join(f"{e['sample']} {e['mean_shift']:+.0f} ст" for e in metrics["squeezed"][:5])))
     return bad

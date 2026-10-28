@@ -205,7 +205,7 @@ def build_concept(name, seed, **override):
     if hx is not None and c.get("hook_lpf"): hx = pb(Pedalboard([LowpassFilter(c["hook_lpf"])]), hx)
     if hx is not None and c.get("hook_fx2"): hx = c["hook_fx2"](hx, trk)        # any hook type: a sound treatment
     if hx is not None:
-        hx = fx.tame(fx.autopan(trk, hx, 8, .3), 13)                           # spiky plucks must not set the track level
+        hx = fx.tame(fx.autopan(trk, hx, 8, .3) if c.get("autopan") else hx, 13)   # P121: autopan is OFF unless asked (Стас: «мерцание»); spiky plucks must not set the track level
         trk.add("hook", hx, level=10 ** (lvl / 20), env=trk.env("hook") * grow, duck=-3.0)
     if c.get("post"): c["post"](trk, dict(ev=ev, key=key, cp=cp, hook_events=locals().get("rf") or locals().get("st_"), hook_snd=c.get("hook_snd")))
     if c.get("dip"): fx.fader_dip(trk, 16, 1, -30)

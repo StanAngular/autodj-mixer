@@ -193,19 +193,113 @@ class SFZ:
 def available():
     return {k: os.path.exists(os.path.join(SFZ_ROOT, v)) for k, v in LIBS.items()}
 
-def oneshot(wav, keycenter=None, release=.12, lokey=0, hikey=127, cache_dir=None):
+def keycenter_report(wav):
+    """P119: where is this one-shot really? pyin median, strongest partial and chroma class; ok = the stored class agrees with the chroma"""
+    import librosa
+    y, s_ = sf.read(wav, dtype="float32", always_2d=True); y = librosa.resample(y.mean(1)[:int(s_ * 1.5)], orig_sr=s_, target_sr=22050)
+    f0, v, _ = librosa.pyin(y, fmin=30, fmax=1500, sr=22050, frame_length=4096)
+    kc = int(round(float(np.nanmedian(librosa.hz_to_midi(f0[v]))))) if np.any(v) else 60
+    pc = int(np.argmax(librosa.feature.chroma_cqt(y=y, sr=22050).mean(1)))
+    return {"kc_pyin": kc, "chroma_pc": pc, "ok": kc % 12 == pc}
+
+def fold_note(m, keycenter, max_shift=7):
+    """octave-fold a note toward the sample's own pitch until it is within max_shift semitones (same pitch class)"""
+    while m - keycenter > max_shift: m -= 12
+    while keycenter - m > max_shift: m += 12
+    return m
+
+# ---------------------------------------------------------------------------------------------------- P119 (2026-10-28)
+# Register guard. oneshot() transposes ONE recording by resampling, with no limit. Audit 2026-10-28: 16 of 30 sound roles in the last
+# eight tracks were played 2-3 octaves away from the recording's own pitch (the W.A. Gm pads are G1, we played chords at 55-65 =
+# 4-6 x faster): formants squeezed into 1.5-5 kHz («гармошка», nasal reed), tails 4-6 x shorter than the chord (loudness holes).
+# Practice: past about half an octave a resampled sample stops sounding like the instrument; multisamples exist every 2-3 semitones.
+class RegisterError(ValueError, RuntimeError): pass
+SQUEEZE_LOG = []                     # one dict per rendered one-shot instrument: file, keycenter, shift mean/max, squeezed?, short notes
+MAX_SHIFT = 7                        # semitones; override per call (max_shift=) or globally with AUTODJ_MAX_SHIFT
+POLICIES = ("warn", "fold", "error", "allow")
+
+def measure_keycenter(wav):
+    """pitch of a one-shot as a MIDI number. pyin median, cross-checked with the harmonic product spectrum (octave slips) and the chroma
+    pitch class (semitone slips). The old pyin-only value was a harmonic or a wrong class for 4 of 40 W.A. shots."""
+    import librosa
+    y, s = sf.read(wav, dtype="float32", always_2d=True); m = y.mean(1)[:int(s * 1.5)]; m = librosa.resample(m, orig_sr=s, target_sr=22050) if s != 22050 else m
+    if len(m) < 4096 or not np.any(np.abs(m) > 1e-5): return 60
+    f0, v, _ = librosa.pyin(m, fmin=30, fmax=1500, sr=22050, frame_length=4096)
+    p = float(np.nanmedian(librosa.hz_to_midi(f0[v]))) if np.any(v) else None
+    hop = 256; r = librosa.feature.rms(y=m, hop_length=hop)[0]; i0 = int(np.argmax(r)) * hop; seg = m[i0:i0 + 16384]
+    hps_m = None
+    if len(seg) >= 8192:
+        sp = np.abs(np.fft.rfft(seg * np.hanning(len(seg)), n=65536)); fr = np.fft.rfftfreq(65536, 1 / 22050); n = len(sp) // 4
+        h = sp[:n] * sp[::2][:n] * sp[::3][:n] * sp[::4][:n]; ok = (fr[:n] > 30) & (fr[:n] < 1500)
+        if np.any(ok):
+            k = int(np.argmax(np.where(ok, h, 0))); fk = fr[k]; hps_m = float(librosa.hz_to_midi(fk))
+            if sp[k] < .25 * sp[:n][ok].max(): hps_m = None            # no real energy at that «fundamental» (missing-fundamental timbre)
+    c = None
+    try: c = int(np.argmax(librosa.feature.chroma_cqt(y=m, sr=22050).mean(1)))
+    except Exception: pass
+    if p is None: p = hps_m if hps_m is not None else 60.0
+    elif hps_m is not None and min(abs(abs(p - hps_m) - 12), abs(abs(p - hps_m) - 24)) < .8 and hps_m < p: p = hps_m      # pyin sat on a harmonic
+    k0 = int(round(p))
+    if c is not None and k0 % 12 != c: k0 = min((k0 + d for d in (-1, 1, -2, 2)), key=lambda x: (x % 12 != c, abs(x - p)))
+    return int(k0)
+
+def sounding_seconds(wav, floor_db=-40.0):
+    """how long the recording actually sounds (to the last moment within floor_db of its peak)"""
+    y, s = sf.read(wav, dtype="float32", always_2d=True); e = np.abs(y).max(1)
+    idx = np.where(e > e.max() * 10 ** (floor_db / 20))[0]
+    return float(idx[-1] / s) if len(idx) else 0.0
+
+class OneShot(SFZ):
+    """SFZ with a register guard: policy "warn" logs, "fold" moves notes by octaves to within +-6 of the recording's pitch,
+    "error" raises, "allow" is silent (explicit rework of an old track)."""
+    def __init__(self, path, wav, keycenter, max_shift, policy):
+        self.wav, self.keycenter, self.max_shift, self.policy, self._guard = wav, keycenter, max_shift, policy, False    # SFZ.__init__ renders probe notes to
+        super().__init__(path); self.snd_s = sounding_seconds(wav); self._guard = True                                   # measure its tuning: not guarded, not logged
+    def _render(self, events, total_s):
+        if not self._guard: return super()._render(events, total_s)
+        sh = np.array([m - self.keycenter for _, m, _, _ in events], float) if events else np.zeros(0)
+        over = np.abs(sh) > self.max_shift if len(sh) else np.zeros(0, bool)
+        rec = {"file": os.path.basename(self.wav), "keycenter": self.keycenter, "policy": self.policy, "notes": int(len(sh)),
+               "shift_mean": round(float(sh.mean()), 1) if len(sh) else 0.0, "shift_max": int(np.abs(sh).max()) if len(sh) else 0, "over": int(over.sum())}
+        rec["squeezed"] = bool(len(sh) and over.mean() > .5)
+        ratio = [2 ** (x / 12) for x in sh]; rec["short"] = int(sum(1 for (t, m, v, d), r in zip(events, ratio) if self.snd_s / r < .6 * d))
+        if rec["over"] and self.policy == "error": raise RegisterError(f"{rec['file']}: {rec['over']} of {rec['notes']} notes are more than {self.max_shift} st from its pitch ({self.keycenter}); shift mean {rec['shift_mean']:+} st")
+        if rec["over"] and self.policy == "fold":
+            events = [(t, m - 12 * int(round((m - self.keycenter) / 12)) if abs(m - self.keycenter) > self.max_shift else m, v, d) for t, m, v, d in events]; rec["folded"] = True
+            sh = np.array([m - self.keycenter for _, m, _, _ in events], float); rec.update(shift_mean=round(float(sh.mean()), 1), shift_max=int(np.abs(sh).max()), over=int((np.abs(sh) > self.max_shift).sum()), squeezed=False)
+            rec["short"] = int(sum(1 for (t, m, v, d) in events if self.snd_s / 2 ** ((m - self.keycenter) / 12) < .6 * d))              # a folded note is judged at its NEW pitch
+        SQUEEZE_LOG.append(rec)
+        return super()._render(events, total_s)
+
+def squeeze_report(clear=False):
+    """roles played far from the recording's pitch, for the run summary / gate"""
+    out = [r for r in SQUEEZE_LOG if r["squeezed"] or r["short"]]
+    seen = {}
+    for r in out: seen[(r["file"], r["policy"])] = r
+    if clear: SQUEEZE_LOG.clear()
+    return list(seen.values())
+
+def oneshot(wav, keycenter=None, release=.12, lokey=0, hikey=127, cache_dir=None, max_shift=None, policy=None):
     """any one-shot (W.A. bass/pluck/lead shots ...) as a playable SFZ instrument: one region, pitch measured once
-    (pyin) if keycenter is None, then the usual per-sample cents calibration of SFZ()."""
+    (measure_keycenter) if keycenter is None, then the usual per-sample cents calibration of SFZ().
+    P119: max_shift (default 7 st, AUTODJ_MAX_SHIFT) and policy (default env AUTODJ_REGISTER or "warn") guard the register."""
     cache_dir = cache_dir or os.path.join(SFZ_ROOT, "_oneshots"); os.makedirs(cache_dir, exist_ok=True)
     name = re.sub(r"\W+", "_", os.path.splitext(os.path.basename(wav))[0]); path = os.path.join(cache_dir, name + ".sfz")
     if keycenter is None:
-        import json, librosa
-        kc_file = os.path.join(cache_dir, "_keycenters.json"); kcs = json.load(open(kc_file)) if os.path.exists(kc_file) else {}
+        import json
+        kc_file = os.path.join(cache_dir, "_keycenters_v2.json"); kcs = json.load(open(kc_file)) if os.path.exists(kc_file) else {}
         if wav not in kcs:
-            y, s = sf.read(wav, dtype="float32", always_2d=True); y = librosa.resample(y.mean(1)[:int(s * 1.2)], orig_sr=s, target_sr=22050)
-            f0, v, _ = librosa.pyin(y, fmin=30, fmax=1500, sr=22050, frame_length=4096)
-            kcs[wav] = int(round(float(librosa.hz_to_midi(np.nanmedian(f0[v]))))) if np.any(v) else 60
-            json.dump(kcs, open(kc_file, "w"), indent=0)
+            kcs[wav] = measure_keycenter(wav); json.dump(kcs, open(kc_file, "w"), indent=0)
         keycenter = kcs[wav]
     open(path, "w").write(f"<region> sample={wav} lokey={lokey} hikey={hikey} pitch_keycenter={keycenter} ampeg_release={release}\n")
-    return SFZ(path)
+    policy = policy or os.environ.get("AUTODJ_REGISTER", "warn")
+    if policy not in POLICIES: raise ValueError(f"policy {policy!r} not in {POLICIES}")
+    return OneShot(path, wav, keycenter, max_shift if max_shift is not None else float(os.environ.get("AUTODJ_MAX_SHIFT", MAX_SHIFT)), policy)
+
+def squeezed_report():
+    """for checks.gates / run summary: roles played far from the recording's pitch or whose tail is shorter than the notes"""
+    out = []
+    for r in squeeze_report():
+        out.append({"sample": os.path.splitext(r["file"])[0], "native_midi": r["keycenter"], "mean_shift": r["shift_mean"], "max_shift": r["shift_max"],
+                    "share": round(r["over"] / max(1, r["notes"]), 2), "policy": r["policy"], "short_notes": r["short"]})
+    return out
