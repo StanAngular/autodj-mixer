@@ -161,7 +161,9 @@ class Track:
             return [e for e in evs if self.sec(int(e[0] / self.BAR))[3].get(name, 0) > .05]
         notes = {k: audible(k, v) for k, v in self.notes.items()}
         ratio, top = clashes(notes, self.S16, min_len_s=self.S16 * 1.5) if notes else (0.0, [])
-        info = {"bpm": self.bpm, "bars": self.bars, "plan": plan, "voice": self.voice, "layers_db": self.layers,
+        from .syncopation import lhl_events
+        bs = [(int(t / self.BAR), int(round((t % self.BAR) / self.S16)) % 16) for t, *_ in self.notes.get("bass", [])]        # P124: syncopation of the bass line (mean LHL per bar)
+        info = {"bpm": self.bpm, "bars": self.bars, "plan": plan, "bass_sync": round(lhl_events(bs), 1) if bs else None, "voice": self.voice, "layers_db": self.layers,
                 "clash_ratio": round(ratio, 3), "clash_pairs": [[f"{a}+{b}", c] for (a, b), c in top], **(meta or {})}
         json.dump(info, open(path.rsplit(".", 1)[0] + ".json", "w"), ensure_ascii=False)
         return info

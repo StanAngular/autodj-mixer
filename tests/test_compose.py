@@ -978,3 +978,40 @@ def test_steady_removes_the_per_note_panning_but_keeps_width():
     y = _S.steady(x, wet=.3); assert y.shape[1] == 2 and _S.balance_stats(y)["std_db"] < 1.5      # folded to mono first: no hopping
     assert _S.width_ratio(y, 100) > 0.02                                       # still has a fixed width
     m = np.sin(2 * np.pi * 220 * t).astype(np.float32); assert _S.steady(m).shape == (len(m), 2)  # mono input accepted
+
+# ---- P124 (2026-11-01): syncopation, feels, A/B of the groove
+def test_lhl_straight_is_zero_syncopated_is_not_and_shifting_raises_it():
+    from autodj.compose.syncopation import lhl, lhl_events, in_range
+    assert lhl([0, 4, 8, 12]) == 0 and lhl(range(16)) == 0 and lhl([0]) == 0                  # straight / full / one hit: no syncopation
+    assert lhl([0, 3, 6, 10, 12]) > 0 and lhl([0, 6, 10]) > lhl([0, 8])                       # an offbeat line has some
+    assert lhl([0, 3, 8, 11]) > lhl([0, 4, 8, 12])                                            # pushing a beat early raises it
+    assert lhl_events([(0, 2), (0, 7), (0, 10), (1, 2), (1, 7), (1, 10)]) == lhl([2, 7, 10])   # mean per bar
+    assert in_range("house", 8.0)[0] and not in_range("house", 0.0)[0] and not in_range("house", 40.0)[0]   # the window rejects both ends and passes the middle
+
+def test_bass_sync_gate_opt_in_both_sides():
+    base = ok_metrics(); base["bass_sync"] = 0.0
+    assert "sync" not in codes(base)                                                          # off unless the score asks for it
+    c = lambda v, st: [x[0] for x in __import__("autodj.compose.checks", fromlist=["gates"]).gates({**ok_metrics(), "bass_sync": v}, {"limiter_max_db": 0}, {"sync_style": st})]
+    assert "sync" in c(0.0, "house") and "sync" in c(40.0, "house") and "sync" not in c(8.0, "house")
+    assert "sync" not in c(0.5, (0.0, 3.0))                                                   # explicit window
+
+def test_swing_moves_only_odd_steps_and_feels_keep_kick_and_clap_on_grid():
+    from autodj.compose.groove_bank import swing_shift, Feel
+    assert all(swing_shift(s, 50) == 0 for s in range(16))                                    # 50 % = straight
+    assert all(swing_shift(s, 60) == 0 for s in range(0, 16, 2)) and all(abs(swing_shift(s, 60) - .2) < 1e-9 for s in range(1, 16, 2))
+    class T: BAR = 2.0; S16 = .125
+    for mode in ("grid", "swing", "ref"):
+        f = Feel(mode, ref="sven_v_th_face_it", swing=62, seed=3)
+        assert all(f.time(T, 1, s, "kick") == 2.0 + s * .125 and f.time(T, 1, s, "clap") == 2.0 + s * .125 for s in range(16))      # always on the grid
+    g, s_, r = Feel("grid"), Feel("swing", swing=62), Feel("ref", ref="sven_v_th_face_it", seed=3)
+    assert all(g.shift16("hh", st) == 0 for st in range(16))                                  # grid: nothing moves
+    assert s_.shift16("hh", 3) > 0 and s_.shift16("hh", 4) == 0                               # swing: odd late, even not
+    assert any(abs(r.shift16("hh", st)) > 1e-4 for st in range(16))                           # ref: hats really get the reference's timing
+
+def test_groove_ab_three_feels_same_loudness_different_timing(tmp_path):
+    from autodj.compose import groove_ab as AB
+    from autodj.compose.groove_bank import Feel
+    x = {k: AB.loop(Feel(k, ref="sven_v_th_face_it", swing=60, seed=2), 126, bars=2)[0] for k in ("grid", "ref", "swing")}
+    assert not np.allclose(x["grid"], x["ref"], atol=1e-3) and not np.allclose(x["grid"], x["swing"], atol=1e-3)     # the feels differ ...
+    k = AB.make("house", 126, str(tmp_path), seed=1)                                          # ... and the trio is written with a blind key
+    assert sorted(k.values()) == ["grid", "ref", "swing"] and (tmp_path / "house_key.json").exists()

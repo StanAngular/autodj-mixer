@@ -37,7 +37,7 @@ def analyze(path, info):
     st = 3 * sr; k = len(m) // st; L = 20 * np.log10(np.sqrt((m[:k * st].reshape(k, st) ** 2).mean(1)) + 1e-9)
     med3 = np.array([np.median(L[max(0, i - 5):i + 5]) for i in range(k)]); out["spikes"] = [round(float(i) * 3 / 60, 1) for i in np.where(L - med3 > 2.5)[0]]
     out["clash_ratio"] = info.get("clash_ratio", 0.0)
-    out.update(mono_metrics(a, sr)); out.update(stereo_metrics(a, sr)); out["squeezed"] = info.get("squeezed", []); out["rhythm"] = rhythm_metrics(m, sr, info["bpm"])
+    out.update(mono_metrics(a, sr)); out.update(stereo_metrics(a, sr)); out["bass_sync"] = info.get("bass_sync"); out["squeezed"] = info.get("squeezed", []); out["rhythm"] = rhythm_metrics(m, sr, info["bpm"])
     return out
 
 def mono_metrics(a, sr):
@@ -94,6 +94,10 @@ def gates(metrics, master, g=None):
     if metrics.get("lr_balance_std") is not None and metrics["lr_balance_std"] > g["lr_balance_std"]: bad.append(("lr_motion", f"баланс лево/право качается ({metrics['lr_balance_std']} дБ): автопан или ping-pong"))
     if metrics.get("hf_step_dbfs") is not None and metrics["hf_step_dbfs"] > g["click_dbfs"]: bad.append(("click", f"резкий щелчок в верху {metrics['hf_step_dbfs']} дБFS"))
     if metrics.get("true_peak_db") is not None and metrics["true_peak_db"] > g["true_peak_db"]: bad.append(("true_peak", f"true peak {metrics['true_peak_db']} дБ (> {g['true_peak_db']})"))
+    if g.get("sync_style") and metrics.get("bass_sync") is not None:                              # P124, opt-in: gates {"sync_style": "house"|"techno"|"downtempo"|"breaks"} or a (lo, hi) tuple
+        from .syncopation import in_range, RANGES
+        ss = g["sync_style"]; lo, hi = ss if isinstance(ss, (tuple, list)) else RANGES.get(ss, RANGES["*"])
+        if not lo <= metrics["bass_sync"] <= hi: bad.append(("sync", f"синкопа баса {metrics['bass_sync']} вне окна {lo}-{hi} ({'слишком прямо' if metrics['bass_sync'] < lo else 'слишком ломано'})"))
     if metrics.get("squeezed"):
         bad.append(("register", "семплы сыграны далеко от своей высоты: " + ", ".join(f"{e['sample']} {e['mean_shift']:+.0f} ст" for e in metrics["squeezed"][:5])))
     return bad
