@@ -59,3 +59,9 @@ def width_high(a, sr=SR, hp=400):
 def balance_std(a, sr=SR, hp=400):
     """alias used by checks.stereo_metrics: std (dB) of the per-second L/R balance above hp"""
     return balance_stats(a, sr, hp)["std_db"]
+
+def steady(x, wet=.4, seed=0, sr=SR):
+    """P123: stereo samples that pan every note (jRhodes3d, Osiris) swing the L/R balance 2-7 dB; fold to mono BEFORE the effects and give the
+    result a fixed decorrelated width instead (no movement). Mono input passes through decorr only."""
+    m = np.asarray(x, np.float32); m = m.mean(1) if m.ndim == 2 else m
+    return decorr(m, sr, seed, wet=wet)

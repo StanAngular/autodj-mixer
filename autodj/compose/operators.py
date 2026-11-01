@@ -78,7 +78,10 @@ def freeze(trk, bar, beats=1):
     i1 = trk.i(bar + 1); i0 = i1 - beats * trk.BEAT; g = trk.mix[i0 - int(.06 * trk.sr):i0].copy() * np.hanning(int(.06 * trk.sr))[:, None]
     o = np.zeros((i1 - i0, 2), np.float32)
     for t in range(0, i1 - i0 - len(g), max(1, len(g) // 3)): o[t:t + len(g)] += g * .55
-    trk.mix[i0:i1] = o * np.linspace(1, .6, i1 - i0)[:, None]; _log(trk, "FREEZE", bar=bar, beats=beats)
+    pre = trk.mix[i0:i1].copy(); fz = o * np.linspace(1, .6, i1 - i0)[:, None]; n = min(int(.008 * trk.sr), (i1 - i0) // 4)      # P123: 8 ms crossfades at BOTH edges
+    w = np.linspace(0, 1, n, dtype=np.float32)[:, None]                                                                   # (found 2026-10-31: 0.6 x grain -> live mix on the downbeat = click at -13.9 dBFS)
+    fz[:n] = pre[:n] * (1 - w) + fz[:n] * w; fz[-n:] = fz[-n:] * (1 - w) + trk.mix[i1 - n:i1] * w
+    trk.mix[i0:i1] = fz; _log(trk, "FREEZE", bar=bar, beats=beats)
 def crush(trk, a, b, factor=6, levels=64):
     from pedalboard import Pedalboard, LowpassFilter
     from .core import pb

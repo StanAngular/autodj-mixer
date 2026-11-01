@@ -951,3 +951,30 @@ def test_decorr_channels_really_differ_for_any_seed():
     sr = 44100; m = np.random.default_rng(9).normal(0, .2, sr * 2)
     for seed in range(12):                                                                                   # the old version gave identical channels for some seeds
         w = _st.decorr(m, sr, seed, wet=.9); assert _st.width_high(w, sr) > .2, seed
+
+# ---- P123 (2026-11-01): freeze crossfade + steady stereo
+def test_freeze_has_no_click_at_the_edges_but_is_still_a_freeze():
+    from autodj.compose import operators as _O
+    class T:  # minimal track: a loud tone, 4 bars at 120 BPM
+        sr = 44100; BEAT = 22050; mix = None
+        def i(self, bar): return int(bar * 2 * 44100 * 2)
+        notes = {}; tl = []; events = []
+    trk = T(); n = trk.i(6); t = np.arange(n) / 44100; from scipy.signal import butter as _bu, sosfilt as _sf
+    nz = _sf(_bu(2, 1500, 'low', fs=44100, output='sos'), np.random.default_rng(3).normal(0, 1, n)); nz = (nz / np.abs(nz).max() * .5).astype(np.float32)
+    trk.mix = np.stack([nz, nz], 1); orig = trk.mix.copy()      # smooth random signal: the frozen grain and the live signal do not match, so a hard edge is a real jump
+    _O.freeze(trk, 3, 1)
+    i1 = trk.i(4); i0 = i1 - trk.BEAT
+    step = lambda a: float(np.abs(np.diff(a, axis=0)).max())
+    assert step(trk.mix[i0 - 200:i0 + 200]) <= step(orig[i0 - 200:i0 + 200]) * 3          # no jump at the start edge
+    assert step(trk.mix[i1 - 200:i1 + 200]) <= step(orig[i1 - 200:i1 + 200]) * 2          # none at the end edge (the downbeat); the old hard edge measured 3.1 here
+    mid = slice(i0 + 2000, i1 - 2000); assert not np.allclose(trk.mix[mid], orig[mid], atol=1e-3)   # but the middle really is frozen
+
+def test_steady_removes_the_per_note_panning_but_keeps_width():
+    from autodj.compose import stereo as _S
+    sr = 44100; t = np.arange(sr * 4) / sr; env = lambda a, b: ((t >= a) & (t < b)).astype(np.float32)
+    L = np.sin(2 * np.pi * 330 * t) * (env(0, 1) + env(2, 3)); R = np.sin(2 * np.pi * 330 * t) * (.05 * env(0, 1) + .05 * env(2, 3) + env(1, 2) + env(3, 4))   # notes hop L, R, L, R
+    x = np.stack([L, R], 1).astype(np.float32)
+    assert _S.balance_stats(x)["std_db"] > 5                                   # the hopping stereo sample swings hard
+    y = _S.steady(x, wet=.3); assert y.shape[1] == 2 and _S.balance_stats(y)["std_db"] < 1.5      # folded to mono first: no hopping
+    assert _S.width_ratio(y, 100) > 0.02                                       # still has a fixed width
+    m = np.sin(2 * np.pi * 220 * t).astype(np.float32); assert _S.steady(m).shape == (len(m), 2)  # mono input accepted
