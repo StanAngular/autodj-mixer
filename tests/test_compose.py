@@ -1015,3 +1015,10 @@ def test_groove_ab_three_feels_same_loudness_different_timing(tmp_path):
     assert not np.allclose(x["grid"], x["ref"], atol=1e-3) and not np.allclose(x["grid"], x["swing"], atol=1e-3)     # the feels differ ...
     k = AB.make("house", 126, str(tmp_path), seed=1)                                          # ... and the trio is written with a blind key
     assert sorted(k.values()) == ["grid", "ref", "swing"] and (tmp_path / "house_key.json").exists()
+
+def test_contrast_trio_differs_in_the_bass_line_and_keeps_loudness(tmp_path):
+    from autodj.compose import groove_ab as AB
+    from autodj.compose.groove_bank import Feel
+    a = AB.loop(Feel("grid"), 126, bars=2, bass_steps=(0, 4, 8, 12), duck_db=0.0)[0]; b = AB.loop(Feel("swing", swing=58.0), 126, bars=2, bass_steps=(2, 6, 10, 14), duck_db=-7.0)[0]
+    n = min(len(a), len(b)); assert float(np.abs(a[:n] - b[:n]).mean()) > 1e-3                           # clearly different signals (the first trio was nearly identical)
+    k = AB.make_contrast(126, str(tmp_path)); assert sorted(k.values()) == ["broken_deep", "offbeat_pump", "straight"] and (tmp_path / "contrast_key.json").exists()

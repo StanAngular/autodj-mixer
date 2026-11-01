@@ -14,7 +14,7 @@ BASS_STEPS = (2, 5, 7, 10, 14)                                   # LHL 8: the me
 def _soft(x, ms, sr=44100):
     x = x.copy(); n = max(2, int(ms / 1000 * sr)); x[:n] *= np.linspace(0, 1, n, dtype=np.float32)[:, None]; return x
 
-def loop(feel, bpm, seed=1, bars=8):
+def loop(feel, bpm, seed=1, bars=8, bass_steps=None, duck_db=0.0, vel_depth=1.0, bass_gain=.7):
     trk = Track(bpm, bars, seed=seed, tail_s=2.0, humanize_s=0.0); S = trk.sr; T = trk.N / S
     kick = _soft(pb(Pedalboard([HighpassFilter(40), LowpassFilter(3500)]), load_sample(f"{W}/Kicks/WART_Kick_5.wav", .35)), 2.0)
     clap = _soft(pb(Pedalboard([HighpassFilter(300), LadderFilter(LadderFilter.Mode.LPF24, cutoff_hz=4800)]), load_sample(f"{W}/Claps/WART_Clap_6.wav", .3)), 3.0)
@@ -28,10 +28,17 @@ def loop(feel, bpm, seed=1, bars=8):
             if st % 2 == 0 and st % 4: trk.place(H, hat, feel.time(trk, br, st, "hh"), feel.vel("hh", st, 96) / 127 * 1.0)         # offbeat 8ths
             elif st % 2: trk.place(H, hat, feel.time(trk, br, st, "hh"), feel.vel("hh", st, 70) / 127 * .55)                         # ghost 16ths
         for st in ((3, 11) if br % 2 else (6, 14)): trk.place(P, perc, feel.time(trk, br, st, "perc"), feel.vel("perc", st, 90) / 127 * .8)
-        for st in BASS_STEPS: bev.append((feel.time(trk, br, st, "bass"), 33 + (0 if br % 4 < 3 else 5), feel.vel("bass", st, 100), trk.S16 * 1.6))
+        for st in (bass_steps or BASS_STEPS): bev.append((feel.time(trk, br, st, "bass"), 33 + (0 if br % 4 < 3 else 5), feel.vel("bass", st, 100), trk.S16 * 1.6))
     bass = oneshot(f"{SH}/WART_Gm_Bass_Shot_7.wav", release=.12, policy="warn").render(bev, T)
     bass = pb(Pedalboard([HighpassFilter(40), LowpassFilter(900), Compressor(-18, 3, 3, 80)]), bass[:trk.N] if len(bass) >= trk.N else np.pad(bass, ((0, trk.N - len(bass)), (0, 0))))
-    x = K * 1.0 + C * .5 + H * .22 + P * .35 + bass * .7
+    if duck_db:                                                      # sidechain from the kicks: dip on every kick, back in ~190 ms (real pump, makes the bass line audible against the kick)
+        g = np.ones(trk.N, np.float32); d = 1 - 10 ** (duck_db / 20); L = int(.38 * S); shape = np.exp(-np.arange(L) / (.19 * S / 2.5)) * d
+        for br in range(bars):
+            for st in (0, 4, 8, 12):
+                i = int(feel.time(trk, br, st, "kick") * S)
+                if 0 <= i < trk.N: n = min(L, trk.N - i); g[i:i + n] = np.minimum(g[i:i + n], 1 - shape[:n])
+        bass = bass * g[:, None]
+    x = K * 1.0 + C * .5 + H * .22 + P * .35 + bass * bass_gain
     return x[:int((bars * trk.BAR + 1.0) * S)].astype(np.float32), S
 
 def rms_db(x): return float(20 * np.log10(np.sqrt(np.mean(np.asarray(x, np.float64) ** 2)) + 1e-12))
@@ -51,3 +58,20 @@ def make(style, bpm, outdir, seed=1, shuffle_seed=0):
 if __name__ == "__main__":
     if len(sys.argv) < 4: sys.exit(__doc__)
     print(make(sys.argv[1], float(sys.argv[2]), sys.argv[3]))
+
+def make_contrast(bpm, outdir, seed=1, shuffle_seed=3):
+    """P124b: the first trio (same pattern, feel only) was inaudible (Стас 2026-11-01: «звучит как 6 одинаковых отрезков»; research: microtiming effect is small).
+    This trio changes what the research says matters - the BASS line (syncopation LHL 0 / 7 / 13), the kick-bass pump (0 / -7 / -9 dB) and the swing (grid / 58 % / 66 %)."""
+    os.makedirs(outdir, exist_ok=True)
+    V = {"straight": dict(feel=Feel("grid"), bass_steps=(0, 4, 8, 12), duck_db=0.0),
+         "offbeat_pump": dict(feel=Feel("swing", swing=58.0), bass_steps=(2, 6, 10, 14), duck_db=-7.0),
+         "broken_deep": dict(feel=Feel("swing", swing=66.0), bass_steps=(1, 3, 6, 7, 10, 11, 13, 15), duck_db=-9.0, bass_gain=.85)}
+    out = {k: loop(v.pop("feel"), bpm, seed, **v)[0] for k, v in V.items()}; ref = rms_db(out["straight"])
+    for k in out:
+        y = out[k] * 10 ** ((ref - rms_db(out[k])) / 20); pk = np.abs(y).max(); out[k] = y * (.89 / pk) if pk > .89 else y
+    names = list(out); order = np.random.default_rng(shuffle_seed).permutation(3); key = {}
+    for i, j in enumerate(order):
+        L = "ABC"[i]; w = os.path.join(outdir, f"contrast_{L}.wav"); sf.write(w, out[names[j]], 44100)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", w, "-q:a", "2", os.path.join(outdir, f"contrast_{L}.mp3")], check=True); os.remove(w); key[L] = names[j]
+    json.dump({"bpm": bpm, "key": key, "bass_lhl": {"straight": 0, "offbeat_pump": 7, "broken_deep": 13}}, open(os.path.join(outdir, "contrast_key.json"), "w"), ensure_ascii=False, indent=1)
+    return key
