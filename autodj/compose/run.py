@@ -60,7 +60,7 @@ def fixes_for(bad, met, ms, g):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="autodj.compose run"); ap.add_argument("cmd", choices=["run"]); ap.add_argument("score")
     ap.add_argument("--seed", type=int, default=None); ap.add_argument("--name"); ap.add_argument("--title"); ap.add_argument("--target", type=float)
-    ap.add_argument("--outdir"); ap.add_argument("--send", action="store_true"); ap.add_argument("--keep-wav", action="store_true"); ap.add_argument("--review", action="store_true", help="Gemini second ear on the final mp3")
+    ap.add_argument("--outdir"); ap.add_argument("--send", action="store_true"); ap.add_argument("--keep-wav", action="store_true"); ap.add_argument("--review", action="store_true", help="Gemini second ear on the final mp3"); ap.add_argument("--ears", action="store_true", help="P125: Audiobox Aesthetics on 3 clips (also META[\"ears\"])")
     a = ap.parse_args(argv); t0 = time.time()
     mod = load_score(a.score); meta = getattr(mod, "META", {}); name = a.name or os.path.splitext(os.path.basename(a.score))[0]
     outdir = a.outdir or os.path.join(os.path.dirname(os.path.abspath(a.score)), "out"); os.makedirs(outdir, exist_ok=True)
@@ -88,6 +88,12 @@ def main(argv=None):
             "auto_fixed": fixed, "problems": [m for _, m in bad], "render_min": round((time.time() - t0) / 60, 1)}
     summ["squeezed"] = info.get("squeezed", []); summ.update({k: met.get(k) for k in ("width_high", "lr_balance_std", "hf_step_dbfs", "true_peak_db")}); summ["clash_ratio"] = info.get("clash_ratio"); summ["clash_pairs"] = info.get("clash_pairs")
     summ["tagged"] = tag_mp3(mp3, title, meta.get("genre", ""))
+    from . import ears                                                                        # P125: silent layers (always), arrangement arc (always), Audiobox (opt-in), optional gates
+    summ["silent_layers"] = ears.silent_layers(info.get("layers_db")); summ["layers_db"] = info.get("layers_db")
+    try: summ["arc"] = ears.arc(mp3, trk.bpm)
+    except Exception as e: summ["arc"] = {"error": f"{type(e).__name__}: {str(e)[:100]}"}
+    if a.ears or meta.get("ears"): summ["ears"] = ears.abx(mp3)
+    summ["problems"] += [f"слой {n} беззвучен (layers_db пуст): проверь env/секции" for n in summ["silent_layers"]] + ears.ears_gates(summ, meta.get("gates"))
     if a.review:
         from .review import review
         summ["review"] = review(mp3, summ, info, meta, os.path.join(outdir, f"{name}.review.txt"))
