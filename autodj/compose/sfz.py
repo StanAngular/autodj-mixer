@@ -67,6 +67,8 @@ class SFZ:
     """SFZ(name_or_path, cc={70: 127}) -> .render(events, total_s) with events (t, midi, vel 1-127, dur_s)"""
     def __init__(self, name, cc=None, sr=SR, tune=True):
         self.path = os.path.join(SFZ_ROOT, LIBS[name]) if name in LIBS else name
+        from .fresh import used
+        if "_oneshots" not in self.path: used("sfz:" + name if name in LIBS else self.path)   # P135 (a one-shot is noted by its wav in oneshot())
         self.control, regs = parse(self.path); self.sr = sr; self.dir = os.path.dirname(self.path)
         self.cc = {int(k[6:]): float(v) for k, v in self.control.items() if re.fullmatch(r"set_cc\d+", k)}
         self.cc.update({int(k[8:]): float(v) * 127 for k, v in self.control.items() if re.fullmatch(r"set_hdcc\d+", k)})
@@ -283,6 +285,8 @@ def oneshot(wav, keycenter=None, release=.12, lokey=0, hikey=127, cache_dir=None
     """any one-shot (W.A. bass/pluck/lead shots ...) as a playable SFZ instrument: one region, pitch measured once
     (measure_keycenter) if keycenter is None, then the usual per-sample cents calibration of SFZ().
     P119: max_shift (default 7 st, AUTODJ_MAX_SHIFT) and policy (default env AUTODJ_REGISTER or "warn") guard the register."""
+    from .fresh import used
+    used(wav)                                                                        # P135
     cache_dir = cache_dir or os.path.join(SFZ_ROOT, "_oneshots"); os.makedirs(cache_dir, exist_ok=True)
     name = re.sub(r"\W+", "_", os.path.splitext(os.path.basename(wav))[0]); path = os.path.join(cache_dir, name + ".sfz")
     if keycenter is None:

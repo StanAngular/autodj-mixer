@@ -7,6 +7,10 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+# P135: renders made by the tests keep their freshness ledger in a throw-away folder, never in the shared one
+import tempfile
+os.environ.setdefault("AUTODJ_FRESH_LEDGER", os.path.join(tempfile.mkdtemp(prefix="autodj_fresh_"), "ledger.json"))
+
 # Mock heavy audio deps ONLY when truly missing, so unit tests run without a full
 # audio stack — but use the REAL packages when installed (M1: физ-тесты DSP-ядра
 # должны гонять настоящий scipy/pyloudnorm, а не MagicMock).

@@ -23,6 +23,8 @@ def fade(x, ms=8, sr=SR):
 
 def load_sample(path, max_s=None, sr=SR, fade_ms=15):
     """stereo float32, peak-normalised, optionally trimmed to max_s with a fade"""
+    from .fresh import used
+    used(path)                                                                       # P135: the freshness ledger knows every source of a render
     a, s = sf.read(path, dtype="float32", always_2d=True)
     if s != sr: a = resample_poly(a, sr, s, axis=0).astype(np.float32)
     a = np.repeat(a, 2, 1)[:, :2] if a.shape[1] == 1 else a[:, :2]
@@ -233,6 +235,11 @@ class Track:
         info = {"bpm": self.bpm, "bars": self.bars, "plan": plan, "bass_sync": round(lhl_events(bs), 1) if bs else None, "voice": self.voice, "layers_db": self.layers,
                 "clash_ratio": round(ratio, 3), "clash_pairs": [[f"{a}+{b}", c] for (a, b), c in top],
                 "routing": self.routing, "spaces": {k: {"kind": v.kind, "sent": v.sent} for k, v in self.spaces.items()}, "flushes": self.flushes, **(meta or {})}
+        try:                                                                            # P135: what this render is made of (fresh.py)
+            from . import fresh
+            info["sources"] = sorted(fresh.USED); info["rhythms"] = fresh.rhythms(self); info["harmony"] = getattr(self, "harmony", None); info["notes_logged"] = bool(self.notes)
+            info["line_fit"] = getattr(self, "line_fit", None)                          # P136: lines.fit() of the score's lines, if it measured them
+        except Exception as ex: info["sources_error"] = f"{type(ex).__name__}: {str(ex)[:120]}"
         try:                                                                            # P133: depth report (never blocks a render)
             from .depth import report
             info["depth"] = report(self)

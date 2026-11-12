@@ -62,6 +62,8 @@ def main(argv=None):
     ap.add_argument("--seed", type=int, default=None); ap.add_argument("--name"); ap.add_argument("--title"); ap.add_argument("--target", type=float)
     ap.add_argument("--outdir"); ap.add_argument("--send", action="store_true"); ap.add_argument("--keep-wav", action="store_true"); ap.add_argument("--review", action="store_true", help="Gemini second ear on the final mp3"); ap.add_argument("--ears", action="store_true", help="P125: Audiobox Aesthetics on 3 clips (also META[\"ears\"])")
     a = ap.parse_args(argv); t0 = time.time()
+    from . import fresh
+    fresh.reset()                                                                             # P135: sources are counted per render, from the score's import on
     mod = load_score(a.score); meta = getattr(mod, "META", {}); name = a.name or os.path.splitext(os.path.basename(a.score))[0]
     outdir = a.outdir or os.path.join(os.path.dirname(os.path.abspath(a.score)), "out"); os.makedirs(outdir, exist_ok=True)
     target = a.target if a.target is not None else meta.get("target", -14.0); title = clean_title(a.title or meta.get("title", name))
@@ -97,6 +99,11 @@ def main(argv=None):
     summ["problems"] += [f"слой {n} беззвучен (layers_db пуст): проверь env/секции" for n in summ["silent_layers"]] + ears.ears_gates(summ, meta.get("gates"))
     from . import depth                                                                       # P133: where the track is flat (always reported; gates opt-in)
     summ["depth"] = info.get("depth"); summ["depth_notes"] = (info.get("depth") or {}).get("notes", []); summ["problems"] += depth.gates(info.get("depth"), meta.get("gates"))
+    try:                                                                                      # P135: this track against all earlier ones (always reported; gates opt-in)
+        fdb = fresh.load(); rev = fresh.review(info, title, fdb); summ["fresh"] = {k: rev[k] for k in ("reuse_share", "worn", "rhythm_repeats", "harmony_seen", "tracks_known")}
+        summ["fresh_notes"] = rev["notes"]; summ["problems"] += fresh.gates(rev, meta.get("gates")); summ["harmony"] = {k: v for k, v in (info.get("harmony") or {}).items() if k != "tension"} or None; summ["line_fit"] = info.get("line_fit")
+        if not meta.get("fresh_skip"): fresh.record(info, title, fdb)
+    except Exception as e: summ["fresh"] = {"error": f"{type(e).__name__}: {str(e)[:120]}"}
     if a.review:
         from .review import review
         summ["review"] = review(mp3, summ, info, meta, os.path.join(outdir, f"{name}.review.txt"))
