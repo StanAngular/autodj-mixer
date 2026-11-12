@@ -57,8 +57,19 @@ class Track:
         self.BAR = 240 / self.bpm; self.S16 = self.BAR / 16; self.BEAT = int(60 / self.bpm * sr)
         self.N = int((self.bars * self.BAR + tail_s) * sr); self.rng = np.random.default_rng(seed)
         self.swing, self.humanize_s = swing, humanize_s
-        self.mix = np.zeros((self.N, 2), np.float32); self.ref = None; self.tl = []; self.voice = []; self.layers = {}
+        self._mix = np.zeros((self.N, 2), np.float32); self.ref = None; self.tl = []; self.voice = []; self.layers = {}
         self.tt = np.arange(self.N, dtype=np.float32) / sr; self.roles = {}; self.notes = {}
+        self.ctl = {}; self.buses = {}; self.bus_cfg = {}; self.spaces = {}; self.routing = {}; self.flushes = {}      # P130: the mix graph
+        self.act = {}; self.act_err = []; self.followed = set(); self.analyze = True                                   # P133: what every layer played (depth.py)
+    @property
+    def mix(self):
+        """the stereo sum. Reading it first brings in whatever still waits in group buses and shared spaces (P130), so the
+        bus-wide tools (fx.pullback, operators.freeze, mono_low, focus ...) always see the whole mix."""
+        if self.buses or any(s.pending for s in self.spaces.values()): self.flush()
+        return self._mix
+    @mix.setter
+    def mix(self, v):
+        self._mix = v
     # ---- grid ----
     def t(self, br, st, swing=None):
         """time of 16th step st in bar br, with swing on odd steps and a little timing noise"""
@@ -98,18 +109,74 @@ class Track:
     def lfo(self, bars, phase=0.0):
         return (.5 - .5 * np.cos(2 * np.pi * (self.tt / (bars * self.BAR) + phase))).astype(np.float32)[:, None]
     # ---- bus ----
-    def add(self, name, x, level=None, duck=0.0, env=None, smooth_bars=1, release_ms=140, role=None):
+    def add(self, name, x, level=None, duck=0.0, env=None, smooth_bars=1, release_ms=140, role=None,
+            key=None, band=None, bus=None, send=None, depth=None):
         """level is RMS relative to the FIRST layer added (usually the kick); env defaults to the section level.
-        level=None takes the role norm (ROLE_DB, role defaults to the layer name)."""
+        level=None takes the role norm (ROLE_DB, role defaults to the layer name).
+        P130 (all optional, see bus.py): key= name(s) of layers already added or an audio buffer: `duck` then follows what the key
+        really plays instead of the beat clock; band=(lo, hi): only that band ducks; bus= sum into a group bus (Track.bus) instead
+        of the mix; send={"room": .2}: into shared spaces; depth= 0 front .. 1 back (less top, a room send of its own)."""
         from autodj.generate.mixbus import sidechain_duck
+        from . import bus as _bus
         x = np.pad(x, ((0, max(0, self.N - len(x))), (0, 0)))[:self.N]; act = x[np.abs(x).max(1) > 1e-4]
         if not len(act): return
         if level is None: level = 10 ** (self.roles.get(role or name, ROLE_DB.get(role or name, -12)) / 20)
         if self.ref is None: self.ref = rms(act)
         x = x * (level * self.ref / rms(act)) * (self.env(name, smooth_bars) if env is None else env)
-        if duck: x = sidechain_duck(x, self.sr, self.BEAT, duck, release_ms=release_ms)
-        self.mix += x; self.layers[name] = round(20 * np.log10(rms(x[np.abs(x).max(1) > 1e-4]) + 1e-9), 1) if np.any(np.abs(x) > 1e-4) else None
+        if depth: x = _bus.distance(x, depth, self.sr)
+        if duck and key is not None: x = _bus.duck(x, self.sr, self.key_env(key), duck, band=band, release_ms=release_ms)
+        elif duck: x = sidechain_duck(x, self.sr, self.BEAT, duck, release_ms=release_ms)
+        e = _bus.envelope(x); self.ctl[name] = np.maximum(self.ctl[name], e) if name in self.ctl else e
+        if self.analyze:                                                                # P133: step x band map of the layer for the depth report
+            try:
+                from .depth import activity
+                E = activity(x, self.sr, self.S16, self.bars * 16); self.act[name] = self.act[name] + E if name in self.act else E
+            except Exception as ex: self.act_err.append(f"{name}: {type(ex).__name__}: {str(ex)[:80]}")
+        send = dict(send or {})
+        if depth and "room" not in send: send["room"] = round(.35 * float(np.clip(depth, 0, 1)), 3)
+        for sp, amt in send.items(): self.space(sp).send(x, amt, name=name)
+        if bus:
+            if bus not in self.buses: self.buses[bus] = self.buf()
+            self.buses[bus] += x
+        else: self._mix += x
+        self.layers[name] = round(20 * np.log10(rms(x[np.abs(x).max(1) > 1e-4]) + 1e-9), 1) if np.any(np.abs(x) > 1e-4) else None
+        self.routing[name] = {"bus": bus, "send": send, "depth": depth, "duck_db": duck or None, "band": list(band) if band else None,
+                              "key": ("clock" if duck else None) if key is None else (key if isinstance(key, (str, list, tuple)) else "audio")}
         print("  +", name, flush=True)
+    # ---- P130: the mix graph (bus.py) ----
+    def key_env(self, key):
+        """control-rate envelope of a key: a layer name, several names (their maximum) or an audio buffer (e.g. a kick that
+        is muted in the mix but should keep pumping: the «ghost kick»)"""
+        from . import bus as _bus
+        if isinstance(key, np.ndarray): return _bus.envelope(np.pad(key, ((0, max(0, self.N - len(key))), (0, 0)))[:self.N] if key.ndim == 2 else key)
+        names = [key] if isinstance(key, str) else list(key); miss = [k for k in names if k not in self.ctl]
+        if miss: raise KeyError(f"key layer(s) {miss} are not added yet (have: {sorted(self.ctl)}): add the key before the layer that follows it")
+        return np.max([self.ctl[k] for k in names], 0)
+    def follow(self, key, attack_ms=5.0, release_ms=200.0, hold_ms=0.0, invert=False):
+        """(N, 1) curve 0..1 that follows what a layer plays (1 = its usual peak): drive a filter, a send, a level or a synth
+        modulation of ANOTHER layer with it. invert=True: 1 while the key is silent."""
+        from . import bus as _bus
+        f = _bus.upsample(_bus.follower(_bus.normalised(self.key_env(key)), self.sr, _bus.CTL, attack_ms, hold_ms, release_ms), self.N)
+        self.followed.update([key] if isinstance(key, str) else list(key) if isinstance(key, (list, tuple)) else ["audio"])
+        return ((1 - f) if invert else f).astype(np.float32)[:, None]
+    def space(self, name, **kw):
+        """the shared space `name` (created on first use; kind defaults to the name: room / plate / hall / echo)"""
+        from . import bus as _bus
+        if name not in self.spaces: self.spaces[name] = _bus.Space(self, kw.pop("kind", name if name in _bus.KINDS else "room"), **kw)
+        elif kw: raise ValueError(f"space {name!r} already exists: configure it before the first send")
+        return self.spaces[name]
+    def bus(self, name, fx=None, parallel=None, makeup=True, duck=0.0, key=None, band=None, release_ms=140, send=None):
+        """configure a group bus: fx (pedalboard plugin(s) or a function of the buffer), parallel=(fx, amount), keyed ducking of
+        the whole group, sends. Layers reach it with add(..., bus=name); it joins the mix on flush()/finish()."""
+        self.bus_cfg[name] = dict(fx=fx, parallel=parallel, makeup=makeup, duck=duck, key=key, band=band, release_ms=release_ms, send=send); return self
+    def flush(self):
+        """bring the group buses and then the space returns into the mix (called by finish and by any read of trk.mix)"""
+        from . import bus as _bus
+        for name in list(self.buses):
+            y = self.buses.pop(name); self._mix += _bus.process(self, name, y, self.bus_cfg.get(name, {}))
+            self.flushes[name] = self.flushes.get(name, 0) + 1
+        for name, sp in self.spaces.items():
+            if sp.pending: self._mix += sp.render(); self.flushes["space:" + name] = self.flushes.get("space:" + name, 0) + 1
     def duck_for_voice(self, vbuf, band=(300, 3500), depth_db=-4.0, attack_ms=15, release_ms=250):
         """make room for the voice: only the voice band of the music dips while the voice sounds (call before add voice)"""
         from scipy.ndimage import maximum_filter1d, uniform_filter1d
@@ -164,6 +231,11 @@ class Track:
         from .syncopation import lhl_events
         bs = [(int(t / self.BAR), int(round((t % self.BAR) / self.S16)) % 16) for t, *_ in self.notes.get("bass", [])]        # P124: syncopation of the bass line (mean LHL per bar)
         info = {"bpm": self.bpm, "bars": self.bars, "plan": plan, "bass_sync": round(lhl_events(bs), 1) if bs else None, "voice": self.voice, "layers_db": self.layers,
-                "clash_ratio": round(ratio, 3), "clash_pairs": [[f"{a}+{b}", c] for (a, b), c in top], **(meta or {})}
+                "clash_ratio": round(ratio, 3), "clash_pairs": [[f"{a}+{b}", c] for (a, b), c in top],
+                "routing": self.routing, "spaces": {k: {"kind": v.kind, "sent": v.sent} for k, v in self.spaces.items()}, "flushes": self.flushes, **(meta or {})}
+        try:                                                                            # P133: depth report (never blocks a render)
+            from .depth import report
+            info["depth"] = report(self)
+        except Exception as ex: info["depth"] = {"error": f"{type(ex).__name__}: {str(ex)[:120]}"}
         json.dump(info, open(path.rsplit(".", 1)[0] + ".json", "w"), ensure_ascii=False)
         return info

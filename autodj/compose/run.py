@@ -71,14 +71,15 @@ def main(argv=None):
             import zlib                                                       # ONE track; a new track gets its own seed (from its name)
             a.seed = zlib.crc32((a.name or os.path.basename(a.score)).encode()) % 100000
         print(f"render slot {slot}", flush=True); sfz.SQUEEZE_LOG.clear(); trk = mod.build(a.seed); info = trk.finish(raw, meta={"title": title, "seed": a.seed}); info["squeezed"] = sfz.squeezed_report()
-        drv = meta.get("premaster_drive", 3.0); premaster(raw, pre, drive_db=drv); ms = warm(pre, mp3, target, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
+        drv = meta.get("premaster_drive", 3.0); pm = meta.get("premaster", "clip" if meta.get("master") == "studio" else "sat")   # P130
+        premaster(raw, pre, drive_db=drv, mode=pm); ms = warm(pre, mp3, target, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
         fixed = []; eq_all, dt_all = [], 0.0
         for _ in range(2):                                         # at most two master-side rounds (an EQ cut can raise the limiter)
             eq, dt = fixes_for(bad, met, ms, meta.get("gates"))
             if not (eq or dt): break
             fixed.append({"codes": [c for c, _ in bad if c in FIXABLE], "before": {"high_db": met["high_db"], "sub_mean": met["sub_mean"], "limiter_max_db": ms["limiter_max_db"]}})
             eq_all += eq; dt_all += dt
-            premaster(raw, pre, drive_db=drv, pre_eq=eq_all); ms = warm(pre, mp3, target + dt_all, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
+            premaster(raw, pre, drive_db=drv, pre_eq=eq_all, mode=pm); ms = warm(pre, mp3, target + dt_all, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
     if not a.keep_wav:
         for p in (raw, pre): os.path.exists(p) and os.remove(p)
     summ = {"name": name, "title": title, "file": mp3, "dur_s": round(trk.N / trk.sr), "bpm": trk.bpm, "seed": a.seed, "master": ms,
@@ -94,6 +95,8 @@ def main(argv=None):
     except Exception as e: summ["arc"] = {"error": f"{type(e).__name__}: {str(e)[:100]}"}
     if a.ears or meta.get("ears"): summ["ears"] = ears.abx(mp3)
     summ["problems"] += [f"слой {n} беззвучен (layers_db пуст): проверь env/секции" for n in summ["silent_layers"]] + ears.ears_gates(summ, meta.get("gates"))
+    from . import depth                                                                       # P133: where the track is flat (always reported; gates opt-in)
+    summ["depth"] = info.get("depth"); summ["depth_notes"] = (info.get("depth") or {}).get("notes", []); summ["problems"] += depth.gates(info.get("depth"), meta.get("gates"))
     if a.review:
         from .review import review
         summ["review"] = review(mp3, summ, info, meta, os.path.join(outdir, f"{name}.review.txt"))

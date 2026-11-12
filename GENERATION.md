@@ -18,6 +18,10 @@ tags: [audio, generation, synthesis, synth909, ambient, techno, render]
 **Last synced:** 2026-07-20
 **Audience:** ClaudeClaw, Hermes, любой агент создающий музыку через autodj-mixer
 
+> **2026-11-12.** Этот гайд описывает СТАРЫЙ движок (`render_track.py`, `autodj/generate`). Треки сейчас пишутся на
+> `autodj.compose` (партитура на Python → `python -m autodj.compose run score.py`). Для него: `docs/COMPOSE_DEPTH.md`
+> (микс-граф, живой синтезатор, лаборатория звука, отчёт глубины) и образец `docs/examples/living_demo.py`.
+
 Пайплайн миксера (SKILL.md) берёт чужие треки и соединяет их.
 Этот гайд — про **создание своих треков с нуля** через математический синтезатор.
 
