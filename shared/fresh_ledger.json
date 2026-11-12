@@ -1,0 +1,1732 @@
+{
+"version": 1,
+"tracks": {
+"Dub Saw (tech house)": {
+"date": "2026-11-12",
+"sources": [
+"WART_Percussion_5.wav",
+"WATE_Hithat_04.wav",
+"WATE_Kick_05.wav",
+"sfz:rhodes"
+],
+"rhythms": {
+"kick": "x...x...x...x...",
+"hat": "..x...x...x...x.",
+"perc": "...x.......x...."
+},
+"harmony": null
+},
+"legacy:drum_groove": {
+"date": null,
+"sources": [
+"Bassdrum-01.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:chainsaw": {
+"date": null,
+"sources": [
+"ClHat01.wav",
+"Clap01.wav",
+"Kick02.wav",
+"OpHat01.wav",
+"Snr02.wav",
+"dark_hall.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:cs_next": {
+"date": null,
+"sources": [
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Gm_Chord_Shot_1.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:thw_pulse_x": {
+"date": null,
+"sources": [
+"WART_Percussion_8.wav",
+"WATE_Gm_Pluck_02.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:fus": {
+"date": null,
+"sources": [
+"WAFTH_Clap_08.wav",
+"WAFTH_Closed_Hat_01.wav",
+"WAFTH_Kick_05.wav",
+"WAFTH_Open_Hat_02.wav",
+"WAFTH_Perc_07.wav",
+"WAFTH_Snare_01.wav",
+"gtr_chops1.wav",
+"slap_D_1.wav",
+"vocal_chop.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:nudisco": {
+"date": null,
+"sources": [
+"nudisco.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:vyrub": {
+"date": null,
+"sources": [
+"WATE_Kick_07.wav",
+"WATE_Percussion_13.wav",
+"WATE_Ride_02.wav",
+"WATS_Open_HiHat_04.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:th_D_long": {
+"date": null,
+"sources": [
+"WART_Gm_Pluck_Shot_3.wav",
+"WATE_Gm_Pluck_07.wav",
+"WATE_Percussion_11.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:earth": {
+"date": null,
+"sources": [
+"K02DHit-11.wav",
+"K03DHit-03.wav",
+"earth.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:medit": {
+"date": null,
+"sources": [
+"WATE_Kick_03.wav",
+"medit.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:nudisco_k": {
+"date": null,
+"sources": [
+"WAFTH_Clap_08.wav",
+"WAFTH_Closed_Hat_01.wav",
+"WAFTH_Kick_05.wav",
+"WAFTH_Open_Hat_02.wav",
+"gtr_chops1.wav",
+"slap_D_1.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:tribal": {
+"date": null,
+"sources": [
+"--seed N --out x.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:th_cosmic": {
+"date": null,
+"sources": [
+"WART_FX_Atmo_5.wav",
+"WART_FX_Atmo_7.wav",
+"WART_FX_Atmo_8.wav",
+"WART_FX_Laser_3.wav",
+"WART_FX_Vox_Crazy_4.wav",
+"WART_Gm_Lead_Shot_1.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WART_Gm_Pluck_Shot_4.wav",
+"WATE_FX_Sweep_Up_06.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:step1": {
+"date": null,
+"sources": [
+"WART_Gm_Lead_Shot_13.wav",
+"WART_Gm_Pluck_Shot_3.wav",
+"WATE_Gm_Pluck_07.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:dark": {
+"date": null,
+"sources": [
+"Bassdrum-02.wav",
+"CYCdh_ElecK03-Kick02.wav",
+"K02DHit-07.wav",
+"K02DHit-08.wav",
+"K02DHit-09.wav",
+"K02DHit-10.wav",
+"K02DHit-13.wav",
+"dark.py SEED out.wav",
+"version 1.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:ghost_acid": {
+"date": null,
+"sources": [
+"WART_FX_Atmo_6.wav",
+"dark_hall.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:loab": {
+"date": null,
+"sources": [
+"02.wav",
+"05.wav",
+"06.wav",
+"K05AltPiano100A-05.wav",
+"K05Bass100A-01.wav",
+"K05Bass100A-02.wav",
+"K05Piano100A-02.wav",
+"K05Piano100A-03.wav",
+"python3 loab.py SEED out.wav",
+"version 2.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:artspace": {
+"date": null,
+"sources": [
+"artspace.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:iron": {
+"date": null,
+"sources": [
+"WART_Kick_10.wav",
+"iron.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:feeling_var": {
+"date": null,
+"sources": [
+"WART_Gm_Pluck_Shot_1.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:dt_C_v2": {
+"date": null,
+"sources": [
+"WART_Gm_Pluck_Shot_1.wav",
+"WATE_Kick_05.wav",
+"WATS_Closed_HiHat_05.wav",
+"WATS_Open_HiHat_03.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:sleep": {
+"date": null,
+"sources": [
+"sleep.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:nudisco3": {
+"date": null,
+"sources": [
+"nudisco.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:sm_hooks": {
+"date": null,
+"sources": [
+"WART_Gm_Lead_Shot_14.wav",
+"WATE_Gm_Pluck_02.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:indie_glitch": {
+"date": null,
+"sources": [
+"WAFTH_Snare_03.wav",
+"WART_Clap_6.wav",
+"WART_Gm_Bass_Shot_5.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WART_Gm_Pluck_Shot_1.wav",
+"WART_Kick_5.wav",
+"WATE_Gm_Pluck_02.wav",
+"WATE_Gm_Synth_04.wav",
+"WATS_Closed_HiHat_05.wav",
+"WATS_Open_HiHat_03.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:lasha": {
+"date": null,
+"sources": [
+"WAFTH_Clap_01.wav",
+"WAFTH_Clap_03.wav",
+"WAFTH_Clap_05.wav",
+"WAFTH_Clap_08.wav",
+"WAFTH_Clap_10.wav",
+"WAFTH_Closed_Hat_02.wav",
+"WAFTH_Kick_04.wav",
+"WAFTH_Kick_05.wav",
+"WAFTH_Kick_09.wav",
+"WAFTH_Open_Hat_01.wav",
+"WAFTH_Open_Hat_02.wav",
+"WAFTH_Open_Hat_03.wav",
+"WAFTH_Perc_02.wav",
+"WAFTH_Perc_04.wav",
+"WAFTH_Perc_07.wav",
+"WAFTH_Perc_09.wav",
+"WAFTH_Perc_10.wav",
+"WAFTH_Ride_01.wav",
+"WAFTH_Shaker_01.wav",
+"WAFTH_Snare_01.wav",
+"WAFTH_Snare_06.wav",
+"WAFTH_Synth_Shot_06_E.wav",
+"WART_FX_Atmo_3.wav",
+"WART_FX_Down_Filter_2.wav",
+"WART_HiHat_11.wav",
+"WART_HiHat_4.wav",
+"WART_Kick_10.wav",
+"WART_Percussion_11.wav",
+"WART_Percussion_13.wav",
+"WART_Percussion_2.wav",
+"WART_Percussion_7.wav",
+"WART_Ride_2.wav",
+"WATE_FX_Noise_02.wav",
+"WATE_Hithat_06.wav",
+"WATE_Ride_03.wav",
+"WATS_Closed_HiHat_05.wav",
+"WATS_Kick_02.wav",
+"WATS_Open_HiHat_05.wav",
+"WATS_Open_HiHat_08.wav",
+"bass.wav",
+"other.wav",
+"vocals.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:nb_fast": {
+"date": null,
+"sources": [
+"WATE_Percussion_04.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:detuned2": {
+"date": null,
+"sources": [
+"WATE_Gm_Pd_01.wav",
+"WATE_Gm_Synth_04.wav",
+"_sung.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:techsaw": {
+"date": null,
+"sources": [
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Percussion_3.wav",
+"WART_Percussion_5.wav",
+"WATE_Hithat_04.wav",
+"WATE_Kick_05.wav",
+"WATS_Clap_04.wav",
+"dark_hall.wav",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:darksynth": {
+"date": null,
+"sources": [
+"DS-ClHat01.wav",
+"DS-Clap01.wav",
+"DS-Kick01.wav",
+"DS-OpHat01.wav",
+"DS-Snr01.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:club": {
+"date": null,
+"sources": [
+"club.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:od_full": {
+"date": null,
+"sources": [
+"WART_Gm_Pluck_Shot_1.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:cine1_v2": {
+"date": null,
+"sources": [
+"K02DHit-02.wav",
+"K02DHit-13.wav",
+"K05DHit-03.wav",
+"K05DHit-09.wav",
+"from autodj.compose.sfz",
+"sfz:bass",
+"sfz:piano"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:techgen": {
+"date": null,
+"sources": [
+"Bassdrum-02.wav",
+"CYCdh_ElecK03-Kick02.wav",
+"K02DHit-07.wav",
+"K02DHit-08.wav",
+"K02DHit-09.wav",
+"K02DHit-10.wav",
+"techgen.py CONFIG SEED out.wav",
+"version 1.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:cine1": {
+"date": null,
+"sources": [
+"WAFTH_Snare_05.wav",
+"WART_HiHat_12.wav",
+"WATE_Gm_Pd_01.wav",
+"WATE_Gm_Pd_03.wav",
+"WATS_Kick_06.wav",
+"from autodj.compose.sfz",
+"sfz:bass",
+"sfz:piano"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:dt_C_trans": {
+"date": null,
+"sources": [
+"WART_Kick_10.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:festive": {
+"date": null,
+"sources": [
+"--seed N --out x.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:weekly_2026_11_07": {
+"date": null,
+"sources": [
+"ClHat01.wav",
+"Kick02.wav",
+"Perc02.wav",
+"Shkr02.wav",
+"Snr01.wav",
+"Snr02.wav",
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Gm_Lead_Shot_14.wav",
+"WART_Gm_Sc_Shot_2.wav",
+"WART_Kick_5.wav",
+"WART_Percussion_3.wav",
+"WATE_Clap_03.wav",
+"WATE_Gm_Bass_01.wav",
+"WATE_Hithat_04.wav",
+"WATS_Clap_04.wav",
+"WATS_Closed_HiHat_03.wav",
+"from autodj.compose.sfz",
+"sfz:bass",
+"sfz:piano",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:noir": {
+"date": null,
+"sources": [
+"--seed N --out x.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:gnossienne": {
+"date": null,
+"sources": [
+"python3 gnoss.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:vtech": {
+"date": null,
+"sources": [
+"WATS_Kick_03.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:mh_E_hooks": {
+"date": null,
+"sources": [
+"WART_Gm_Lead_Shot_13.wav",
+"from autodj.compose.sfz",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:step0_dt": {
+"date": null,
+"sources": [
+"WART_Gm_Bass_Shot_5.wav",
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Gm_Bass_Shot_8.wav",
+"WART_Gm_Bass_Shot_9.wav",
+"WART_Gm_Lead_Shot_14.wav",
+"WART_Gm_Pad_Shot_1.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WART_Gm_Pluck_Shot_3.wav",
+"WART_HiHat_12.wav",
+"WART_HiHat_5.wav",
+"WART_HiHat_7.wav",
+"WART_Kick_10.wav",
+"WART_Kick_2.wav",
+"WART_Percussion_8.wav",
+"WART_Ride_2.wav",
+"WATE_Gm_Pluck_07.wav",
+"WATE_Hithat_02.wav",
+"WATE_Hithat_07.wav",
+"WATE_Kick_01.wav",
+"WATE_Kick_09.wav",
+"WATE_Ride_03.wav",
+"WATS_Closed_HiHat_02.wav",
+"WATS_Closed_HiHat_05.wav",
+"WATS_Kick_06.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:p108": {
+"date": null,
+"sources": [
+"from autodj.compose.sfz",
+"sfz:bass",
+"sfz:piano",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:dt_hypno": {
+"date": null,
+"sources": [
+"WART_Gm_Lead_Shot_14.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:od_hooks": {
+"date": null,
+"sources": [
+"WART_Gm_Pluck_Shot_1.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:nudisco2": {
+"date": null,
+"sources": [
+"nudisco.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:p107b": {
+"date": null,
+"sources": [
+"WAFTH_Clap_02.wav",
+"WAFTH_Closed_Hat_01.wav",
+"WAFTH_Kick_07.wav",
+"WAFTH_Open_Hat_03.wav",
+"WAFTH_Perc_03.wav",
+"WAFTH_Snare_06.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:orient_rec": {
+"date": null,
+"sources": [
+"WAFTH_Kick_04.wav",
+"WART_Gm_Bass_Shot_10.wav",
+"WART_Gm_Lead_Shot_14.wav",
+"WART_Gm_Pad_Shot_1.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WART_Gm_Pluck_Shot_4.wav",
+"WART_Kick_2.wav",
+"WATE_Gm_Pd_01.wav",
+"WATE_Percussion_03.wav",
+"WATS_Closed_HiHat_05.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:dt_E_full": {
+"date": null,
+"sources": [
+"WATS_Open_HiHat_03.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:arena": {
+"date": null,
+"sources": [
+"--seed N --out x.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:weekly_2026_10_31": {
+"date": null,
+"sources": [
+"ClHat01.wav",
+"Clap02.wav",
+"Kick01.wav",
+"OpHat.wav",
+"Snr02.wav",
+"Tom03.wav",
+"WART_Gm_Bass_Shot_9.wav",
+"WART_Kick_2.wav",
+"WART_Percussion_4.wav",
+"WART_Percussion_8.wav",
+"WATE_Clap_04.wav",
+"WATE_Gm_Lead_16.wav",
+"WATE_Gm_Pluck_07.wav",
+"WATE_Kick_07.wav",
+"WATE_Percussion_11.wav",
+"WATS_Closed_HiHat_03.wav",
+"_Sum.wav",
+"from autodj.compose.sfz",
+"sfz:bass",
+"sfz:piano",
+"sfz:rhodes",
+"version 3.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:dd_new": {
+"date": null,
+"sources": [
+"WART_Gm_Pad_Shot_1.wav",
+"WART_Gm_Pluck_Shot_1.wav",
+"WART_Kick_9.wav",
+"WART_Percussion_8.wav",
+"WATS_Closed_HiHat_04.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:wacid_act2": {
+"date": null,
+"sources": [
+"WART_Gm_Bass_Shot_8.wav",
+"WATE_Gm_Pd_01.wav",
+"WATE_Gm_Pluck_02.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:step2": {
+"date": null,
+"sources": [
+"WART_Gm_Lead_Shot_14.wav",
+"WATE_Gm_Pluck_07.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:alo": {
+"date": null,
+"sources": [
+"alo.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:granular": {
+"date": null,
+"sources": [
+"python3 exp.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:gen": {
+"date": null,
+"sources": [
+"Bassdrum-02.wav",
+"CYCdh_ElecK03-Kick02.wav",
+"K01DHit-03.wav",
+"K01DHit-04.wav",
+"K01DHit-07.wav",
+"K02DHit-07.wav",
+"K02DHit-08.wav",
+"K02DHit-10.wav",
+"K02DHit-11.wav",
+"K02DHit-12.wav",
+"d.wav",
+"gen.py CONFIG.py SEED out.wav",
+"hh01.wav",
+"hh02.wav",
+"hh03.wav",
+"rs01.wav",
+"version 1.wav",
+"version 2.wav",
+"version 3.wav",
+"version 4.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:moonlight": {
+"date": null,
+"sources": [
+"python3 moon.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:step0_top": {
+"date": null,
+"sources": [
+"WAFTH_Clap_04.wav",
+"WAFTH_Clap_05.wav",
+"WAFTH_Clap_07.wav",
+"WAFTH_Kick_02.wav",
+"WAFTH_Snare_02.wav",
+"WART_Gm_Bass_Shot_1.wav",
+"WART_Gm_Bass_Shot_10.wav",
+"WART_Gm_Bass_Shot_3.wav",
+"WART_Gm_Bass_Shot_6.wav",
+"WART_Gm_Pluck_Shot_5.wav",
+"WART_HiHat_1.wav",
+"WART_HiHat_11.wav",
+"WART_HiHat_13.wav",
+"WART_HiHat_14.wav",
+"WART_HiHat_8.wav",
+"WART_Kick_5.wav",
+"WART_Kick_9.wav",
+"WATE_Gm_Bass_03.wav",
+"WATE_Gm_Pd_02.wav",
+"WATE_Gm_Pluck_03.wav",
+"WATE_Gm_Synth_03.wav",
+"WATE_Hithat_03.wav",
+"WATE_Hithat_09.wav",
+"WATE_Kick_05.wav",
+"WATE_Kick_07.wav",
+"WATE_Ride_05.wav",
+"WATS_Closed_HiHat_03.wav",
+"WATS_Closed_HiHat_07.wav",
+"WATS_Closed_HiHat_09.wav",
+"from autodj.compose.sfz",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:lpx5": {
+"date": null,
+"sources": [
+"WAFTH_Clap_06.wav",
+"WAFTH_Snare_02.wav",
+"WART_Clap_9.wav",
+"WART_Gm_Bass_Shot_10.wav",
+"WART_Gm_Bass_Shot_2.wav",
+"WART_Gm_Bass_Shot_5.wav",
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Gm_Bass_Shot_8.wav",
+"WART_Gm_Chord_Shot_1.wav",
+"WART_Gm_Lead_Shot_18.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WART_HiHat_10.wav",
+"WART_HiHat_11.wav",
+"WART_HiHat_14.wav",
+"WART_HiHat_5.wav",
+"WART_HiHat_8.wav",
+"WART_Kick_2.wav",
+"WART_Kick_5.wav",
+"WART_Kick_9.wav",
+"WART_Percussion_8.wav",
+"WATE_Gm_Pluck_02.wav",
+"WATE_Gm_Synth_04.wav",
+"WATE_Hithat_03.wav",
+"WATE_Hithat_06.wav",
+"WATE_Kick_05.wav",
+"WATE_Kick_07.wav",
+"WATE_Percussion_05.wav",
+"WATE_Ride_02.wav",
+"WATS_Closed_HiHat_02.wav",
+"WATS_Closed_HiHat_04.wav",
+"WATS_Closed_HiHat_09.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:cine1_full": {
+"date": null,
+"sources": [
+"WAFTH_Snare_05.wav",
+"WART_HiHat_12.wav",
+"WATE_Gm_Pd_01.wav",
+"WATE_Gm_Pd_03.wav",
+"WATS_Closed_HiHat_04.wav",
+"WATS_Kick_06.wav",
+"from autodj.compose.sfz",
+"sfz:bass",
+"sfz:piano"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:th_full": {
+"date": null,
+"sources": [
+"WART_Clap_3.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:ten3": {
+"date": null,
+"sources": [
+"_Sum.wav",
+"sfz:bass",
+"sfz:piano",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:p107demo": {
+"date": null,
+"sources": [
+"WAFTH_Clap_04.wav",
+"WAFTH_Closed_Hat_02.wav",
+"WAFTH_Kick_03.wav",
+"WAFTH_Open_Hat_01.wav",
+"WAFTH_Perc_06.wav",
+"WAFTH_Snare_03.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:th_D_comp": {
+"date": null,
+"sources": [
+"WAFTH_Clap_06.wav",
+"WART_FX_Vox_Crazy_4.wav",
+"WART_Gm_Bass_Shot_2.wav",
+"WART_Gm_Lead_Shot_1.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WART_Gm_Pluck_Shot_3.wav",
+"WART_HiHat_12.wav",
+"WART_Kick_5.wav",
+"WATE_Gm_Pluck_07.wav",
+"WATE_Hithat_02.wav",
+"WATE_Percussion_11.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:industrial": {
+"date": null,
+"sources": [
+"IN-ClHat01.wav",
+"IN-Clap01.wav",
+"IN-Kick01.wav",
+"IN-OpHat01.wav",
+"IN-Snr01.wav",
+"dub --out part.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:techno": {
+"date": null,
+"sources": [
+"techno.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:glass5": {
+"date": null,
+"sources": [
+"ClHat01.wav",
+"Kick02.wav",
+"Snr01.wav",
+"Snr02.wav",
+"sfz:bass"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:wh_uk": {
+"date": null,
+"sources": [
+"Brushslp.wav",
+"Brushswi.wav",
+"Brushtap.wav",
+"_sung.wav",
+"dark_hall.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:rd_full": {
+"date": null,
+"sources": [
+"WAFTH_Snare_03.wav",
+"WART_Clap_6.wav",
+"WART_Gm_Bass_Shot_8.wav",
+"WART_Gm_Lead_Shot_26.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WART_Gm_Pluck_Shot_1.wav",
+"WART_Kick_9.wav",
+"WATE_Gm_Lead_02.wav",
+"WATE_Percussion_03.wav",
+"WATS_Closed_HiHat_02.wav",
+"WATS_Open_HiHat_03.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:refs_detuned": {
+"date": null,
+"sources": [
+"other.wav",
+"vocals.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:phone_down": {
+"date": null,
+"sources": [
+"WAFTH_Crash_01.wav",
+"WAFTH_Open_Hat_02.wav",
+"WART_Clap_9.wav",
+"WART_Kick_2.wav",
+"WATS_Closed_HiHat_02.wav",
+"WATS_Closed_HiHat_04.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:fusion": {
+"date": null,
+"sources": [
+"WAFTH_Crash_01.wav",
+"WAFTH_Open_Hat_02.wav",
+"WART_Clap_9.wav",
+"WART_Kick_2.wav",
+"WATE_Gm_Pluck_07.wav",
+"WATE_Kick_07.wav",
+"WATS_Closed_HiHat_02.wav",
+"WATS_Closed_HiHat_04.wav",
+"dark_hall.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:th_wa5": {
+"date": null,
+"sources": [
+"WAFTH_Clap_06.wav",
+"WAFTH_Snare_08.wav",
+"WART_Clap_6.wav",
+"WART_Clap_9.wav",
+"WART_Gm_Bass_Shot_10.wav",
+"WART_Gm_Bass_Shot_2.wav",
+"WART_Gm_Bass_Shot_5.wav",
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Gm_Bass_Shot_8.wav",
+"WART_Gm_Lead_Shot_14.wav",
+"WART_Gm_Pluck_Shot_1.wav",
+"WART_Gm_Pluck_Shot_3.wav",
+"WART_HiHat_10.wav",
+"WART_HiHat_13.wav",
+"WART_HiHat_5.wav",
+"WART_HiHat_7.wav",
+"WART_HiHat_8.wav",
+"WART_Kick_2.wav",
+"WART_Kick_5.wav",
+"WART_Kick_9.wav",
+"WART_Percussion_8.wav",
+"WART_Ride_1.wav",
+"WATE_Gm_Pluck_02.wav",
+"WATE_Gm_Synth_04.wav",
+"WATE_Hithat_06.wav",
+"WATE_Hithat_09.wav",
+"WATE_Kick_05.wav",
+"WATE_Kick_07.wav",
+"WATE_Ride_02.wav",
+"WATS_Closed_HiHat_02.wav",
+"WATS_Closed_HiHat_04.wav",
+"WATS_Closed_HiHat_05.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:ig_analysis": {
+"date": null,
+"sources": [
+"Clap01.wav",
+"Kick02.wav",
+"Snr02.wav",
+"_mf.wav",
+"_v2_rr1.wav",
+"recreation.wav",
+"recreation2.wav",
+"recreation3.wav",
+"recreation4.wav",
+"recreation5.wav",
+"v1_1.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:haunted5": {
+"date": null,
+"sources": [
+"dark_hall.wav",
+"sfz:bass",
+"sfz:piano",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:space3": {
+"date": null,
+"sources": [
+"WART_FX_Atmo_3.wav",
+"WART_FX_Atmo_5.wav",
+"WART_FX_Atmo_7.wav",
+"WART_Gm_Bass_Shot_10.wav",
+"WART_Gm_Bass_Shot_2.wav",
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Kick_5.wav",
+"WART_Kick_9.wav",
+"WART_Percussion_3.wav",
+"WART_Percussion_5.wav",
+"WART_Percussion_8.wav",
+"WATE_Gm_Pd_01.wav",
+"WATE_Gm_Pd_02.wav",
+"WATE_Gm_Pd_03.wav",
+"WATE_Gm_Pluck_02.wav",
+"WATE_Gm_Pluck_05.wav",
+"WATE_Gm_Synth_02.wav",
+"WATE_Gm_Synth_04.wav",
+"WATE_Gm_Synth_05.wav",
+"WATE_Hithat_03.wav",
+"WATE_Kick_07.wav",
+"WATE_Percussion_01.wav",
+"WATE_Percussion_03.wav",
+"WATE_Percussion_04.wav",
+"WATE_Percussion_06.wav",
+"WATE_Percussion_07.wav",
+"WATE_Percussion_09.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:dt_C_hooks": {
+"date": null,
+"sources": [
+"WART_Gm_Lead_Shot_14.wav",
+"WART_Gm_Pluck_Shot_1.wav",
+"WATE_Gm_Pluck_07.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:nb_hooks": {
+"date": null,
+"sources": [
+"WART_Gm_Lead_Shot_14.wav",
+"WART_Gm_Pluck_Shot_1.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:dance5": {
+"date": null,
+"sources": [
+"ClHat01.wav",
+"Clap01.wav",
+"Kick02.wav",
+"OpHat01.wav",
+"Perc02.wav",
+"Snr02.wav",
+"sfz:bass"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:th_D2": {
+"date": null,
+"sources": [
+"WART_Gm_Pluck_Shot_3.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:detuned3": {
+"date": null,
+"sources": [
+"Brushslp.wav",
+"Brushswi.wav",
+"Brushtap.wav",
+"_sung.wav",
+"dark_hall.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:weekly_2026_10_24": {
+"date": null,
+"sources": [
+"Hat02.wav",
+"Kick.wav",
+"Snare02.wav",
+"WAFTH_Snare_03.wav",
+"WART_Clap_6.wav",
+"WART_Gm_Bass_Shot_5.wav",
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Gm_Bass_Shot_8.wav",
+"WART_Gm_Lead_Shot_14.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WART_Gm_Pluck_Shot_1.wav",
+"WART_Kick_9.wav",
+"WART_Percussion_8.wav",
+"WATE_Hithat_09.wav",
+"WATE_Kick_05.wav",
+"WATE_Percussion_03.wav",
+"WATE_Percussion_05.wav",
+"WATS_Closed_HiHat_05.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:exp": {
+"date": null,
+"sources": [
+"WART_Clap_3.wav",
+"WART_Gm_Bass_Shot_8.wav",
+"WART_Gm_Lead_Shot_13.wav",
+"WART_Gm_Pluck_Shot_3.wav",
+"WART_HiHat_7.wav",
+"WART_Kick_5.wav",
+"WART_Percussion_4.wav",
+"WATE_Hithat_04.wav",
+"WATE_Percussion_07.wav",
+"WATS_Closed_HiHat_03.wav",
+"from autodj.compose.sfz",
+"sfz:bass",
+"sfz:piano",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:ears": {
+"date": null,
+"sources": [
+"python3 abx.py clip1.wav clip2.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:riff_glass_full": {
+"date": null,
+"sources": [
+"WATE_Gm_Pluck_02.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:p109": {
+"date": null,
+"sources": [
+"from autodj.compose.sfz",
+"sfz:bass",
+"sfz:piano",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:vibe3": {
+"date": null,
+"sources": [
+"ClHat01.wav",
+"Kick02.wav",
+"OpHat01.wav",
+"Perc02.wav",
+"Snr01.wav",
+"sfz:bass",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:thw_pulse_full": {
+"date": null,
+"sources": [
+"WATE_Gm_Pluck_02.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:feeling_v2": {
+"date": null,
+"sources": [
+"WART_Gm_Bass_Shot_8.wav",
+"WART_Gm_Pad_Shot_2.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:mh_C_hooks": {
+"date": null,
+"sources": [
+"WAFTH_Clap_02.wav",
+"WAFTH_Closed_Hat_02.wav",
+"WART_Gm_Pad_Shot_1.wav",
+"WATE_Gm_Pluck_07.wav",
+"WATS_Open_HiHat_03.wav",
+"from autodj.compose.sfz",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:top_C_acid": {
+"date": null,
+"sources": [
+"WART_Gm_Lead_Shot_20.wav",
+"WART_Gm_Pluck_Shot_4.wav",
+"WART_Gm_Pluck_Shot_5.wav",
+"WATE_Gm_Lead_05.wav",
+"WATE_Gm_Synth_03.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:gravity5": {
+"date": null,
+"sources": [
+"CyCdh_K3ClHat-02.wav",
+"CyCdh_K3Rim-01.wav",
+"WAFTH_Clap_04.wav",
+"WART_Gm_Pluck_Shot_1.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:sieben": {
+"date": null,
+"sources": [
+"WART_Ride_1.wav",
+"WATE_Kick_03.wav",
+"WATS_Open_HiHat_07.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:full_2026_10_31": {
+"date": null,
+"sources": [
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Kick_2.wav",
+"WART_Percussion_4.wav",
+"WATE_Clap_04.wav",
+"WATE_Gm_Pluck_07.wav",
+"WATE_Kick_07.wav",
+"WATE_Percussion_11.wav",
+"WATS_Closed_HiHat_03.wav",
+"_Sum.wav",
+"sfz:bass",
+"sfz:piano",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:th_D": {
+"date": null,
+"sources": [
+"WART_Gm_Lead_Shot_1.wav",
+"WATE_Gm_Pluck_07.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:dt_C_full": {
+"date": null,
+"sources": [
+"WART_Gm_Pad_Shot_2.wav",
+"WART_Ride_2.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:ten": {
+"date": null,
+"sources": [
+"BellTree_Stroke1_v1_Sum.wav",
+"BellTree_Stroke2_v1_Sum.wav",
+"BellTree_Stroke3_v1_Sum.wav",
+"LogDrumHi_MedM_v2_rr1_Sum.wav",
+"LogDrumLo_MedM_v2_rr1_Sum.wav",
+"WATE_Kick_05.wav",
+"_Sum.wav",
+"_v1_Sum.wav",
+"dark_hall.wav",
+"sfz:bass",
+"sfz:piano",
+"sfz:rhodes",
+"susvib_A2_v1_1.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:ten4": {
+"date": null,
+"sources": [
+"WATE_Kick_05.wav",
+"_Sum.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:step3": {
+"date": null,
+"sources": [
+"WART_Gm_Pluck_Shot_3.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:lofi5": {
+"date": null,
+"sources": [
+"Hat.wav",
+"Hat01.wav",
+"Hat02.wav",
+"Kick.wav",
+"Snare.wav",
+"Snare01.wav",
+"WART_Gm_Bass_Shot_10.wav",
+"WART_Gm_Bass_Shot_5.wav",
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WART_Kick_9.wav",
+"WATE_Gm_Pluck_02.wav",
+"WATE_Gm_Synth_04.wav",
+"WATE_Percussion_05.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:s10": {
+"date": null,
+"sources": [
+"CYCdh_ElecK05-ClHat02.wav",
+"CYCdh_ElecK05-ClHat04.wav",
+"CYCdh_ElecK05-Clap01.wav",
+"CYCdh_ElecK05-Clap02.wav",
+"CYCdh_ElecK05-Kick01.wav",
+"CYCdh_ElecK05-Kick02.wav",
+"CYCdh_ElecK05-OpHat01.wav",
+"CYCdh_VinylK2-ClHat.wav",
+"CYCdh_VinylK2-Kick02.wav",
+"CYCdh_VinylK2-Snr01.wav",
+"CyCdh_K3OpHat-01.wav",
+"CyCdh_K3Rim-01.wav",
+"FILE.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:iron2": {
+"date": null,
+"sources": [
+"WART_Clap_6.wav",
+"WART_Clap_9.wav",
+"WART_Gm_Bass_Shot_10.wav",
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Gm_Lead_Shot_18.wav",
+"WART_Gm_Lead_Shot_22.wav",
+"WART_HiHat_10.wav",
+"WART_HiHat_8.wav",
+"WART_Kick_2.wav",
+"WATE_Gm_Lead_07.wav",
+"WATE_Gm_Pluck_02.wav",
+"WATE_Hithat_03.wav",
+"WATE_Kick_07.wav",
+"WATE_Percussion_05.wav",
+"WATE_Ride_02.wav",
+"WATS_Closed_HiHat_04.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:step0_mh": {
+"date": null,
+"sources": [
+"WAFTH_Clap_02.wav",
+"WAFTH_Clap_09.wav",
+"WAFTH_Kick_02.wav",
+"WAFTH_Kick_09.wav",
+"WAFTH_Snare_05.wav",
+"WAFTH_Snare_08.wav",
+"WART_Clap_9.wav",
+"WART_Gm_Bass_Shot_2.wav",
+"WART_Gm_Bass_Shot_5.wav",
+"WART_Gm_Bass_Shot_8.wav",
+"WART_Gm_Bass_Shot_9.wav",
+"WART_Gm_Lead_Shot_14.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WART_Gm_Pluck_Shot_1.wav",
+"WART_Gm_Pluck_Shot_3.wav",
+"WART_HiHat_10.wav",
+"WART_HiHat_2.wav",
+"WART_HiHat_4.wav",
+"WART_HiHat_6.wav",
+"WART_Kick_2.wav",
+"WART_Kick_9.wav",
+"WATE_Gm_Pluck_07.wav",
+"WATE_Hithat_06.wav",
+"WATE_Hithat_07.wav",
+"WATE_Hithat_08.wav",
+"WATE_Kick_02.wav",
+"WATE_Ride_04.wav",
+"WATS_Closed_HiHat_04.wav",
+"WATS_Closed_HiHat_05.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:teplo": {
+"date": null,
+"sources": [
+"WATE_Hithat_04.wav",
+"WATE_Percussion_05.wav",
+"WATS_Kick_05.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:catalog": {
+"date": null,
+"sources": [
+"KSHarp_A4_mf.wav",
+"WART_Gm_Bass_Shot_7.wav",
+"bass_moog_D.wav",
+"bass_sub_F.wav",
+"drone_Bbm.wav",
+"pad_cosmic_Fm.wav",
+"pad_warm_Fm.wav",
+"pluck_bell_Fm.wav",
+"pluck_harp_Gm.wav",
+"pluck_kalimba_Dm.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:ai89": {
+"date": null,
+"sources": [
+"club.py SEED out.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:mh_E_full": {
+"date": null,
+"sources": [
+"WAFTH_Clap_02.wav",
+"WAFTH_Closed_Hat_02.wav",
+"WAFTH_Crash_02.wav",
+"WAFTH_Snare_05.wav",
+"WATS_Open_HiHat_03.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:refs5": {
+"date": null,
+"sources": [
+"CYCdh_LudSdStB-04.wav",
+"Claves1_Hit_v2_rr1_Sum.wav",
+"KHats Clsd-02.wav",
+"LogDrumHi_MedM_v2_rr1_Sum.wav",
+"LogDrumHi_MedM_v3_rr1_Sum.wav",
+"Quinto-Tap1_v1_rr1_Sum.wav",
+"Quinto-Tap1_v1_rr2_Sum.wav",
+"WART_FX_Laser_2.wav",
+"WART_HiHat_4.wav",
+"WART_HiHat_9.wav",
+"WART_Kick_10.wav",
+"WART_Percussion_11.wav",
+"WART_Percussion_12.wav",
+"WART_Percussion_13.wav",
+"WART_Percussion_2.wav",
+"WART_Percussion_3.wav",
+"WART_Percussion_5.wav",
+"WART_Percussion_6.wav",
+"WART_Percussion_7.wav",
+"WART_Percussion_8.wav",
+"WART_Percussion_9.wav",
+"WATE_FX_Alarm_02.wav",
+"WATE_Hithat_03.wav",
+"WATE_Hithat_05.wav",
+"WATE_Hithat_06.wav",
+"WATE_Hithat_07.wav",
+"WATE_Hithat_09.wav",
+"WATE_Kick_03.wav",
+"WATE_Kick_04.wav",
+"WATE_Kick_06.wav",
+"WATE_Percussion_02.wav",
+"WATE_Percussion_03.wav",
+"WATE_Percussion_05.wav",
+"WATE_Percussion_06.wav",
+"WATE_Percussion_07.wav",
+"WATE_Percussion_08.wav",
+"WATE_Percussion_09.wav",
+"WATE_Percussion_10.wav",
+"WATE_Percussion_11.wav",
+"WATE_Percussion_12.wav",
+"WATE_Percussion_14.wav",
+"WATS_Closed_HiHat_01.wav",
+"WATS_Closed_HiHat_02.wav",
+"WATS_Closed_HiHat_03.wav",
+"WATS_Closed_HiHat_04.wav",
+"WATS_Closed_HiHat_06.wav",
+"WATS_Closed_HiHat_07.wav",
+"WATS_Closed_HiHat_08.wav",
+"WATS_Closed_HiHat_09.wav",
+"WATS_Kick_02.wav",
+"WATS_Kick_04.wav",
+"WATS_Kick_05.wav",
+"WATS_Synth_Shot_14_D.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:trolley": {
+"date": null,
+"sources": [
+"Acoustic Hat-06.wav",
+"CyCdh_K3ClHat-03.wav",
+"WART_Kick_1.wav",
+"WATE_Kick_02.wav",
+"WATS_Closed_HiHat_06.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:detuned": {
+"date": null,
+"sources": [
+"WAFTH_Open_Hat_02.wav",
+"WAFTH_Snare_02.wav",
+"WART_Clap_6.wav",
+"WART_Gm_Pluck_Shot_3.wav",
+"WART_Kick_10.wav",
+"WART_Percussion_8.wav",
+"WATE_Gm_Pd_01.wav",
+"WATS_Closed_HiHat_04.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:ai5": {
+"date": null,
+"sources": [
+"WART_FX_Atmo_2.wav",
+"WART_FX_Atmo_3.wav",
+"WART_FX_Atmo_5.wav",
+"WART_FX_Atmo_7.wav",
+"WART_FX_Atmo_8.wav",
+"WART_Gm_Bass_Shot_10.wav",
+"WART_Gm_Bass_Shot_2.wav",
+"WART_Gm_Bass_Shot_5.wav",
+"WART_Gm_Bass_Shot_7.wav",
+"WART_Gm_Bass_Shot_8.wav",
+"WART_Kick_5.wav",
+"WART_Kick_9.wav",
+"WART_Percussion_1.wav",
+"WART_Percussion_3.wav",
+"WART_Percussion_5.wav",
+"WART_Percussion_8.wav",
+"WART_Percussion_9.wav",
+"WATE_Gm_Lead_12.wav",
+"WATE_Gm_Pd_01.wav",
+"WATE_Gm_Pd_02.wav",
+"WATE_Gm_Pd_03.wav",
+"WATE_Gm_Pluck_02.wav",
+"WATE_Gm_Pluck_05.wav",
+"WATE_Gm_Synth_04.wav",
+"WATE_Gm_Synth_05.wav",
+"WATE_Kick_05.wav",
+"WATE_Kick_07.wav",
+"WATE_Percussion_01.wav",
+"WATE_Percussion_02.wav",
+"WATE_Percussion_03.wav",
+"WATE_Percussion_04.wav",
+"WATE_Percussion_05.wav",
+"WATE_Percussion_06.wav",
+"WATE_Percussion_07.wav",
+"WATE_Percussion_08.wav",
+"WATE_Percussion_09.wav",
+"WATE_Percussion_10.wav",
+"WATS_Kick_03.wav",
+"dark_hall.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:wacid_full": {
+"date": null,
+"sources": [
+"WART_Gm_Pluck_Shot_4.wav",
+"WART_Percussion_8.wav",
+"WART_Ride_2.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:cs_full": {
+"date": null,
+"sources": [
+"WART_Gm_Chord_Shot_1.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:carthage": {
+"date": null,
+"sources": [
+"ClHat01.wav",
+"Clap01.wav",
+"Kick02.wav",
+"OpHat01.wav",
+"Perc02.wav",
+"WATE_Kick_05.wav",
+"dark_hall.wav",
+"sfz:bass",
+"sfz:piano",
+"sfz:rhodes",
+"susvib_A2_v1_1.wav"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:top_B_full": {
+"date": null,
+"sources": [
+"WART_Gm_Pad_Shot_1.wav",
+"WATE_Gm_Pd_02.wav",
+"from autodj.compose.sfz"
+],
+"rhythms": {},
+"harmony": null
+},
+"legacy:ten2": {
+"date": null,
+"sources": [
+"WATE_Kick_05.wav",
+"_Sum.wav",
+"sfz:bass",
+"sfz:piano",
+"sfz:rhodes"
+],
+"rhythms": {},
+"harmony": null
+}
+}
+}
