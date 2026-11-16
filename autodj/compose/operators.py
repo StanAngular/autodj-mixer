@@ -117,9 +117,10 @@ def vote(technique, verdict, path=None):
     if verdict not in (-1, 0, 1): raise ValueError("verdict -1/0/1")
     db = load(path); v = db["votes"].setdefault(technique, {"like": 0, "dislike": 0, "neutral": 0})
     v[{1: "like", -1: "dislike", 0: "neutral"}[verdict]] += 1; save(db, path)
-def pick(n, rng=None, path=None, recent_tracks=3, pool=None):
-    """n techniques: never the last track's signature, avoid those used in the last `recent_tracks` tracks, liked ones weighted up"""
-    db = load(path); rng = rng or np.random.default_rng(0); pool = list(pool or TECHNIQUES)
+BANNED = ("PINGPONG", "GATE")      # 2026-11-16 (friction top-3): memory rules the registry did not know: no autopan/ping-pong (2026-10-25, L/R flicker), GATE got dislike x2
+def pick(n, rng=None, path=None, recent_tracks=3, pool=None, banned=BANNED):
+    """n techniques (never BANNED ones unless banned=() is passed): never the last track's signature, avoid those used in the last `recent_tracks` tracks, liked ones weighted up"""
+    db = load(path); rng = rng or np.random.default_rng(0); pool = [t for t in list(pool or TECHNIQUES) if t not in (banned or ())]
     tracks = []
     for u in reversed(db["uses"]):
         if u["track"] not in tracks: tracks.append(u["track"])

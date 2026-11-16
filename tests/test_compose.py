@@ -1022,3 +1022,28 @@ def test_contrast_trio_differs_in_the_bass_line_and_keeps_loudness(tmp_path):
     a = AB.loop(Feel("grid"), 126, bars=2, bass_steps=(0, 4, 8, 12), duck_db=0.0)[0]; b = AB.loop(Feel("swing", swing=58.0), 126, bars=2, bass_steps=(2, 6, 10, 14), duck_db=-7.0)[0]
     n = min(len(a), len(b)); assert float(np.abs(a[:n] - b[:n]).mean()) > 1e-3                           # clearly different signals (the first trio was nearly identical)
     k = AB.make_contrast(126, str(tmp_path)); assert sorted(k.values()) == ["broken_deep", "offbeat_pump", "straight"] and (tmp_path / "contrast_key.json").exists()
+
+
+# ---- 2026-11-16 friction top-3: hard silent-layer gate + banned techniques (both sides: what is cut AND what passes)
+def test_gate_failures_cuts_a_silent_layer():
+    from autodj.compose import ears
+    assert ears.gate_failures({"silent_layers": ["drums"]}, {}) == ["silent_layers"]
+
+def test_gate_failures_passes_clean_render_and_explicit_opt_out():
+    from autodj.compose import ears
+    assert ears.gate_failures({"silent_layers": []}, {}) == []
+    assert ears.gate_failures({}, {}) == []
+    assert ears.gate_failures({"silent_layers": ["fx"]}, {"allow_silent": True}) == []
+
+def test_pick_never_returns_banned_techniques(tmp_path):
+    import numpy as np
+    from autodj.compose import operators as O
+    seen = set()
+    for i in range(80): seen |= set(O.pick(3, rng=np.random.default_rng(i), path=str(tmp_path / "reg.json")))
+    assert not (seen & {"PINGPONG", "GATE"}) and len(seen) >= 8          # the ban cuts, the rest of the pool stays reachable
+
+def test_pick_can_still_return_a_banned_technique_when_banned_is_cleared(tmp_path):
+    import numpy as np
+    from autodj.compose import operators as O
+    assert O.pick(1, rng=np.random.default_rng(0), path=str(tmp_path / "reg.json"), pool=["GATE"], banned=()) == ["GATE"]
+    assert O.pick(1, rng=np.random.default_rng(0), path=str(tmp_path / "reg.json"), pool=["GATE", "ANT"]) == ["ANT"]

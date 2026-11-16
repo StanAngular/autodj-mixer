@@ -11,6 +11,13 @@ ABX_PATH = "/home/cclaw/.local/lib/abx"
 def silent_layers(layers_db, floor_db=-90.0):
     return sorted(n for n, v in (layers_db or {}).items() if v is None or v <= floor_db)
 
+def gate_failures(summ, meta=None):
+    """2026-11-16 (friction top-3): HARD stops. A silent layer means a muted part of the arrangement (15 tracks went out without drums on 2026-11-11);
+    reporting it as a problem was not enough. `meta["allow_silent"]=True` is the explicit opt-out. Returns the list of failed gate names."""
+    out = []
+    if (summ or {}).get("silent_layers") and not (meta or {}).get("allow_silent"): out.append("silent_layers")
+    return out
+
 def arc(path, bpm):
     import librosa
     y, sr = librosa.load(path, sr=22050, mono=True); bar = 240 / bpm; n = int(len(y) / sr / bar); feats, rms, cen = [], [], []

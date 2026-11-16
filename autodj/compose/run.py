@@ -107,7 +107,9 @@ def main(argv=None):
     if a.review:
         from .review import review
         summ["review"] = review(mp3, summ, info, meta, os.path.join(outdir, f"{name}.review.txt"))
-    if a.send: summ["telegram"] = send_telegram(mp3, title)
+    summ["gate_failed"] = ears.gate_failures(summ, meta)                                      # hard stop: silent layer = muted part (2026-11-16)
+    if summ["gate_failed"]: print("ГЕЙТ: " + ", ".join(summ["gate_failed"]) + ": отправка заблокирована (meta allow_silent=True отключает)", flush=True)
+    if a.send and not summ["gate_failed"]: summ["telegram"] = send_telegram(mp3, title)
     json.dump(summ, open(os.path.join(outdir, f"{name}.summary.json"), "w"), ensure_ascii=False, indent=1)
     try:
         with open(REGISTRY, "a") as f:
