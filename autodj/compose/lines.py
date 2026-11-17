@@ -37,10 +37,21 @@ def clean(m, st, ln, ctx):
     return not any(abs(m - x) in (1, 13, 25) for t in range(max(0, st), min(len(ctx), st + ln)) for x in ctx[t])
 
 COLOUR = 4.3          # weight of a colour tone (9 / 11 / 13) on a strong note; guide tones (3rd, 7th) weigh 4.0, the root 2.2
+def consonant(plan):
+    return getattr(plan, "palette", "jazz") == "consonant"
+
 def weight(plan, step, m, strong, colour=None):
     """how welcome pitch m is at a step: guide tones and colours on strong notes, anything in the chord scale in passing.
-    colour: weight of 9 / 11 / 13 on strong notes (default COLOUR; 0 = chord tones only, the old way)"""
-    c = plan.at(step); r = c.role(m % 12, plan.key)
+    colour: weight of 9 / 11 / 13 on strong notes (default COLOUR; 0 = chord tones only, the old way).
+    Consonant palette (P137): held notes only on the chord's own tones (3rd 4.0, root / 5th 3.6, its one colour 2.2); passing notes
+    on the key's pentatonic (1.6) or other scale notes that are not avoid notes (.6); nothing outside the scale, not even in passing."""
+    c = plan.at(step); pc = m % 12
+    if consonant(plan):
+        if pc in c.pcs[:3]: return (3.6, 4.0, 3.6)[c.pcs.index(pc)] if c.family != "sus" else 3.6
+        if pc in c.pcs[3:] or pc == c.bass_pc: return 2.2                                           # the chord's own colour: welcome, but the triad first
+        if strong or pc not in plan.key: return 0.0
+        return 1.6 if pc in plan.penta else (.6 if c.role(pc, plan.key) == "tension" else 0.0)
+    r = c.role(pc, plan.key)
     if r == "chord": return 4.0 if m % 12 in c.pcs[1:2] + c.pcs[3:4] else 2.2 if m % 12 == c.root else 3.0
     if r == "tension": return (COLOUR if colour is None else colour) if strong else 2.0
     if r == "avoid": return 0.0 if strong else .5
@@ -58,19 +69,26 @@ def rhythm(rng, onsets=(3, 5), busy=(), last_long=True):
         out.append((s, max(1, ln - 1 if ln > 2 and rng.random() < .7 else ln if ln <= 2 else int(rng.integers(1, 3)))))
     return out
 
+def accented(st, ln):
+    """consonant palette: a note the ear hears as harmony (it must be a chord tone): a dotted eighth or longer, or an eighth on a beat"""
+    return ln >= 3 or (st % 4 == 0 and ln >= 2)
+
 def _pick(plan, st, ln, lo, hi, want, prev, ctx, rng, strong, exclude=(), colour=None):
-    best, bm = -1e9, None
+    best, bm = -1e9, None; cons = consonant(plan)
     for m in range(lo, hi + 1):
-        w = weight(plan, st, m, strong or ln >= 2, colour)                                     # anything held is judged as a held note
+        w = weight(plan, st, m, (strong or accented(st, ln)) if cons else (strong or ln >= 2), colour)   # anything held is judged as a held note
         if w <= 0 or m in exclude or (ln >= 2 and not clean(m, st, ln, ctx)): continue
         leap = abs(m - prev) if prev is not None else 0
-        sc = w * 1.3 - abs(m - want) * .55 - max(0, leap - 5) * 1.2 - (2.6 if prev is not None and leap == 0 else 0) - (.8 if leap == 6 else 0) + rng.random() * .6
+        if cons:                                                                       # singable: steps welcome, no tritone, leaps beyond a fifth rare
+            sc = (w * 1.3 - abs(m - want) * .45 - max(0, leap - 4) * 1.1 - (3.0 if leap > 7 else 0) - (4.0 if leap == 6 else 0)
+                  - (2.2 if prev is not None and leap == 0 else 0) + (.9 if leap in (1, 2) else 0) + rng.random() * .6)
+        else: sc = w * 1.3 - abs(m - want) * .55 - max(0, leap - 5) * 1.2 - (2.6 if prev is not None and leap == 0 else 0) - (.8 if leap == 6 else 0) + rng.random() * .6
         if sc > best: best, bm = sc, m
     return bm
 
 def motif(plan, rng, lo, hi, bar, bars=2, onsets=(3, 5), ctx=None, busy_of_bar=None, shape=None, colour=None):
     """a `bars`-long idea starting at `bar`. shape: "arch" / "rise" / "fall" / "wave" (default: drawn)."""
-    shape = shape or str(rng.choice(["arch", "rise", "fall", "wave"])); span = (hi - lo) * .7; mid = (lo + hi) / 2
+    shape = shape or str(rng.choice(["arch", "wave"] if consonant(plan) else ["arch", "rise", "fall", "wave"])); span = (hi - lo) * .7; mid = (lo + hi) / 2   # a repeated motif returns to where it began
     curve = {"arch": lambda u: mid - span * .2 + span * .55 * np.sin(np.pi * u), "rise": lambda u: mid - span * .35 + span * .7 * u,
              "fall": lambda u: mid + span * .35 - span * .7 * u, "wave": lambda u: mid + span * .35 * np.sin(2 * np.pi * u)}[shape]
     cells = [rhythm(rng, onsets, busy_of_bar(bar + b) if busy_of_bar else (), last_long=(b == bars - 1)) for b in range(bars)]
@@ -80,53 +98,78 @@ def motif(plan, rng, lo, hi, bar, bars=2, onsets=(3, 5), ctx=None, busy_of_bar=N
         m = _pick(plan, st, ln, lo, hi, curve(s / (bars * 16)), prev, ctx, rng, strong, colour=colour)
         if m is None: continue
         out.append((st, ln, m, 98 if strong else 80 if s % 2 == 0 else 72)); prev = m
+    if consonant(plan) and len(out) >= 3 and abs(out[-1][2] - out[0][2]) > 7:        # the motif repeats: its end leads back to its start
+        s0, ln, m, v = out[-1]; alt = _pick(plan, s0, ln, lo, hi, out[0][2], out[-2][2], ctx, rng, True, colour=colour)
+        if alt is not None and abs(alt - out[0][2]) <= 7: out[-1] = (s0, ln, alt, v)
     return out
 
-def refit(notes, plan, lo, hi, ctx=None, shift=0):
+def refit(notes, plan, lo, hi, ctx=None, shift=0, before=None):
     """the same line `shift` steps later, over other chords: a note that is still a chord tone or a colour there (and does not rub)
-    stays; the others move to the nearest good pitch, keeping the direction of the line where they can"""
-    out = []; prev_old = prev_new = None
+    stays; the others move to the nearest good pitch, keeping the direction of the line where they can. Consonant palette: among
+    the good pitches the one that stays within a fifth of the note before it (`before` = the note that precedes the block)"""
+    out = []; prev_old = None; cons = consonant(plan); prev_new = before if cons else None
     for s, ln, m, v in notes:
-        st = s + shift; strong = ln >= 2
+        st = s + shift; strong = accented(st, ln) if cons else ln >= 2
         ok = lambda x: lo <= x <= hi and weight(plan, st, x, strong) >= (2.0 if strong else .3) and (ln < 2 or clean(x, st, ln, ctx))
         if not ok(m):
             up = prev_old is None or m >= prev_old; cands = [m + d * k for k in range(1, 6) for d in ((1, -1) if up else (-1, 1))]
-            m2 = next((x for x in cands if ok(x)), None)
+            if cons and prev_new is not None:                                         # singable: no leap beyond a fifth, no tritone from the note before
+                good = [x for x in cands if ok(x)]
+                m2 = min(good, key=lambda x: (abs(x - prev_new) > 7 or abs(x - prev_new) == 6, abs(x - m), abs(x - prev_new))) if good else None
+            else: m2 = next((x for x in cands if ok(x)), None)
             if m2 is None: ln = 1                                                     # nothing fits here: the note becomes a passing 16th
             else: m = m2
             if prev_new is not None and m == prev_new and ln < 2: m = next((x for x in cands if ok(x) and x != prev_new), m)
         out.append((st, ln, m, v)); prev_old, prev_new = notes[len(out) - 1][2], m
     return out
 
+def smooth(line, plan, lo, hi, ctx=None):
+    """consonant palette: a connected note (<= an eighth after the previous one ends) that leaps beyond a fifth or by a tritone moves
+    an octave (the shape of the motif stays) or, failing that, to the nearest good pitch within a fifth"""
+    if not consonant(plan): return line
+    out = list(line)
+    for i in range(1, len(out)):
+        a, b = out[i - 1], out[i]; leap = abs(b[2] - a[2])
+        if b[0] - (a[0] + a[1]) > 2 or (leap <= 7 and leap != 6): continue
+        s, ln, m, v = b; strong = accented(s, ln)
+        ok = lambda x: lo <= x <= hi and weight(plan, s, x, strong) >= (2.0 if strong else .3) and (ln < 2 or clean(x, s, ln, ctx))
+        good = [x for x in (m - 12, m + 12) if ok(x) and abs(x - a[2]) <= 7 and abs(x - a[2]) != 6] or \
+               sorted((x for x in range(a[2] - 7, a[2] + 8) if ok(x) and abs(x - a[2]) != 6), key=lambda x: (abs(x - m) % 12 != 0, abs(x - a[2]) == 0, abs(x - m)))
+        if good: out[i] = (s, ln, good[0], v)
+    return out
+
 def hook(plan, rng, lo, hi, bar, ctx=None, busy_of_bar=None, onsets=(3, 5), colour=None):
     """8 bars from one 2-bar motif: A | A' (re-fitted, new tail) | A (re-fitted) | B (the motif's first bar, then one long note that
     comes to rest on a stable tone of the last chord)."""
     A = motif(plan, rng, lo, hi, bar, 2, onsets, ctx, busy_of_bar, colour=colour)
-    A1 = refit(A, plan, lo, hi, ctx, 32)
+    A1 = refit(A, plan, lo, hi, ctx, 32, before=A[-1][2] if A else None)
     if len(A1) > 2:                                                                   # A': the tail answers differently
         s, ln, m, v = A1[-1]; alt = _pick(plan, s, ln, lo, hi, m + (3 if rng.random() < .5 else -3), A1[-2][2], ctx, rng, True, exclude=(m,), colour=colour)
         A1[-1] = (s, ln, alt if alt is not None else m, v)
-    A2 = refit(A, plan, lo, hi, ctx, 64)
-    B = refit([n for n in A if n[0] < bar * 16 + 16], plan, lo, hi, ctx, 96); st = (bar + 7) * 16 + int(rng.choice([0, 2])); c = plan.at(st)
+    A2 = refit(A, plan, lo, hi, ctx, 64, before=A1[-1][2] if A1 else None)
+    B = refit([n for n in A if n[0] < bar * 16 + 16], plan, lo, hi, ctx, 96, before=A2[-1][2] if A2 else None); st = (bar + 7) * 16 + int(rng.choice([0, 2])); c = plan.at(st)
     rest = [m for m in range(lo, hi + 1) if m % 12 in (c.pcs[0], c.pcs[2], c.pcs[1]) and clean(m, st, 10, ctx)]
     if rest: B.append((st, 10, min(rest, key=lambda m: abs(m - (B[-1][2] if B else (lo + hi) // 2)) + (0 if m % 12 != c.pcs[1] else .5)), 96))
-    return A + A1 + A2 + B
+    return smooth(A + A1 + A2 + B, plan, lo, hi, ctx)
 
 def tile(line, plan, lo, hi, bars, ctx=None, period=8, origin=None):
     """repeat a `period`-bar line over the given bars (an iterable of bar numbers where a copy STARTS), re-fitted to the chords it
     meets there. origin: the bar the line was written at (default: its first note's bar, rounded down to the period)."""
     if not line: return []
     o = (line[0][0] // 16 // period * period) if origin is None else origin; out = []
-    for b in bars: out += [n for n in refit(line, plan, lo, hi, ctx, (b - o) * 16) if n[0] < plan.bars * 16]
-    return out
+    for b in bars: out += [n for n in refit(line, plan, lo, hi, ctx, (b - o) * 16, before=out[-1][2] if out else None) if n[0] < plan.bars * 16]
+    return smooth(out, plan, lo, hi, ctx)
 
 def ostinato(plan, rng, lo, hi, a_bar, b_bar, n=3, step=2, ctx=None, rest_every=0, vel=84):
     """n pitches, one every `step` sixteenths, round and round from bar a to bar b: n * step = 6, 10, 12 ... sixteenths does not divide
     the bar, so the figure drifts against it (polymeter). The pitches are the ones that are chord tones or colours for the largest
     part of the time; where one of them would be an avoid note or would rub, only that note bends to its neighbour."""
-    score = {}
+    score = {}; cons = consonant(plan); home = {plan.tonic, (plan.tonic + 7) % 12} | ({(plan.tonic + 3) % 12, (plan.tonic + 4) % 12} & plan.key)
     for s0, ln, c, _ in plan.slots:
         if s0 >= b_bar * 16 or s0 + ln <= a_bar * 16: continue
+        if cons:                                                                       # consonant: the notes that are chord tones most of the time, the tonic triad first
+            for pc in set(c.pcs): score[pc] = score.get(pc, 0) + ln * (1.3 if pc in home else 1.0)
+            continue
         for pc, r in c.roles(plan.key).items():
             if r != "avoid": score[pc] = score.get(pc, 0) + ln * (1.0 if r == "chord" else .8)
     pcs = []
@@ -144,9 +187,10 @@ def ostinato(plan, rng, lo, hi, a_bar, b_bar, n=3, step=2, ctx=None, rest_every=
         out.append((st, ln, m, vel + (10 if (k - 1) % len(base) == 0 else 0)))
     return out
 
-def arp(plan, voicings, rng, a_bar, b_bar, step=2, shape="updown", octave=True, colour=True, lo=None, hi=None, vel=80):
-    """the notes of the current voicing (plus its top an octave up and one colour tone) as a running pattern. The position in the
-    pattern carries on through chord changes (it does not restart), so the accents drift."""
+def arp(plan, voicings, rng, a_bar, b_bar, step=2, shape="updown", octave=True, colour=None, lo=None, hi=None, vel=80):
+    """the notes of the current voicing (plus its top an octave up and, in the jazz palette, one colour tone) as a running pattern.
+    The position in the pattern carries on through chord changes (it does not restart), so the accents drift."""
+    if colour is None: colour = not consonant(plan)
     out = []; k = 0; vi = 0; starts = [v[0] for v in voicings]
     for st in range(a_bar * 16, b_bar * 16, step):
         while vi + 1 < len(starts) and starts[vi + 1] <= st: vi += 1
@@ -163,9 +207,10 @@ def arp(plan, voicings, rng, a_bar, b_bar, step=2, shape="updown", octave=True, 
 def topline(plan, rng, lo, hi, rank_cost=.6):
     """one slow note per chord from its colours (9, 11, 13, then 7 / 5 / 3), moving as little as possible: [midi per slot] for
     Plan.voicings(top=...) and [(step, len, midi, vel)] as a line of its own"""
-    top = []; prev = (lo + hi) // 2
+    top = []; prev = (lo + hi) // 2; cons = consonant(plan)
     for s0, ln, c, _ in plan.slots:
-        col = c.colours(plan.key)[:5]; stuck = len(top) >= 2 and top[-1] == top[-2]                       # a common tone may stay, but not for ever
+        col = (list(dict.fromkeys(c.pcs[3:] + [c.pcs[2], c.pcs[1], c.pcs[0]])) if cons else c.colours(plan.key)[:5])   # consonant: the chord's own tones, its colour first
+        stuck = len(top) >= 2 and top[-1] == top[-2] and not cons                                          # consonant: a common tone may stay (the anchor note)
         cands = [(abs(m - prev) + rank_cost * col.index(m % 12) + (2.5 if abs(m - prev) == 6 else 0) + (2.0 if stuck and m == prev else 0) + rng.random() * .3, m)
                  for m in range(lo, hi + 1) if m % 12 in col]
         prev = min(cands)[1] if cands else prev; top.append(prev)

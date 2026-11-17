@@ -17,7 +17,10 @@ that MOVES. This module does:
   voicings     close / drop2 / rootless / quartal / spread, chosen ALONG the progression (dynamic programming) for minimal
                motion, no minor ninths between voices, low-interval limits, and optionally a given top line (melody on top).
 
-    plan = chords.Plan.build("C", sections=trk.tl, home="dorian_vamp", journey="line_cliche", seed=seed)
+P137 (2026-11-17): the default is now palette="consonant" (one scale per section, one sweet colour per chord, idioms that state
+their tonic; see CONSONANT, diatonic(), strength()). The P134 behaviour below stays available as palette="jazz".
+
+    plan = chords.Plan.build("C", sections=trk.tl, home="pop_minor", journey="rise", seed=seed)     # C.idioms(mood) lists the choices
     keys = plan.voicings("drop2", 52, 76)            # [(step, len, [midi ...])]
     bass = plan.bass(rng, 28, 45, style="line")       # [(step, len, midi, vel)] with approach notes and inversions
 See lines.py for melodies written against the plan."""
@@ -122,11 +125,15 @@ IDIOMS = {
  "old_loop":      dict(mode="minor", moods=(), slots=[(0, "madd9", 1), (8, "maj7", 1), (5, "m7", 1), (7, "7sus4", 1)] * 2),   # the loop of the old scores (for A/B only)
 }
 
-def idioms(mood=None, mode=None):
-    """names of the sentences for a mood ("deep", "garage", "melodic", "dark", "dreamy", "lofi", "minimal") and/or a home mode family"""
-    minorish = ("minor", "dorian", "phrygian")
-    return [n for n, d in IDIOMS.items() if d["moods"] and (mood is None or mood in d["moods"])
-            and (mode is None or (d["mode"] in minorish) == (mode in minorish))]
+def idioms(mood=None, mode=None, palette="consonant", strong=True):
+    """names of the sentences for a mood ("deep", "garage", "melodic", "dark", "dreamy", "lofi", "minimal") and/or a home mode family,
+    clearest tonic first. palette "consonant" (default): the diatonic idioms (CONSONANT), by default only those that state their
+    tonic clearly (strength >= STRONG; strong=False adds the modal ones); "jazz": the P134 ones (IDIOMS)"""
+    minorish = ("minor", "aeolian", "dorian", "phrygian")
+    src = CONSONANT if palette == "consonant" else IDIOMS
+    out = [n for n, d in src.items() if d["moods"] and (mood is None or mood in d["moods"]) and (mode is None or (d["mode"] in minorish) == (mode in minorish))
+           and (palette != "consonant" or not strong or strength(n) >= STRONG)]
+    return sorted(out, key=lambda n: -strength(n)) if palette == "consonant" else out
 
 def sentence(name, tonic):
     """an idiom in a key -> [(length in 16th steps, Chord)]"""
@@ -134,6 +141,127 @@ def sentence(name, tonic):
     for s in IDIOMS[name]["slots"]:
         out.append((int(round(s[2] * 16)), Chord((t + s[0]) % 12, s[1], None if len(s) < 4 else (t + s[3]) % 12)))
     return out
+
+# ---- the consonant palette (P137) ----------------------------------------------------------------------------------------------
+# Стас, 2026-11-17: «новая гармония сложнее, но не гармонична: старая мелодичнее». Measured on the P136 demos: the jazz palette put
+# 23-43 % of the chords outside the key (chromatic slide chords, chromatic mediants, dorian and aeolian mixed inside one phrase, 7#9,
+# neapolitan / tritone turnarounds), the key clarity fell from .83-.92 to .77-.81 and the hook, re-fitted to every new chord, no
+# longer repeated. Depth in electronic music does not come from chromatic chords; it comes from the form, the voicing, the lines
+# and the sound. The consonant palette (the default since P137) therefore keeps every section inside ONE scale, gives each chord
+# ONE sweet colour, changes chords on the bar line and varies a progression with chords of the same scale.
+CONSONANT = {   # cycle: scale degrees in semitones above the tonic, or (degree, forced quality, bass degree); per: bars per chord
+ "epic_minor":   dict(mode="aeolian", per=1, cycle=[0, 8, 3, 10], moods=("melodic", "dreamy", "deep", "garage")),          # i VI III VII
+ "night_loop":   dict(mode="aeolian", per=1, cycle=[0, 8, 5, (7, "7sus4")], moods=("deep", "melodic", "garage")),           # i VI iv v7sus4: the Night Shift loop
+ "lament":       dict(mode="aeolian", per=1, cycle=[0, (0, "m7", 10), 8, 7], moods=("melodic", "dark", "deep")),          # i i/VII VI v: the bass walks down
+ "descent":      dict(mode="aeolian", per=1, cycle=[0, 10, 8, 10], pedal=True, moods=("melodic", "dark", "minimal")),                   # i VII VI VII
+ "pop_minor":    dict(mode="aeolian", per=1, cycle=[0, 5, 8, 7], moods=("garage", "lofi", "melodic")),                      # i iv VI v
+ "rise":         dict(mode="aeolian", per=1, cycle=[8, 10, 0, 0], moods=("melodic", "dreamy")),                             # VI VII i i: the lift
+ "minor_plagal": dict(mode="aeolian", per=2, cycle=[0, 5, 0, 8], moods=("deep", "minimal", "dark")),                        # i iv i VI
+ "two_chord":    dict(mode="aeolian", per=2, cycle=[0, 8], moods=("minimal", "deep", "dark")),                              # i VI
+ "dorian_lift":  dict(mode="dorian", per=2, cycle=[0, 5], pedal=True, moods=("deep", "garage", "minimal")),                             # i IV: the deep-house vamp
+ "dorian_walk":  dict(mode="dorian", per=1, cycle=[0, 2, 3, 5], pedal=True, moods=("garage", "deep", "lofi")),                          # i ii III IV
+ "dark_phrygian": dict(mode="phrygian", per=2, cycle=[0, 1, 0, 10], pedal=True, moods=("dark", "minimal")),                             # i bII i bVII
+ "axis_major":   dict(mode="ionian", per=1, cycle=[0, 7, 9, 5], moods=("dreamy", "lofi", "melodic")),                       # I V vi IV
+ "royal_road":   dict(mode="ionian", per=1, cycle=[5, 7, 4, 9], pedal=True, moods=("dreamy", "lofi", "garage")),                        # IV V iii vi
+ "pop_major":    dict(mode="ionian", per=1, cycle=[9, 5, 0, 7], moods=("dreamy", "melodic")),                               # vi IV I V
+ "lydian_two":   dict(mode="lydian", per=2, cycle=[0, 2], pedal=True, moods=("dreamy",)),                                                # I II
+}
+MODE_OF = {"minor": "aeolian", "major": "ionian"}
+STRONG = .85      # an idiom whose own tonic it states at least this clearly (Krumhansl correlation) is offered by default
+# pedal=True: a modal or floating idiom (dorian / phrygian / lydian vamps, the royal road, the VII-VI descent) does not say where
+# home is by itself (.61-.74); over the tonic in the bass, the way deep house and techno play them, it does (.79-.91).
+
+def collection(tonic, mode):
+    """the seven notes of a mode on a tonic (pitch classes, scale order)"""
+    return [(pc_of(tonic) + x) % 12 for x in MODES[MODE_OF.get(mode, mode)]]
+
+def diatonic(tonic, mode, degree, level=1, qual=None, bass=None):
+    """the chord on `degree` (semitones above the tonic) made of the mode's own notes, with a colour level:
+    0 plain triad; 1 one sweet colour (minor tonic add9, other minor chords m7; major chords maj7 where the scale has the major 7th,
+    else add9; a major tonic add9); 2 richer (m9, maj9, 6/9). qual forces a quality ("7sus4"). A degree whose triad is diminished
+    becomes the chord a third below it, which holds the same two notes."""
+    t = pc_of(tonic); coll = set(collection(t, mode)); r = (t + degree) % 12
+    if r not in coll: raise ValueError(f"degree {degree} is not a note of {NAMES[t]} {mode}")
+    b = None if bass is None else pc_of(bass)
+    if qual: return Chord(r, qual, b)
+    has = lambda iv: (r + iv) % 12 in coll
+    if not has(7):                                                                    # diminished triad: the chord a third below
+        r2 = next((r - k) % 12 for k in (4, 3) if (r - k) % 12 in coll and (r - k + 7) % 12 in coll)
+        return diatonic(t, mode, (r2 - t) % 12, level, None, b)
+    if has(3):
+        q = ("m" if level <= 0 else ("madd9" if degree % 12 == 0 and has(2) else "m7" if has(10) else "madd9" if has(2) else "m") if level == 1
+             else "m9" if has(10) and has(2) else "m7" if has(10) else "madd9" if has(2) else "m")
+    else:
+        q = ("" if level <= 0 else ("add9" if degree % 12 == 0 and has(2) else "maj7" if has(11) else "add9" if has(2) else "") if level == 1
+             else "maj9" if has(11) and has(2) else "69" if has(9) and has(2) else "add9" if has(2) else "maj7" if has(11) else "")
+    return Chord(r, q, b)
+
+def tune(name, tonic, level=1, per=None):
+    """a consonant idiom in a key -> 8 bars [(length in 16ths, Chord)] (over the tonic pedal when the idiom asks for it)"""
+    d = CONSONANT[name]; per = per or d["per"]; one = []
+    for e in d["cycle"]:
+        deg, q, bd = (e, None, None) if isinstance(e, int) else (tuple(e) + (None, None))[:3]
+        one.append((per * 16, diatonic(tonic, d["mode"], deg, level, q, None if bd is None else (pc_of(tonic) + bd) % 12)))
+    out = cycle(one, 128)
+    return pedal(out, tonic) if d.get("pedal") else out
+
+_STRENGTH = {}
+def strength(name):
+    """how clearly an idiom states its own tonic: Krumhansl correlation of its 8 bars (chord tones by length, colours .6, the bass
+    note once more) with the profile of its intended key. The old Night Shift loop: .90; below .80 a listener loses «home»."""
+    if name not in _STRENGTH:
+        from .tonal import KK_MAJ, KK_MIN
+        p = tune(name, 0, 1) if name in CONSONANT else sentence(name, 0); h = np.zeros(12)
+        for n, c in p:
+            for i, pc in enumerate(c.pcs): h[pc] += n * (1.0 if i < 3 else .6)
+            h[c.bass_pc] += n
+        mode = (CONSONANT.get(name) or IDIOMS.get(name))["mode"]; minor = MODES[MODE_OF.get(mode, mode)][2] == 3
+        _STRENGTH[name] = round(float(np.corrcoef(KK_MIN if minor else KK_MAJ, h)[0, 1]), 2)
+    return _STRENGTH[name]
+
+def diatonicise(prog, tonic, mode, level=1):
+    """bring any progression into one scale: a root outside the scale moves to the nearest scale note, every chord is rebuilt from
+    the scale's own notes (diatonic), a chord equal to the one before is merged into it, changes are moved to the nearest bar line"""
+    t = pc_of(tonic); coll = collection(t, mode); out = []; pos = 0
+    for n, c in prog:
+        r = c.root if c.root in coll else min(coll, key=lambda p: (min((p - c.root) % 12, (c.root - p) % 12), -sum(q in c.pcs for q in collection(p, "ionian"))))
+        ch = diatonic(t, mode, (r - t) % 12, level)
+        if c.bass is not None and c.bass in coll and c.bass in ch.pcs + [t]: ch = ch.moved(bass=c.bass)
+        a, b = int(round(pos / 16)) * 16, int(round((pos + n) / 16)) * 16; pos += n
+        if b <= a: continue
+        if out and out[-1][1] == ch: out[-1] = (out[-1][0] + b - a, ch)
+        else: out.append((b - a, ch))
+    return out
+
+def substitute(c, tonic, mode, rng, level=1, avoid=()):
+    """a chord of the same scale that shares two notes with c (its third-related neighbour): the variation that keeps the melody"""
+    t = pc_of(tonic); coll = set(collection(t, mode)); cands = []
+    for k in (3, 4, -3, -4):
+        r = (c.root + k) % 12
+        if r in coll and (r + 7) % 12 in coll:
+            ch = diatonic(t, mode, (r - t) % 12, level)
+            if ch.root != c.root and ch not in avoid and len(set(ch.pcs[:3]) & set(c.pcs[:3])) >= 2: cands.append(ch)
+    return cands[int(rng.integers(len(cands)))] if cands else c
+
+def vary(prog, tonic, mode, rng, kind, level=1):
+    """A' of a consonant sentence: kind 0 = the last chord replaced by its third-related neighbour (the melody fits both);
+    kind 1 = the last two chords one colour richer and the last bass note re-chosen for a step into the next sentence"""
+    prog = list(prog)
+    if kind % 2 == 0:
+        n, c = prog[-1]; prog[-1] = (n, substitute(c, tonic, mode, rng, level, avoid=[prog[0][1]] + ([prog[-2][1]] if len(prog) > 1 else [])))
+    else:
+        for i in (-2, -1): n, c = prog[i]; prog[i] = (n, diatonic(tonic, mode, (c.root - pc_of(tonic)) % 12, level + 1, None, c.bass) if not c.qual.endswith("sus4") else c)
+        first = prog[0][1].bass_pc; n, c = prog[-1]; opts = [p for p in c.pcs[:3] if min((p - first) % 12, (first - p) % 12) <= 2]
+        if opts and c.qual not in ("7sus4",): prog[-1] = (n, c.moved(bass=opts[0]) if opts[0] != c.root else c)
+    return prog
+
+def rise(tonic, mode, steps, level=1):
+    """the build: chords of the scale climbing by step towards the tonic, made of the mode's own degrees without diminished triads
+    (aeolian: iv v VI VII, dorian: III IV v VII, ionian: ii iii IV V)"""
+    mm = MODES[MODE_OF.get(mode, mode)]; minor = mm[2] == 3; coll = set(collection(tonic, mode)); t = pc_of(tonic)
+    ok = [d for d in mm[1:] if (t + d + 7) % 12 in coll and (not minor or True) and (minor or d <= 7)]
+    degs = ok[-4:]; n = max(1, steps // len(degs)); prog = [(n, diatonic(tonic, mode, d, level)) for d in degs]
+    return cycle(prog, steps)
 
 # ---- operators: a progression is varied, not looped -------------------------------------------------------------------------------
 def extend(prog, by=1):
@@ -318,16 +446,24 @@ def role_of(name):
 
 class Plan:
     """the chords of the whole track: self.slots = [(start_step, length, Chord, section_name)]"""
-    def __init__(self, tonic, mode, bars, slots, meta=None):
-        self.tonic = pc_of(tonic); self.mode = mode; self.bars = bars; self.slots = slots; self.key = key_pcs(self.tonic, mode); self.meta = meta or {}
+    def __init__(self, tonic, mode, bars, slots, meta=None, palette="jazz"):
+        self.tonic = pc_of(tonic); self.mode = MODE_OF.get(mode, mode) if mode not in MODES else mode; self.bars = bars; self.slots = slots
+        self.key = key_pcs(self.tonic, self.mode); self.meta = meta or {}; self.palette = palette
+        mm = MODES[MODE_OF.get(self.mode, self.mode)]
+        self.penta = {(self.tonic + x) % 12 for x in ((0, 3, 5, 7, 10) if mm[2] == 3 else (0, 2, 4, 7, 9))}   # the pentatonic of the key: passing notes that never rub
         self._starts = np.array([s[0] for s in slots])
 
     @classmethod
-    def build(cls, tonic, sections, home, journey=None, seed=0, roles=None, journey_shift=0, colour=0, slide=.4, lean=.4):
+    def build(cls, tonic, sections, home, journey=None, seed=0, roles=None, journey_shift=None, colour=0, slide=None, lean=None, palette="consonant", rhythm=None):
         """sections: [(bar_a, bar_b, name, ...)] (Track.tl works). home / journey: idiom names (journey None = the home sentence
-        re-harmonised: inversions + turnaround). roles: {section name: role} to override role_of(). journey_shift: semitones the
-        journey's tonic sits above the home tonic (3 = relative major of a minor home). colour: +1 richer, -1 plainer chords.
-        slide / lean: how often passing chords and early changes appear (0..1)."""
+        re-harmonised). roles: {section name: role} to override role_of(). colour: +1 richer, -1 plainer chords.
+        palette "consonant" (default, P137): every section inside one scale, one sweet colour per chord, changes on the bar line,
+        variations by chords of the same scale; jazz idioms given here are brought into the scale (diatonicise). journey_shift None:
+        the journey stays in the home scale (a major idiom sits on the relative major). rhythm: bars per chord (1 or 2) instead of
+        the idiom's own. palette "jazz": the P134 behaviour (chromatic slides, early changes, neapolitan / backdoor turnarounds,
+        mixed modes); slide / lean: how often slides and early changes appear there (default .4)."""
+        if palette != "jazz": return cls._consonant(tonic, sections, home, journey, seed, roles, journey_shift, colour, slide or 0, lean or 0, rhythm)
+        slide = .4 if slide is None else slide; lean = .4 if lean is None else lean; journey_shift = journey_shift or 0
         rng = np.random.default_rng([seed, 134]); t = pc_of(tonic); H = sentence(home, t); mode = IDIOMS[home]["mode"]
         if colour: H = extend(H, colour)
         J = sentence(journey, (t + journey_shift) % 12) if journey else turnaround(inversions(extend(H, 1)), t, "backdoor")
@@ -348,7 +484,45 @@ class Plan:
             else: prog = cycle(pedal(merge(H, 32), (t + 7) % 12)[:-1] + [(32, Chord(t + 7, "13sus4"))], steps)      # build: dominant pedal
             pos = a * 16
             for n, c in prog: slots.append((pos, n, c, name)); pos += n
-        return cls(t, mode, nb, slots, {"home": home, "journey": journey or f"{home} (reharmonised)", "journey_shift": journey_shift, "seed": seed})
+        return cls(t, mode, nb, slots, {"home": home, "journey": journey or f"{home} (reharmonised)", "journey_shift": journey_shift, "seed": seed, "palette": "jazz"})
+
+    @classmethod
+    def _consonant(cls, tonic, sections, home, journey, seed, roles, journey_shift, colour, slide, lean, rhythm):
+        rng = np.random.default_rng([seed, 137]); t = pc_of(tonic); level = 1 + colour; adapted = []
+        def sent(name, tn, lv):
+            if name in CONSONANT: return tune(name, tn, lv, rhythm), CONSONANT[name]["mode"]
+            if name in IDIOMS:
+                md = MODE_OF.get(IDIOMS[name]["mode"], IDIOMS[name]["mode"]); adapted.append(name); return diatonicise(sentence(name, tn), tn, md, lv), md
+            raise ValueError(f"unknown idiom {name!r}: consonant {sorted(CONSONANT)}, jazz {sorted(IDIOMS)}")
+        H, mode = sent(home, t, level); coll = set(collection(t, mode))
+        if journey:
+            jm = CONSONANT[journey]["mode"] if journey in CONSONANT else MODE_OF.get(IDIOMS.get(journey, {}).get("mode", ""), IDIOMS.get(journey, {}).get("mode", "aeolian"))
+            if journey_shift is None:                                                 # stay in the home scale: find the tonic of the journey's mode in it
+                journey_shift = next((k for k in range(12) if set(collection(t + k, jm)) == coll), 0)
+            jt = (t + journey_shift) % 12; J, jmode = sent(journey, jt, level)
+        else:
+            jt, jmode, journey_shift = t, mode, 0; J = inversions([(n, diatonic(t, mode, (c.root - t) % 12, level + 1, c.qual if c.qual.endswith("sus4") else None)) for n, c in H])
+        if slide or lean:                                                             # explicit wish: early changes / slides, but inside the scale
+            J = push(J, rng, lean)
+        slots = []; nb = 0; count = {}
+        for sec in sections:
+            a, b, name = int(sec[0]), int(sec[1]), sec[2]; nb = max(nb, b)
+            if b <= a: continue
+            r = (roles or {}).get(name) or role_of(name); k = count.get(r, 0); count[r] = k + 1; steps = (b - a) * 16
+            if r == "home": prog = cycle(H + vary(H, t, mode, rng, k, level), steps)            # A A': the sentence, then the same sentence with one chord changed
+            elif r == "journey": prog = cycle(J + vary(J, jt, jmode, rng, k + 1, level), steps)
+            elif r in ("intro", "outro"): prog = cycle(pedal(merge([(n, diatonic(t, mode, (c.root - t) % 12, max(0, level - 1), c.qual if c.qual.endswith("sus4") else None)) for n, c in H], 32), t), steps)
+            elif r == "break":                                                        # two long chords over the tonic, one colour richer
+                calm = [c for _, c in H if c.family in ("minor", "major")] or [c for _, c in H]
+                far = max(calm, key=lambda c: (c.root != H[0][1].root, c.family == "major", -abs(((c.root - t) % 12) - 6)))
+                prog = cycle(pedal([(64, diatonic(t, mode, (H[0][1].root - t) % 12, level + 1)), (64, diatonic(t, mode, (far.root - t) % 12, level + 1))], t), steps)
+            else: prog = rise(t, mode, steps, level)                                  # build: the scale climbs to the drop
+            pos = a * 16
+            for n, c in prog: slots.append((pos, n, c, name)); pos += n
+        meta = {"home": home, "journey": journey or f"{home} (reharmonised)", "journey_shift": journey_shift, "seed": seed, "palette": "consonant", "scale": f"{NAMES[t]} {mode}",
+                "strength": {k: strength(v) for k, v in (("home", home), ("journey", journey)) if v}}
+        if adapted: meta["adapted"] = sorted(set(adapted))
+        return cls(t, mode, nb, slots, meta, palette="consonant")
 
     def idx(self, step):
         return int(np.clip(np.searchsorted(self._starts, step, side="right") - 1, 0, len(self.slots) - 1))
@@ -369,7 +543,7 @@ class Plan:
         """[(start_step, length, [midi ...])] for every slot, voice-led across the whole track"""
         v = lead([s[2] for s in self.slots], style, lo, hi, n, self.key, top)
         return [(s[0], s[1], vv) for s, vv in zip(self.slots, v)]
-    def bass(self, rng, lo=28, hi=45, style="root", cell=None, approach=.6, legato=.85, against=None):
+    def bass(self, rng, lo=28, hi=45, style="root", cell=None, approach=None, legato=.85, against=None):
         """[(step_abs, len, midi, vel)]. style "root": the chord's bass note on every change, root / octave / fifth / seventh between;
         "line": bass notes re-chosen for a stepwise line (inversions); "pedal": the tonic throughout. Before a change the last
         short note may become an APPROACH note a semitone or a scale step from the next bass note. cell: 16th steps of one bar
@@ -377,7 +551,8 @@ class Plan:
         a bass note that would sit a minor ninth under one of their notes falls back to the chord's bass note."""
         from .bass import bass_cell
         from .lines import context, clean
-        ctx = context(self, against) if against else None
+        ctx = context(self, against) if against else None; cons = self.palette == "consonant"
+        if approach is None: approach = .25 if cons else .6                           # consonant: rarer approach notes, always on scale notes
         slots = self.slots
         if style == "line":
             pr = inversions([(s[1], s[2]) for s in slots], strict_first=True); slots = [(s[0], s[1], c, s[3]) for s, (_, c) in zip(slots, pr)]
@@ -400,7 +575,7 @@ class Plan:
                 if ln >= 2 and not clean(m, st, ln, ctx): m = fold(bp, prev)
             nb = at(nxt_on); nbp = self.tonic if style == "pedal" else nb[2].bass_pc; changing = nb[0] != s0 and nbp != bp
             if changing and not first and ln <= 3 and rng.random() < approach:      # approach the next bass note by a semitone or a scale step
-                tgt = fold(nbp, lo + 5 if nbp != self.tonic else lo); side = -1 if tgt > prev else 1; chrom = rng.random() < .6
+                tgt = fold(nbp, lo + 5 if nbp != self.tonic else lo); side = -1 if tgt > prev else 1; chrom = (not cons) and rng.random() < .6
                 m = tgt + side if chrom else next((x for x in (tgt + 2 * side, tgt + side) if x % 12 in self.key), tgt + side); vel = 76
                 m = int(np.clip(m, lo, hi)); ln = 1 if chrom or not clean(m, st, 2, ctx) else min(ln, 2)      # a chromatic approach is a 16th, no longer
             out.append((st, max(1, int(round(ln * legato))) if ln > 1 else 1, int(m), vel)); prev = m
@@ -433,4 +608,5 @@ class Plan:
         """tell the track which harmony it has (summary, freshness ledger)"""
         trk.harmony = {"tonic": NAMES[self.tonic], "mode": self.mode, **self.meta, "chart": self.describe(), "fingerprint": self.fingerprint(),
                        "chords": len({s[2] for s in self.slots}), "tension": [round(x, 2) for x in self.tension()]}
+        trk.plan = self                                                               # P137: the tonal report reads the chords from here
         return self

@@ -5,6 +5,8 @@ Nothing harmonic is typed in by hand: no `CH = [...]`, no note lists. Change STY
     AUTODJ_DEMO_STYLE=melodic python -m autodj.compose run docs/examples/deep_harmony_demo.py --name harmony_melodic
     AUTODJ_DEMO_HARMONY=old python -m autodj.compose run docs/examples/deep_harmony_demo.py --name harmony_old    # A/B: the old way
 
+AUTODJ_DEMO_HARMONY=jazz renders the P134 jazz palette (chromatic slides, mediants, 9/11/13 everywhere): Стас heard it as «сложнее, но не
+гармонично» (2026-11-17); the default is the P137 consonant palette.
 AUTODJ_DEMO_HARMONY=old keeps every sound, rhythm and level and replaces only the harmony by what the scores did so far: the loop
 i(add9) | VI maj7 | iv m7 | V7sus4, one chord per bar for the whole track, block voicings, root bass without approach notes, lines
 from chord tones only. The difference between the two renders is the subject of P134.
@@ -22,12 +24,14 @@ from autodj.compose.bus import glue, smash
 from autodj.compose.synth import Synth, patch, procedural_table
 from autodj.compose.harmony import comp_rhythm
 
-STYLE = os.environ.get("AUTODJ_DEMO_STYLE", "garage"); OLD = os.environ.get("AUTODJ_DEMO_HARMONY") == "old"; SCALE = int(os.environ.get("AUTODJ_DEMO_BARS", "96")) / 96
-ST = {"garage":  dict(bpm=130, tonic="F", home="garage_steps", journey="soul_major", shift=3, swing=.16, two_step=True, title="Harmony Demo (UK garage)"),
-      "deep":    dict(bpm=122, tonic="A", home="dorian_vamp", journey="line_cliche", shift=0, swing=.08, two_step=False, title="Harmony Demo (deep house)"),
-      "melodic": dict(bpm=124, tonic="D", home="mediant_drift", journey="pedal_lift", shift=0, swing=.0, two_step=False, title="Harmony Demo (melodic house)")}[STYLE]
-META = {"title": ST["title"] + (" old harmony" if OLD else ""), "genre": STYLE, "key": ST["tonic"] + "m", "target": -14.0, "master": "warm",
-        "story": "harmony from chords.Plan, lines from lines.py" if not OLD else "same sounds, the old four-chord loop"}
+STYLE = os.environ.get("AUTODJ_DEMO_STYLE", "garage"); SCALE = int(os.environ.get("AUTODJ_DEMO_BARS", "96")) / 96
+HARM = os.environ.get("AUTODJ_DEMO_HARMONY", "consonant")             # consonant (P137, default) | jazz (the P134 palette) | old (the four-chord loop)
+OLD = HARM == "old"
+ST = {"garage":  dict(bpm=130, tonic="F", home="pop_minor", journey="rise", rhythm=None, jazz=("garage_steps", "soul_major", 3), swing=.16, two_step=True, title="Harmony Demo (UK garage)"),
+      "deep":    dict(bpm=122, tonic="A", home="minor_plagal", journey="lament", rhythm=2, jazz=("dorian_vamp", "line_cliche", 0), swing=.08, two_step=False, title="Harmony Demo (deep house)"),
+      "melodic": dict(bpm=124, tonic="D", home="two_chord", journey="epic_minor", rhythm=2, jazz=("mediant_drift", "pedal_lift", 0), swing=.0, two_step=False, title="Harmony Demo (melodic house)")}[STYLE]
+META = {"title": ST["title"] + {"old": " old harmony", "jazz": " jazz harmony"}.get(HARM, ""), "genre": STYLE, "key": ST["tonic"] + "m", "target": -14.0, "master": "warm",
+        "lead": "hook", "story": {"old": "same sounds, the old four-chord loop", "jazz": "same sounds, the P134 jazz palette"}.get(HARM, "harmony from chords.Plan (consonant palette), lines from lines.py")}
 PL = [("intro", 8), ("home1", 16), ("journey1", 12), ("home2", 16), ("break", 8), ("build", 4), ("home3", 16), ("journey2", 8), ("outro", 8)]
 
 def sections():
@@ -78,9 +82,13 @@ def write(seed):
             for n, c in C.cycle(loop, (b - a) * 16): slots.append((pos, n, c, name)); pos += n
         plan = C.Plan(ST["tonic"], "minor", BARS, slots, {"home": "old_loop", "journey": None}); colour = 0.0
         V = plan.voicings("close", 50, 74); top = None; bass = plan.bass(np.random.default_rng([seed, 1]), 29, 46, approach=0.0, against=V)
-    else:
-        plan = C.Plan.build(ST["tonic"], secs, ST["home"], ST["journey"], seed=seed, journey_shift=ST["shift"]); colour = None
+    elif HARM == "jazz":
+        plan = C.Plan.build(ST["tonic"], secs, ST["jazz"][0], ST["jazz"][1], seed=seed, journey_shift=ST["jazz"][2], palette="jazz"); colour = None
         top, topline = L.topline(plan, np.random.default_rng([seed, 2]), 65, 77); V = plan.voicings("drop2", 50, 78, top=top)
+        bass = plan.bass(np.random.default_rng([seed, 1]), 29, 46, style="root", against=V)
+    else:                                                                            # consonant: one scale, one sweet colour per chord, the top voice an anchor
+        plan = C.Plan.build(ST["tonic"], secs, ST["home"], ST["journey"], seed=seed, rhythm=ST["rhythm"]); colour = None
+        top, topline = L.topline(plan, np.random.default_rng([seed, 2]), 64, 74); V = plan.voicings("drop2", 50, 76, top=top)
         bass = plan.bass(np.random.default_rng([seed, 1]), 29, 46, style="root", against=V)
     plan.attach(trk); ctx = L.context(plan, V, bass)
     bsteps = {}
@@ -160,8 +168,8 @@ def build(seed):
                       mods=[dict(src="lfo", dst="cutoff", amt=1.0, rate="8b"), dict(src="lfo", dst="pos", amt=.4, rate="4b"), dict(src="ctl:kick", dst="amp", amt=-3.0)]),
          "counter": patch(osc=[dict(wave="tri"), dict(wave="fm", ratio=2.0, index=.4, level=.4)], filt=dict(cutoff=500, res=.1, env=1.2, key=.4), amp=dict(a=.02, d=.5, s=.5, r=.4),
                           fenv=dict(a=.02, d=.4, s=.2, r=.3), mods=[dict(src="lfo_note", dst="pitch", amt=.04, rate=4.7), dict(src="rand", dst="cutoff", amt=.2)]),
-         "arp": patch(osc=[dict(wave="saw", unison=2, detune=8)], filt=dict(cutoff=350, res=.35, env=2.6, vel=.8), amp=dict(a=.002, d=.12, s=0, r=.12), fenv=dict(a=.001, d=.09, s=0, r=.1),
-                      mods=[dict(src="time", dst="cutoff", amt=1.2), dict(src="ctl:energy", dst="cutoff", amt=1.4), dict(src="pos", dst="cutoff", amt=.5)])}
+         "arp": patch(osc=[dict(wave="saw", unison=2, detune=8)], filt=dict(cutoff=600, res=.3, env=1.6, vel=.8), amp=dict(a=.005, d=.12, s=0, r=.12), fenv=dict(a=.003, d=.09, s=0, r=.1),
+                      mods=[dict(src="time", dst="cutoff", amt=.6), dict(src="ctl:energy", dst="cutoff", amt=.8), dict(src="pos", dst="cutoff", amt=.4)])}
     P["top"] = P["counter"]
     R = lambda name: Synth(P[name], bpm=trk.bpm, seed=seed, tables=tab).render(EV[name], T, ctl=ctl)
     trk.add("bass", R("bass"), level=10 ** (-4 / 20), duck=-7.0, key="kick", release_ms=160)
@@ -169,7 +177,7 @@ def build(seed):
     trk.add("keys", R("keys"), level=10 ** (-9 / 20), duck=-3.0, key="kick", depth=.3, send={"room": .18, "echo": .1})                        # middle
     trk.add("ost", R("ost"), level=10 ** (-15 / 20), depth=.45, send={"echo": .3, "room": .15})
     trk.add("counter", R("counter"), level=10 ** (-13 / 20), duck=-3.0, key="hook", depth=.4, send={"hall": .25})
-    trk.add("arp", R("arp"), level=10 ** (-14 / 20), duck=-3.0, key="kick", depth=.5, send={"echo": .25})
+    trk.add("arp", R("arp"), level=10 ** (-11 / 20), duck=-3.0, key="kick", depth=.5, send={"echo": .25})
     if "top" in EV: trk.add("top", R("top"), level=10 ** (-12 / 20), depth=.5, send={"hall": .35, "echo": .15})
     trk.add("pad", R("pad"), level=10 ** (-13 / 20), duck=-4.0, key=["hook", "keys"], band=(400, 3500), depth=.85, send={"hall": .35})          # back
     trk.mono_low(140)

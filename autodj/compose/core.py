@@ -244,5 +244,9 @@ class Track:
             from .depth import report
             info["depth"] = report(self)
         except Exception as ex: info["depth"] = {"error": f"{type(ex).__name__}: {str(ex)[:120]}"}
+        try:                                                                            # P137: tonal report (never blocks a render)
+            from .tonal import report as tonal_report
+            info["tonal"] = tonal_report(self, lead=(meta or {}).get("lead"))
+        except Exception as ex: info["tonal"] = {"error": f"{type(ex).__name__}: {str(ex)[:120]}"}
         json.dump(info, open(path.rsplit(".", 1)[0] + ".json", "w"), ensure_ascii=False)
         return info

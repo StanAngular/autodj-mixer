@@ -1,4 +1,5 @@
-"""P134: harmony as a plan of the whole track (chords.py) and lines written against it (lines.py)."""
+"""P134: harmony as a plan of the whole track (chords.py) and lines written against it (lines.py).
+Since P137 the default palette is "consonant" (tests in test_compose_consonant.py); these tests pin the P134 behaviour: palette="jazz"."""
 import numpy as np
 import pytest
 from autodj.compose import chords as C, lines as L
@@ -29,7 +30,7 @@ def test_every_idiom_is_eight_bars_in_any_key_and_has_more_than_four_chords_or_r
             s = C.sentence(name, tonic); assert sum(n for n, _ in s) == 128 and s[0][1].root in {(C.pc_of(tonic) + d) % 12 for d in (0, 5)}
         if name != "old_loop":
             lens = {n for n, _ in C.sentence(name, "C")}; assert len(lens) > 1 or len({c for _, c in C.sentence(name, "C")}) > 4, name   # not 4 equal bars
-    assert "dorian_vamp" in C.idioms("deep") and "old_loop" not in C.idioms() and set(C.idioms(mode="major")) == {"lydian_float", "soul_major"}
+    assert "dorian_vamp" in C.idioms("deep", palette="jazz") and "old_loop" not in C.idioms(palette="jazz") and set(C.idioms(mode="major", palette="jazz")) == {"lydian_float", "soul_major"}
 
 # ---- operators ---------------------------------------------------------------------------------------------------------
 def test_operators_vary_a_progression_without_changing_its_length():
@@ -53,7 +54,7 @@ def test_inversions_make_the_bass_walk_by_step():
 # ---- voicings ----------------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("style", ["close", "drop2", "rootless", "quartal", "spread"])
 def test_voicings_are_in_range_belong_to_the_chord_and_say_which_chord_it_is(style):
-    P = C.Plan.build("C", SECS, "dorian_vamp", "line_cliche", seed=2); V = P.voicings(style, 48, 79)
+    P = C.Plan.build("C", SECS, "dorian_vamp", "line_cliche", seed=2, palette="jazz"); V = P.voicings(style, 48, 79)
     assert len(V) == len(P.slots)
     for (s0, n, c, _), (vs, vn, v) in zip(P.slots, V):
         sc = set(c.scale(P.key)[0])
@@ -61,7 +62,7 @@ def test_voicings_are_in_range_belong_to_the_chord_and_say_which_chord_it_is(sty
         assert all(x % 12 in sc for x in v) and ({c.pcs[1]} | set(c.pcs[3:4])) & {x % 12 for x in v}     # 3rd (or sus) or 7th is there
 
 def test_voice_leading_moves_less_than_block_chords_and_avoids_minor_ninths():
-    P = C.Plan.build("C", SECS, "neo_soul", None, seed=2); V = [v for *_, v in P.voicings("drop2", 50, 76)]
+    P = C.Plan.build("C", SECS, "neo_soul", None, seed=2, palette="jazz"); V = [v for *_, v in P.voicings("drop2", 50, 76)]
     led = np.mean([abs(a[-1] - b[-1]) for a, b in zip(V, V[1:])])
     block = [[48 + c.root + i for i in c.iv[:4]] for _, _, c, _ in P.slots]; blk = np.mean([abs(a[-1] - b[-1]) for a, b in zip(block, block[1:])])
     assert led < 2.0 < blk
@@ -72,42 +73,42 @@ def test_voice_leading_moves_less_than_block_chords_and_avoids_minor_ninths():
 def test_no_voicing_has_a_semitone_or_minor_ninth_inside_with_or_without_a_top_line(home):
     for style in ("drop2", "close", "rootless", "spread", "quartal"):
         for use_top in (False, True):
-            P = C.Plan.build("C", SECS, home, None, seed=2); top = L.topline(P, np.random.default_rng(2), 65, 77)[0] if use_top else None
+            P = C.Plan.build("C", SECS, home, None, seed=2, palette="jazz"); top = L.topline(P, np.random.default_rng(2), 65, 77)[0] if use_top else None
             for (_, _, c, _), (_, _, v) in zip(P.slots, P.voicings(style, 50, 78, top=top)):
                 assert not any(b - a == 1 or (b - a in (13, 25) and c.family != "dom") for i, a in enumerate(v) for b in v[i + 1:]), (style, use_top, c.name, v)
 
 def test_a_given_top_line_is_harmonised():
-    P = C.Plan.build("C", SECS, "aeolian_wide", None, seed=1); top, tl = L.topline(P, np.random.default_rng(1), 67, 79); V = P.voicings("drop2", 50, 79, top=top)
+    P = C.Plan.build("C", SECS, "aeolian_wide", None, seed=1, palette="jazz"); top, tl = L.topline(P, np.random.default_rng(1), 67, 79); V = P.voicings("drop2", 50, 79, top=top)
     assert [v[-1] for *_, v in V] == top and len(set(top)) >= 4 and max(abs(a - b) for a, b in zip(top, top[1:])) <= 7
     assert all(P.slots[i][2].role(m % 12, P.key) != "avoid" for i, m in enumerate(top)) and len(tl) == len(P.slots)
 
 # ---- the plan ------------------------------------------------------------------------------------------------------------
 def test_plan_covers_the_track_and_treats_sections_by_role():
-    P = C.Plan.build("C", SECS, "dorian_vamp", "line_cliche", seed=3); d = P.describe()
+    P = C.Plan.build("C", SECS, "dorian_vamp", "line_cliche", seed=3, palette="jazz"); d = P.describe()
     assert P.slots[0][0] == 0 and all(a[0] + a[1] == b[0] for a, b in zip(P.slots, P.slots[1:])) and P.slots[-1][0] + P.slots[-1][1] == 88 * 16
     assert d["home1"].startswith("Cm9 | % | F13") and d["journey1"].startswith("Cm9 | % | Cm7/Bb") and d["home1"] != d["home2"][:len(d["home1"])]
     assert all(c.bass == 0 for s0, n, c, nm in P.slots if nm in ("intro", "outro", "break")) and all(c.bass == 7 for s0, n, c, nm in P.slots if nm == "build")
-    for idi in C.IDIOMS: assert all(c.family in ("minor", "major", "sus") for s0, n, c, nm in C.Plan.build("C", SECS, idi, None, seed=1).slots if nm == "break"), idi
+    for idi in C.IDIOMS: assert all(c.family in ("minor", "major", "sus") for s0, n, c, nm in C.Plan.build("C", SECS, idi, None, seed=1, palette="jazz").slots if nm == "break"), idi
     assert max(n for s0, n, c, nm in P.slots if nm == "break") == 64 and P.at(8 * 16).name == "Cm9" and P.chord_of_bar(8) == [0, 3, 7, 10, 2] and P.root_of_bar(26) == 10
     first, second = [(n, c) for s0, n, c, nm in P.slots if nm == "home1" and s0 < 16 * 16], [(n, c) for s0, n, c, nm in P.slots if nm == "home1" and s0 >= 16 * 16]
     assert first != second and first == C.sentence("dorian_vamp", "C")                                     # A, then a varied A'
     assert len({c for *_, c, _ in P.slots}) >= 10 and len(P.tension()) == 88 and max(P.tension()) > min(P.tension()) + .2
 
 def test_plan_is_repeatable_differs_by_seed_and_transposes():
-    a = C.Plan.build("C", SECS, "garage_steps", "soul_major", seed=3, journey_shift=3); b = C.Plan.build("C", SECS, "garage_steps", "soul_major", seed=3, journey_shift=3)
-    c = C.Plan.build("C", SECS, "garage_steps", "soul_major", seed=4, journey_shift=3); e = C.Plan.build("E", SECS, "garage_steps", "soul_major", seed=3, journey_shift=3)
+    a = C.Plan.build("C", SECS, "garage_steps", "soul_major", seed=3, journey_shift=3, palette="jazz"); b = C.Plan.build("C", SECS, "garage_steps", "soul_major", seed=3, journey_shift=3, palette="jazz")
+    c = C.Plan.build("C", SECS, "garage_steps", "soul_major", seed=4, journey_shift=3, palette="jazz"); e = C.Plan.build("E", SECS, "garage_steps", "soul_major", seed=3, journey_shift=3, palette="jazz")
     assert a.slots == b.slots and a.slots != c.slots and a.fingerprint() == e.fingerprint() and a.describe()["journey1"].startswith("Ebmaj9")
-    assert a.fingerprint() != C.Plan.build("C", SECS, "old_loop", None, seed=3).fingerprint() and a.fingerprint().startswith("0:m9 2:m7 3:maj9")
+    assert a.fingerprint() != C.Plan.build("C", SECS, "old_loop", None, seed=3, palette="jazz").fingerprint() and a.fingerprint().startswith("0:m9 2:m7 3:maj9")
     assert [C.role_of(n) for n in ("build", "break", "b", "a", "home3", "half1", "chop", "step", "outro", "whatever")] == ["build", "break", "journey", "home", "home", "journey", "home", "intro", "outro", "home"]
 
 def test_attach_reports_the_harmony_on_the_track():
     class T: pass
-    t = T(); P = C.Plan.build("A", SECS, "phrygian_dark", None, seed=1).attach(t)
+    t = T(); P = C.Plan.build("A", SECS, "phrygian_dark", None, seed=1, palette="jazz").attach(t)
     assert t.harmony["tonic"] == "A" and t.harmony["home"] == "phrygian_dark" and "Am9" in t.harmony["chart"]["home1"] and t.harmony["fingerprint"] == P.fingerprint()
 
 # ---- bass ----------------------------------------------------------------------------------------------------------------
 def test_bass_marks_every_change_stays_in_range_and_approaches_the_next_root():
-    P = C.Plan.build("C", SECS, "line_cliche", None, seed=2); V = P.voicings("drop2", 50, 76); B = P.bass(np.random.default_rng(3), 28, 45, against=V)
+    P = C.Plan.build("C", SECS, "line_cliche", None, seed=2, palette="jazz"); V = P.voicings("drop2", 50, 76); B = P.bass(np.random.default_rng(3), 28, 45, against=V)
     on = {s: m for s, ln, m, v in B}
     assert all(28 <= m <= 45 for *_, m, v in B) and all(B[i][0] + B[i][1] <= B[i + 1][0] for i in range(len(B) - 1))
     changes = [(s0, c) for s0, n, c, nm in P.slots if s0 % 2 == 0]; assert all(on.get(s0, -1) % 12 == c.bass_pc for s0, c in changes)
@@ -117,8 +118,8 @@ def test_bass_marks_every_change_stays_in_range_and_approaches_the_next_root():
     line = P.bass(np.random.default_rng(3), 28, 45, style="line"); assert len(line) > 50
 
 # ---- lines ---------------------------------------------------------------------------------------------------------------
-def _setup(home="dorian_vamp", journey="line_cliche", seed=5):
-    rng = np.random.default_rng(seed); P = C.Plan.build("C", SECS, home, journey, seed=seed); top, _ = L.topline(P, rng, 67, 79)
+def _setup(home="dorian_vamp", journey="line_cliche", seed=5, palette="jazz"):
+    rng = np.random.default_rng(seed); P = C.Plan.build("C", SECS, home, journey, seed=seed, palette=palette); top, _ = L.topline(P, rng, 67, 79)
     V = P.voicings("drop2", 50, 79, top=top); B = P.bass(rng, 28, 45, against=V); return rng, P, V, B, L.context(P, V, B)
 
 @pytest.mark.parametrize("home", [n for n in C.IDIOMS])

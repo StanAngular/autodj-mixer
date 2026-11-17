@@ -75,7 +75,7 @@ def test_run_reports_freshness_and_records_the_track(tmp_path, ledger):
             trk = Track(120, 8, seed=seed).sections([(0, 8, "home", {"kick": 1, "tone": 1})]); k = load_sample(HERE + "/my_kick.wav"); kb = trk.buf()
             for br in range(8):
                 for st in (0, 4, 8, 12): trk.place(kb, k, br * trk.BAR + st * trk.S16)
-            chords.Plan.build("C", trk.tl, "dorian_vamp", seed=seed).attach(trk)
+            chords.Plan.build("C", trk.tl, "dorian_vamp", seed=seed, palette="jazz").attach(trk)
             trk.add("kick", kb, 1.0); trk.add("tone", mono2((np.sin(2*np.pi*110*trk.tt) * .1).astype(np.float32)), .4); return trk
     '''))
     s1 = main(["run", str(score), "--seed", "1", "--outdir", str(tmp_path)]); db = F.load()

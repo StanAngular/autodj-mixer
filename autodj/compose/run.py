@@ -72,7 +72,7 @@ def main(argv=None):
         if a.seed is None:                                                   # Стас 2026-10-22: the same seed only for variations of
             import zlib                                                       # ONE track; a new track gets its own seed (from its name)
             a.seed = zlib.crc32((a.name or os.path.basename(a.score)).encode()) % 100000
-        print(f"render slot {slot}", flush=True); sfz.SQUEEZE_LOG.clear(); trk = mod.build(a.seed); info = trk.finish(raw, meta={"title": title, "seed": a.seed}); info["squeezed"] = sfz.squeezed_report()
+        print(f"render slot {slot}", flush=True); sfz.SQUEEZE_LOG.clear(); trk = mod.build(a.seed); info = trk.finish(raw, meta={"title": title, "seed": a.seed, "lead": meta.get("lead")}); info["squeezed"] = sfz.squeezed_report()
         drv = meta.get("premaster_drive", 3.0); pm = meta.get("premaster", "clip" if meta.get("master") == "studio" else "sat")   # P130
         premaster(raw, pre, drive_db=drv, mode=pm); ms = warm(pre, mp3, target, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
         fixed = []; eq_all, dt_all = [], 0.0
@@ -99,6 +99,8 @@ def main(argv=None):
     summ["problems"] += [f"слой {n} беззвучен (layers_db пуст): проверь env/секции" for n in summ["silent_layers"]] + ears.ears_gates(summ, meta.get("gates"))
     from . import depth                                                                       # P133: where the track is flat (always reported; gates opt-in)
     summ["depth"] = info.get("depth"); summ["depth_notes"] = (info.get("depth") or {}).get("notes", []); summ["problems"] += depth.gates(info.get("depth"), meta.get("gates"))
+    from . import tonal                                                                       # P137: is it harmonious (always reported; gates opt-in)
+    summ["tonal"] = info.get("tonal"); summ["tonal_notes"] = (info.get("tonal") or {}).get("notes", []); summ["problems"] += tonal.gates(info.get("tonal"), meta.get("gates"))
     try:                                                                                      # P135: this track against all earlier ones (always reported; gates opt-in)
         fdb = fresh.load(); rev = fresh.review(info, title, fdb); summ["fresh"] = {k: rev[k] for k in ("reuse_share", "worn", "rhythm_repeats", "harmony_seen", "tracks_known")}
         summ["fresh_notes"] = rev["notes"]; summ["problems"] += fresh.gates(rev, meta.get("gates")); summ["harmony"] = {k: v for k, v in (info.get("harmony") or {}).items() if k != "tension"} or None; summ["line_fit"] = info.get("line_fit")
