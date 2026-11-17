@@ -46,14 +46,15 @@ def test_gate_blocks_bad_sounds_and_opt_out():
 
 def db_with(*tracks): return {"tracks": {f"t{i}": {"sources": s} for i, s in enumerate(tracks)}}
 
-def test_flexible_freshness_old_use_is_cheap_recent_is_not():
-    db = db_with(["old.wav"], [], [], [], ["recent.wav"])                           # old.wav 4 tracks ago, recent.wav in the last one
-    assert fresh.wear("old.wav", db) == fresh.OLD_W and fresh.wear("recent.wav", db) == 1.0 and fresh.wear("new.wav", db) == 0.0
-    assert fresh.pick(["old.wav", "recent.wav"], np.random.default_rng(0), db=db) == "old.wav"      # old comes back before the one used just now
+def test_freshness_is_strict_every_earlier_use_counts_the_same():
+    db = db_with(["old.wav"], [], [], [], ["recent.wav"])
+    assert fresh.wear("old.wav", db) == fresh.wear("recent.wav", db) == 1.0 and fresh.wear("new.wav", db) == 0.0
+    assert fresh.pick(["old.wav", "new.wav"], np.random.default_rng(0), db=db) == "new.wav"
 
-def test_new_beats_old_at_equal_quality_but_great_old_beats_poor_new():
-    db = db_with(["old.wav"], [], [], [], [])
-    assert fresh.pick(["old.wav", "new.wav"], np.random.default_rng(0), db=db, quality={"old.wav": .8, "new.wav": .8}) == "new.wav"       # freshness is the priority
-    assert fresh.pick(["old.wav", "poor.wav"], np.random.default_rng(0), db=db, quality={"old.wav": 1.0, "poor.wav": .1}) == "old.wav"    # quality may bring a good old sound back
-    db2 = db_with(["good.wav"])                                                         # but not the one used in the previous track
-    assert fresh.pick(["good.wav", "new.wav"], np.random.default_rng(0), db=db2, quality={"good.wav": 1.0, "new.wav": .6}) == "new.wav"
+def test_quality_never_brings_a_worn_sound_back():
+    db = db_with(["good.wav"])
+    assert fresh.pick(["good.wav", "poor.wav"], np.random.default_rng(0), db=db, quality={"good.wav": 1.0, "poor.wav": 0.1}) == "poor.wav"
+
+def test_most_worn_loses_least_worn_wins():
+    db = db_with(["a.wav", "b.wav"], ["a.wav"])
+    assert fresh.pick(["a.wav", "b.wav"], np.random.default_rng(0), db=db) == "b.wav"

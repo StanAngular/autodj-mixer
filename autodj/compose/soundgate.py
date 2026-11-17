@@ -70,7 +70,7 @@ def fits(kc, lo, hi, slack=5): return kc is not None and abs(kc - (lo + hi) / 2)
 def needs_multisample(kc, lo, hi): return not fits(kc, lo, hi, slack=0)
 
 def pick(candidates, role=None, lo=None, hi=None, rng=None, db=None, title=None, k=None, strict=True):
-    """cleanest sounds first (hard-bad out; with lo/hi only those whose root serves the range), then the flexible freshness of fresh.pick.
+    """hard-bad sounds out (with lo/hi only those whose root serves the range), then the LEAST USED of the rest (fresh.pick; no flexible freshness, removed 2026-11-17).
     strict=False: if everything is hard-bad / out of range fall back to the best quality instead of raising. Returns a path (k=None) or a list."""
     from . import fresh
     rows = []
@@ -82,8 +82,7 @@ def pick(candidates, role=None, lo=None, hi=None, rng=None, db=None, title=None,
     if not rows:
         if strict: raise ValueError(f"soundgate.pick: no clean candidate for {role} {lo}-{hi} among {len(set(candidates))} files")
         rows = [(p, quality(measure(p), role)[0]) for p in sorted(set(candidates))]
-    best = max(q for _, q in rows); rows = [(p, q) for p, q in rows if q >= best - .35]               # keep the top band; freshness decides inside it
-    return fresh.pick([p for p, _ in rows], rng, k=k, db=db, title=title, quality={p: q for p, q in rows})
+    return fresh.pick([p for p, _ in rows], rng, k=k, db=db, title=title)
 
 def report(sources, root_dirs=("/home/cclaw/samples",)):
     """gate input: {source name: [reasons]} for the sources of a render that were measured and are hard-bad (never raises; unmeasured = unknown = fine)"""
