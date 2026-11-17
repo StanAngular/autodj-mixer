@@ -16,6 +16,8 @@ def gate_failures(summ, meta=None):
     reporting it as a problem was not enough. `meta["allow_silent"]=True` is the explicit opt-out. Returns the list of failed gate names."""
     out = []
     if (summ or {}).get("silent_layers") and not (meta or {}).get("allow_silent"): out.append("silent_layers")
+    if (meta or {}).get("allow_bad_sounds"): return out
+    if summ.get("bad_sounds"): out.append("bad_sounds")                       # P139: a detuned/wobbling/noisy one-shot, or a sample played > 7 st from its note on > 30 % of notes
     return out
 
 def arc(path, bpm):

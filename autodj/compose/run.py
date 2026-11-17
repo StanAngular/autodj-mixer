@@ -109,6 +109,11 @@ def main(argv=None):
     if a.review:
         from .review import review
         summ["review"] = review(mp3, summ, info, meta, os.path.join(outdir, f"{name}.review.txt"))
+    try:
+        from . import soundgate
+        bad = soundgate.report(info.get("sources")); bad.update({q["sample"]: [f"played {q['mean_shift']:+.0f} st from its note on {q['share']:.0%} of notes"] for q in summ.get("squeezed", []) if q.get("share", 0) > .3 and abs(q.get("mean_shift", 0)) > 7 and q.get("policy") != "fold"})
+        summ["bad_sounds"] = bad
+    except Exception as ex: summ["bad_sounds"] = {}; print("soundgate:", ex)
     summ["gate_failed"] = ears.gate_failures(summ, meta)                                      # hard stop: silent layer = muted part (2026-11-16)
     if summ["gate_failed"]: print("ГЕЙТ: " + ", ".join(summ["gate_failed"]) + ": отправка заблокирована (meta allow_silent=True отключает)", flush=True)
     if a.send and not summ["gate_failed"]: summ["telegram"] = send_telegram(mp3, title)

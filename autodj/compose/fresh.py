@@ -114,12 +114,25 @@ def record(info, title, db=None, path=None):
                            "harmony": (info.get("harmony") or {}).get("fingerprint")}
     save(db, path); return db
 
-def pick(candidates, rng=None, k=None, db=None, title=None):
-    """the least used of the candidate files (ties broken at random by rng). k=None -> one path; k=N -> a list of N different ones."""
+RECENT = 3                                       # the last N tracks count as «just used»; older uses weigh OLD_W (P139: flexible freshness)
+OLD_W = 0.3
+QUALITY_W = 0.5
+
+def wear(path, db, title=None):
+    """how worn a source is: a use in one of the last RECENT tracks counts 1, an older one OLD_W (a good sound used long ago may come back)"""
+    names = [t for t in db["tracks"] if t != title]; recent = set(names[-RECENT:]); k = key_of(path); w = 0.0
+    for t in names:
+        if k in db["tracks"][t].get("sources", []): w += 1.0 if t in recent else OLD_W
+    return w
+
+def pick(candidates, rng=None, k=None, db=None, title=None, quality=None):
+    """the least worn of the candidate files (ties broken at random by rng). k=None -> one path; k=N -> a list of N different ones.
+    P139 flexible freshness: wear weighs recent tracks 1.0 and older ones 0.3; `quality` ({path: 0..1}) lets a better sound win over a
+    slightly fresher mediocre one (key = wear - 0.5 * quality). Freshness stays the priority: a sound used in the previous tracks loses to any unused one of similar quality."""
     c = sorted(set(candidates))
     if not c: raise ValueError("fresh.pick: no candidates (check the glob pattern)")
-    use = usage(db if db is not None else load(), title); rng = rng or np.random.default_rng()
-    order = sorted(c, key=lambda p: (len(use.get(key_of(p), [])), rng.random()))
+    db = db if db is not None else load(); rng = rng or np.random.default_rng(); q = quality or {}
+    order = sorted(c, key=lambda p: (wear(p, db, title) - QUALITY_W * q.get(p, 0.0), rng.random()))
     return order[0] if k is None else order[:k]
 
 PAT = re.compile(r"""[\w \-&()+.]+\.(?:wav|flac|aiff?|sfz)\b""", re.I); SFZ_CALL = re.compile(r"""SFZ\(\s*["'](\w+)["']""")
