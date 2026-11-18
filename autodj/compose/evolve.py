@@ -365,7 +365,12 @@ def grains(trk, src, keycenter=None, plan=None, per_bar=5.0, grain_s=(.3, .8), l
     """(N, 2) a texture of long grains of a recording, each pitched to a tone of the chord sounding at its time (plan or trk.plan;
     without a plan the recording's own pitch), at a random place in its body, randomly panned. Long grains with raised-cosine edges
     keep it a recording (a shimmer of the instrument), not a granular synth buzz."""
-    x, kc = recording(src, keycenter, sr=trk.sr) if not hasattr(src, "render") else recording(src, (lo + hi) // 2, sr=trk.sr)
+    if not hasattr(src, "render"): x, kc = recording(src, keycenter, sr=trk.sr)
+    else:                                                       # an instrument may be silent around the grains' register (Bear Sax above 72): take a sounding
+        for c in ((lo + hi) // 2, (lo + hi) // 2 - 12, (lo + hi) // 2 - 24):   # note an octave or two lower; grains are re-pitched to chord tones anyway
+            try: x, kc = recording(src, c, sr=trk.sr); break
+            except ValueError: x = None
+        if x is None: raise ValueError(f"grains: instrument has no sounding note near MIDI {lo}-{hi} or 1-2 octaves below")
     plan = plan or getattr(trk, "plan", None); sg = body(x, trk.sr); a0, a1 = sg["a"], max(sg["b1"], sg["a"] + 1)
     if layer is not None and bars is None: bars = [b for b in range(trk.bars) if trk.sec(b)[3].get(layer, 0) > .05]
     bars = sorted(set(range(trk.bars)) if bars is None else set(bars)); rng = np.random.default_rng([seed, 1412]); sr = trk.sr
