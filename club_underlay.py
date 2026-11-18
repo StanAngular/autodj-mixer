@@ -151,14 +151,20 @@ def _dynamic_env(length: int, sr: int, segments: list[dict], fade_in_s: float = 
 
 
 def sidechain_duck(x: np.ndarray, sr: int, quarter: int,
-                   depth_db: float = -6.0, release_ms: float = 90.0) -> np.ndarray:
-    """Класичний pumping: на кожній чверті drums тиснуть сигнал."""
+                   depth_db: float = -6.0, release_ms: float = 90.0, attack_ms: float = 0.5) -> np.ndarray:
+    """Класичний pumping: на кожній чверті drums тиснуть сигнал.
+    P140: спад за attack_ms (0.5 мс, закінчується на долі), а не за один семпл (сходинка = клац у верхах)."""
     depth = 10 ** (depth_db / 20.0)
     rel = max(1, int(sr * release_ms / 1000))
     env = np.ones(len(x), dtype="float32")
     t = np.arange(rel, dtype="float32")
     curve = depth + (1.0 - depth) * (1.0 - np.exp(-5.0 * t / rel))
+    a = int(round(sr * attack_ms / 1000.0))
+    pre = (1.0 - (1.0 - depth) * (0.5 - 0.5 * np.cos(np.pi * np.arange(a) / max(1, a)))).astype("float32")
     for pos in range(0, len(x), quarter):
+        if a and pos > 0:
+            s = max(0, pos - a)
+            env[s:pos] = np.minimum(env[s:pos], pre[a - (pos - s):])
         seg = min(rel, len(x) - pos)
         env[pos:pos + seg] = np.minimum(env[pos:pos + seg], curve[:seg])
     return (x * env[:, None]).astype("float32")

@@ -53,6 +53,9 @@ class Sampler:
         k = int(dur * SR); r = int(release * SR)
         if len(y) > k: y[k:k + r] *= np.linspace(1, 0, min(r, len(y) - k))[:, None]; y = y[:k + r]
         a_ = min(len(y), int(.004 * SR)); y[:a_] *= np.linspace(0, 1, a_)[:, None]
+        if len(y) <= k:                                                                 # P140: the recording ended before the note
+            from .clicks import declick
+            y = declick(y, SR, in_ms=0)
         return y * (vel / 127) ** 1.2
     def render(self, events, total_s, release=0.35):
         out = np.zeros((int(total_s * SR) + SR, 2), np.float32)

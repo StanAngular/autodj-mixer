@@ -181,6 +181,9 @@ class SFZ:
                 y = y[:k + len(e)]; y[k:] *= e
         pan = float(r.get("pan", 0)) / 100 + self._cc_sum(r, "pan") / 100
         if pan: y = y * np.array([np.sqrt(1 - min(1, max(-1, pan))), np.sqrt(1 + min(1, max(-1, pan)))], np.float32) 
+        if len(y):                                                                      # P140: a recording that ends before its note (or a
+            from .clicks import declick                                                 # one-shot) may stop mid-wave: ramp that end only
+            y = declick(y, self.sr, in_ms=0)
         return y * self._gain(r, vel)
 
     def render(self, events, total_s, release=None):

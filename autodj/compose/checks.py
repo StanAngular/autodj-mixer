@@ -55,8 +55,9 @@ def stereo_metrics(a, sr):
     (a relative click detector false-alarms on very dark mixes; an absolute one does not)"""
     from scipy.signal import resample_poly
     from .stereo import width_high, balance_std
-    m = a.mean(1) if a.ndim == 2 else a; hi = sosfilt(butter(4, 6000, "high", fs=sr, output="sos"), m)
-    out = {"hf_step_dbfs": round(float(20 * np.log10(np.abs(np.diff(hi)).max() + 1e-9)), 1) if len(hi) > 1 else -99.0,
+    m = a.mean(1) if a.ndim == 2 else a; hi = sosfilt(butter(4, 6000, "high", fs=sr, output="sos"), m); dh = np.abs(np.diff(hi)) if len(hi) > 1 else None
+    out = {"hf_step_dbfs": round(float(20 * np.log10(dh.max() + 1e-9)), 1) if dh is not None else -99.0,
+           "hf_step_t": round(float((np.argmax(dh) + 1) / sr), 2) if dh is not None else None,                            # P140: where it is
            "true_peak_db": round(float(20 * np.log10(np.abs(resample_poly(a, 4, 1, axis=0)).max() + 1e-9)), 2)}
     if a.ndim == 2 and a.shape[1] == 2 and len(a) > 3 * sr: out["width_high"] = round(width_high(a, sr), 2); out["lr_balance_std"] = round(balance_std(a, sr), 2)
     return out

@@ -198,9 +198,11 @@ def lpf(x, sr, fc):
 
 
 def sidechain_duck(x: np.ndarray, sr: int, quarter: int, depth_db: float = -5.0,
-                   release_ms: float = 110.0) -> np.ndarray:
+                   release_ms: float = 110.0, attack_ms: float = 0.5) -> np.ndarray:
     """Кик продавливает слой: на каждой четверти гейн падает до depth и экспоненциально
-    восстанавливается (классический pumping). quarter — интервал доли в сэмплах."""
+    восстанавливается (классический pumping). quarter — интервал доли в сэмплах.
+    P140: падение за attack_ms (0.5 мс, заканчивается на доле) вместо одного сэмпла: ступенька в волне
+    на каждой доле давала щелчок в верхах. attack_ms=0 -- старое поведение."""
     if quarter <= 0 or len(x) == 0:
         return x
     depth = 10 ** (depth_db / 20.0)
@@ -208,7 +210,12 @@ def sidechain_duck(x: np.ndarray, sr: int, quarter: int, depth_db: float = -5.0,
     env = np.ones(len(x), dtype="float32")
     t = np.arange(rel, dtype="float32")
     curve = depth + (1.0 - depth) * (1.0 - np.exp(-4.0 * t / rel))
+    a = int(round(sr * attack_ms / 1000.0))
+    pre = (1.0 - (1.0 - depth) * (0.5 - 0.5 * np.cos(np.pi * np.arange(a) / max(1, a)))).astype("float32")
     for pos in range(0, len(x), quarter):
+        if a and pos > 0:
+            s = max(0, pos - a)
+            env[s:pos] = np.minimum(env[s:pos], pre[a - (pos - s):])
         seg = min(rel, len(x) - pos)
         env[pos:pos + seg] = np.minimum(env[pos:pos + seg], curve[:seg])
     return x * env[:, None]

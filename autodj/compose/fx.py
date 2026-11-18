@@ -22,9 +22,13 @@ def tapestop_for(trk, end_bar, voice_len_s, beats=1):
 def stutter(trk, bar, plan=((2, 2), (4, 1), (8, 1))):
     """beat-repeat over one bar: (division, beats) e.g. 1/8 for 2 beats, 1/16 for 1, 1/32 for 1"""
     i0 = trk.i(bar); src = trk.mix[i0:i0 + trk.BEAT // 2].copy(); out = []
+    k = min(int(.0005 * trk.sr), i0)                                                   # P140: what plays into the bar line leaves
+    if k > 1: trk.mix[i0 - k:i0] *= (.5 + .5 * np.cos(np.pi * np.arange(k) / (k - 1))).astype(np.float32)[:, None]   # in 0.5 ms
     for div, beats in plan:
-        L = trk.BEAT // div; out += [fade(src[:L], 3)] * (beats * div)
+        L = trk.BEAT // div; out += [fade(src[:L], 3, ms_in=.5)] * (beats * div)       # P140: every repeat also ramps in (it began mid-wave)
     o = np.concatenate(out)[:trk.i(bar + 1) - i0]; trk.mix[i0:i0 + len(o)] = o * np.linspace(.8, 1.1, len(o))[:, None]
+    j = i0 + len(o); k = min(int(.0005 * trk.sr), len(trk.mix) - j)                   # P140: and the next bar ramps in after the last one
+    if k > 1: trk.mix[j:j + k] *= (.5 - .5 * np.cos(np.pi * np.arange(k) / (k - 1))).astype(np.float32)[:, None]
 
 def hp_build(trk, a, b, cuts=(20, 150, 400, 900)):
     """high-pass rises over bars a..b, snaps open at b"""
@@ -34,8 +38,9 @@ def hp_build(trk, a, b, cuts=(20, 150, 400, 900)):
 
 def silence_beat(trk, bar, beats=1):
     """drop the last beat(s) before `bar` to silence (for a shout / an impact)"""
-    n = beats * trk.BEAT; i = trk.i(bar) - n
-    trk.mix[i:i + n] *= np.concatenate([np.linspace(1, 0, 200), np.zeros(n - 200)])[:, None]
+    n = beats * trk.BEAT; i = trk.i(bar) - n; k = int(.001 * trk.sr)                  # P140: and back in over 1 ms on the bar line
+    up = .5 - .5 * np.cos(np.pi * np.arange(k) / (k - 1))                              # (it jumped from silence: a click)
+    trk.mix[i:i + n] *= np.concatenate([np.linspace(1, 0, 200), np.zeros(n - 200 - k), up]).astype(np.float32)[:, None]
 
 def reverse_swell(x, room=.9, pad_s=1.0, sr=44100):
     """reversed reverb of a sample: place it to end exactly on a downbeat"""

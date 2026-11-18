@@ -90,6 +90,14 @@ def main(argv=None):
             "sections": [[s["name"], s["rms"], round(s["sub"] * 100)] for s in met["sections"]], "mono_low": met.get("mono_low"), "mono_fold_db": met.get("mono_fold_db"), "rhythm": met.get("rhythm"),
             "auto_fixed": fixed, "problems": [m for _, m in bad], "render_min": round((time.time() - t0) / 60, 1)}
     summ["squeezed"] = info.get("squeezed", []); summ.update({k: met.get(k) for k in ("width_high", "lr_balance_std", "hf_step_dbfs", "true_peak_db")}); summ["clash_ratio"] = info.get("clash_ratio"); summ["clash_pairs"] = info.get("clash_pairs")
+    from . import clicks                                                                      # P140: where the wave jumps and which layer made it (always reported)
+    summ["clicks"] = info.get("clicks"); summ["click_notes"] = clicks.explain(info.get("clicks")); summ["hf_step_t"] = met.get("hf_step_t")
+    if summ["click_notes"] and any(c == "click" for c, _ in bad):
+        why = next((n for n in summ["click_notes"] if n.startswith("самый резкий")), summ["click_notes"][0])
+        if clicks.only_attacks(info.get("clicks")) and not (meta.get("gates") or {}).get("click_strict"):
+            summ["problems"] = [m for m in summ["problems"] if not m.startswith("резкий щелчок")]          # P140: the click gate is about the wave
+            summ["click_notes"].insert(0, f"гейт щелчка снят: верх {met.get('hf_step_dbfs')} дБFS — это атаки, разрывов волны нет (gates click_strict=True вернёт старый гейт)")
+        else: summ["problems"] = [f"{m}: {why}" if m.startswith("резкий щелчок") else m for m in summ["problems"]]
     summ["tagged"] = tag_mp3(mp3, title, meta.get("genre", ""))
     from . import ears                                                                        # P125: silent layers (always), arrangement arc (always), Audiobox (opt-in), optional gates
     summ["silent_layers"] = ears.silent_layers(info.get("layers_db")); summ["layers_db"] = info.get("layers_db")

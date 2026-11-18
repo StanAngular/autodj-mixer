@@ -16,9 +16,14 @@ def mono2(x):
 def rms(x):
     return float(np.sqrt(np.mean(np.asarray(x, np.float64) ** 2))) + 1e-9
 
-def fade(x, ms=8, sr=SR):
+def fade(x, ms=8, sr=SR, ms_in=0.0):
+    """fade-out of ms at the end; P140: ms_in > 0 also ramps the start (a piece cut out of the middle of a wave)"""
     k = min(len(x) // 2, int(sr * ms / 1000)); x = x.copy()
     if k > 0: x[-k:] *= np.linspace(1, 0, k)[:, None] if x.ndim == 2 else np.linspace(1, 0, k)
+    j = min(len(x) // 2, int(sr * ms_in / 1000))
+    if j > 1:
+        r = (.5 - .5 * np.cos(np.pi * np.arange(j) / (j - 1))).astype(np.float32)        # raised cosine: no corner, no first-sample jump
+        x[:j] *= r[:, None] if x.ndim == 2 else r
     return x
 
 def load_sample(path, max_s=None, sr=SR, fade_ms=15):
@@ -63,6 +68,7 @@ class Track:
         self.tt = np.arange(self.N, dtype=np.float32) / sr; self.roles = {}; self.notes = {}
         self.ctl = {}; self.buses = {}; self.bus_cfg = {}; self.spaces = {}; self.routing = {}; self.flushes = {}      # P130: the mix graph
         self.act = {}; self.act_err = []; self.followed = set(); self.analyze = True                                   # P133: what every layer played (depth.py)
+        self.declick = True; self.declicked = 0; self.steps = {}                                                      # P140: clicks.py
     @property
     def mix(self):
         """the stereo sum. Reading it first brings in whatever still waits in group buses and shared spaces (P130), so the
@@ -82,9 +88,16 @@ class Track:
     def buf(self):
         return np.zeros((self.N, 2), np.float32)
     def place(self, buf, smp, t, g=1.0, pan=0.0):
+        """add a recording at time t. P140: a recording that starts or ends mid-wave (cut on its transient) gets a 0.5 ms /
+        3 ms ramp on that edge only (clicks.declick); Track.declick = False places it untouched."""
         i = int(round(t * self.sr))
         if i < 0 or i >= len(buf): return
-        smp = smp if smp.ndim == 2 else mono2(smp); n = min(len(smp), len(buf) - i)
+        smp = smp if smp.ndim == 2 else mono2(smp)
+        if self.declick:
+            from .clicks import declick
+            d = declick(smp, self.sr)
+            if d is not smp: self.declicked += 1; smp = d
+        n = min(len(smp), len(buf) - i)
         buf[i:i + n, 0] += smp[:n, 0] * g * np.sqrt(1 - pan); buf[i:i + n, 1] += smp[:n, 1] * g * np.sqrt(1 + pan)
     # ---- sections / envelopes ----
     def sections(self, tl):
@@ -134,6 +147,14 @@ class Track:
                 from .depth import activity
                 E = activity(x, self.sr, self.S16, self.bars * 16); self.act[name] = self.act[name] + E if name in self.act else E
             except Exception as ex: self.act_err.append(f"{name}: {type(ex).__name__}: {str(ex)[:80]}")
+            try:                                                                        # P140: where this layer's wave jumps (clicks.py)
+                from .clicks import steps
+                st = steps(x, self.sr); old = self.steps.get(name)
+                if old is not None:
+                    o = np.argsort(np.concatenate([old["idx"], st["idx"]]), kind="stable")
+                    st = {k: np.concatenate([old[k], st[k]])[o] for k in ("idx", "val", "iso")}
+                self.steps[name] = {k: st[k] for k in ("idx", "val", "iso")}
+            except Exception as ex: self.act_err.append(f"{name} steps: {type(ex).__name__}: {str(ex)[:80]}")
         send = dict(send or {})
         if depth and "room" not in send: send["room"] = round(.35 * float(np.clip(depth, 0, 1)), 3)
         for sp, amt in send.items(): self.space(sp).send(x, amt, name=name)
@@ -248,5 +269,9 @@ class Track:
             from .tonal import report as tonal_report
             info["tonal"] = tonal_report(self, lead=(meta or {}).get("lead"))
         except Exception as ex: info["tonal"] = {"error": f"{type(ex).__name__}: {str(ex)[:120]}"}
+        try:                                                                            # P140: where the wave jumps, and which layer did it
+            from .clicks import report as clicks_report
+            info["clicks"] = clicks_report(self, m, scale=.5 / (float(np.abs(self.mix).max()) + 1e-9)) if self.analyze else {"declicked": self.declicked}
+        except Exception as ex: info["clicks"] = {"error": f"{type(ex).__name__}: {str(ex)[:120]}"}
         json.dump(info, open(path.rsplit(".", 1)[0] + ".json", "w"), ensure_ascii=False)
         return info

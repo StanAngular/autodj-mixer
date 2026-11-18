@@ -86,18 +86,34 @@ def stage_gain(buf: np.ndarray, role: str, ref_rms: float) -> float:
     return float(min(MAX_BOOST, ROLE_TARGETS.get(role, 0.5) * ref_rms / r))
 
 
+def duck_attack(depth: float, sr: int, attack_ms: float) -> np.ndarray:
+    """P140: the fall of a clock duck: raised cosine from 1 to depth over attack_ms, ENDING on the beat (lookahead), so the
+    dip is complete exactly where it always was. Without it the gain fell in one sample: a step in the wave on every beat
+    (a bass with no top at all came out with a -16 dBFS click above 6 kHz)."""
+    a = int(round(sr * attack_ms / 1000.0))
+    if a < 1:
+        return np.zeros(0, dtype=np.float32)
+    return (1.0 - (1.0 - depth) * (0.5 - 0.5 * np.cos(np.pi * np.arange(a) / a))).astype(np.float32)
+
+
 def sidechain_duck(x: np.ndarray, sr: int, period: int, depth_db: float = -4.5,
-                   release_ms: float = 120.0) -> np.ndarray:
+                   release_ms: float = 120.0, attack_ms: float = 0.5) -> np.ndarray:
     """Пампинг: на каждой доле гейн падает до depth и экспоненциально
-    восстанавливается. period -- интервал доли в сэмплах. Чистая."""
+    восстанавливается. period -- интервал доли в сэмплах. Чистая.
+    P140: падение за attack_ms (0.5 мс, заканчивается ровно на доле) вместо одного сэмпла: без щелчка на каждой доле.
+    attack_ms=0 -- старое поведение."""
     if period <= 0 or len(x) == 0:
         return x
     depth = 10 ** (depth_db / 20.0)
     rel = max(1, int(sr * release_ms / 1000.0))
     t = np.arange(rel, dtype=np.float32)
     curve = depth + (1.0 - depth) * (1.0 - np.exp(-4.0 * t / rel))
+    pre = duck_attack(depth, sr, attack_ms); a = len(pre)
     env = np.ones(len(x), dtype=np.float32)
     for pos in range(0, len(x), period):
+        if a and pos > 0:
+            s = max(0, pos - a)
+            env[s:pos] = np.minimum(env[s:pos], pre[a - (pos - s):])
         seg = min(rel, len(x) - pos)
         env[pos:pos + seg] = np.minimum(env[pos:pos + seg], curve[:seg])
     return x * env[:, None]
