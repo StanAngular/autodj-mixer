@@ -101,6 +101,79 @@ buf = render_drums(events, total_samples, sr=44100, stereo=True)
 
 ---
 
+### music_theory.py — композиционные правила манифеста (NEW)
+
+Зашивает правила AI Music Manifesto v2.1 в импортируемые функции.
+Render скрипты импортируют нужное -- не читают 42KB теории каждый раз.
+
+```python
+from autodj.generate.music_theory import (
+    # Аккордовые прогрессии
+    resolve_progression,     # (root_midi, prog_name, use_7ths) → [[midi...]]
+    PROGRESSIONS,            # dict: "dark_techno", "lounge", "ambient", ...
+
+    # Голосоведение (Manifesto 1.2)
+    voice_lead,              # (prev_chord, next_chord, max_delta=4) → chord
+    voice_lead_sequence,     # (chords) → voice-led chords (min movement)
+
+    # Евклидовы ритмы (Manifesto 2.3)
+    euclidean_rhythm,        # (beats, steps, rotation) → [bool...]
+    euclidean_to_velocity,   # pattern → velocity array
+    EUCLIDEAN_PRESETS,        # "tresillo":(3,8,0), "bossa_nova":(5,16,0), ...
+
+    # Хьюманизация (Manifesto 4)
+    humanize_velocity,       # (pattern, variation=0.12) → varied velocities
+    humanize_timing,         # (events, role="snare") → micro-shifted events
+    humanize_drum_events,    # all-in-one: group by instrument, apply both
+
+    # Пространство (Manifesto 5)
+    get_reverb,              # role → (room_size, wet, damping)
+    get_pan,                 # role → pan float
+    REVERB_PRESETS,          # full dict
+    PAN_PRESETS,             # full dict
+
+    # Частоты (Manifesto 3)
+    hp_for_role,             # (signal, role, sr) → HP filtered signal
+
+    # Мелодия (Manifesto 2.1-2.2)
+    scale_notes,             # (root, scale, octaves) → [midi...]
+    generate_melody_phrase,  # call-and-response with mandatory rests
+    SCALES,                  # "minor", "dorian", "pentatonic_min", "blues", ...
+
+    # Gain staging (Manifesto 7.2)
+    mix_gain,                # role → recommended float gain
+    MIX_GAINS,               # full dict
+)
+```
+
+**Прогрессии** (16 пресетов):
+```python
+chords = resolve_progression(45, "dark_techno")
+# → [[45,48,52], [53,57,60], [48,52,55], [55,59,62]]
+chords = resolve_progression(45, "lounge", use_7ths=True)
+# → [[45,48,52,55], [50,53,57,60], ...]
+```
+
+**Голосоведение** (автоматическое):
+```python
+led = voice_lead_sequence(chords)  # минимальные скачки между аккордами
+```
+
+**Евклидовы ритмы** (вместо ручных 16-step массивов):
+```python
+pat = euclidean_rhythm(3, 8)    # tresillo: [.x..x..x]
+pat = euclidean_rhythm(7, 12)   # afro bell
+vel = euclidean_to_velocity(pat, strong_vel=90, weak_vel=60)
+```
+
+**Хьюманизация** (velocity + micro-timing):
+```python
+events = humanize_drum_events(events, vel_variation=0.12, seed=42)
+# kick stays on grid, snare +3-10ms late, hats +1-8ms, etc.
+```
+
+---
+
 ### synthcore.py — осцилляторы, фильтры, эффекты
 
 ```python
@@ -563,3 +636,9 @@ cd /tmp/autodj-push && git pull && cp /opt/autodj-mixer/GENERATION.md . && git a
 |------|-----------|
 | 2026-07-20 | Создан GENERATION.md (ClaudeClaw). 9 render скриптов задокументированы. |
 | 2026-07-21 | +§11 Music Production Manifesto v2.1 (гармония, фразировка, DSP, backend routing, allowlist) |
+| 2026-07-21 | +music_theory.py: прогрессии, голосоведение, Евклидовы ритмы, хьюманизация, reverb/pan/HP пресеты |
+
+## P91 feedback (2026-08-15)
+- blend afro_house:liquid_dnb:0.5 → dur=528s в конфиге, но реальный аудио = 16.9s (0.6 MB)
+- bpm интерполировался в 150 (afro 119-125, dnb 168-174, середина ~147) — ок, но dur_range подозрительно
+- Нужно разобрать почему рендер обрезается: скорее всего слои не генерируют аудио нужной длины при высоком BPM + blend

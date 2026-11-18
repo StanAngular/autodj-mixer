@@ -86,7 +86,7 @@ def make_pair(score, factor, a, b, round_id, n, seed, genre, hypothesis="", p_ex
     cwd = os.path.dirname(os.path.abspath(score)); outdir = outdir or os.path.join(cwd, "ab"); os.makedirs(outdir, exist_ok=True)
     pid = f"{round_id}-p{n}"; title = title or f"AB {pid}"; summ = {}
     for v in (a, b):
-        summ[v] = None if dry else _render(score, f"{pid}_{v}", seed, f"{title} {v}", {"AB_FACTOR": factor, "AB_VALUE": v}, cwd)
+        summ[v] = None if dry else _render(score, f"{pid}_{v}", seed, title, {"AB_FACTOR": factor, "AB_VALUE": v}, cwd)   # SAME title: fresh.pick then picks the same sounds for both
     if not dry:
         bad = check_pair(summ[a], summ[b])
         if bad: raise ValueError(f"pair {pid} refused: {bad}")

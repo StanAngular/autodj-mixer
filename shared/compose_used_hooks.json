@@ -3,5 +3,20 @@
 "lead_riff|0,3,7,10,12": "dt_acid",
 "dialog|3,9": "dt_metal",
 "arp_shimmer|0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15": "dt_metal",
-"long_line|3": "dt_metal"
+"long_line|3": "dt_metal",
+"bass_hook|0,3,7,11,14": "mh_bassmelody",
+"lead_riff|0,3,6,9,12,14": "dt_burn",
+"lead_riff|0,4,7,10,13": "dt_hypno",
+"dialog|2,3,11": "thw_dialog",
+"lead_riff|0,4,6,8,11,14": "thw_pulse",
+"lead_riff|0,2,5,8,11,13": "thw_riff",
+"lead_riff|0,3,7,10,13": "lpx_t1",
+"lead_riff|0,3,6,8,10,14": "lpx_t2",
+"bass_hook|0,6,10": "lpx_t4",
+"lead_riff|0,3,6,8,11,14": "lpx_t5",
+"lead_riff|0,3,6,9,13": "it_h1",
+"dialog|11": "it_h2",
+"lead_riff|0,3,6,10,13": "it_h3",
+"lead_riff|0,3,6,9,11,14": "it_c1",
+"lead_riff|0,3,6,9,12": "it_c2"
 }

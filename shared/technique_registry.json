@@ -83,11 +83,755 @@
 "technique": "OFF+",
 "date": "2026-10-24",
 "signature": false
+},
+{
+"track": "Tide Glass (ambient downtempo)",
+"technique": "TAIL-ONLY",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Tide Glass (ambient downtempo)",
+"technique": "DLY",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Tide Glass (ambient downtempo)",
+"technique": "GATE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Late Tram (deep house)",
+"technique": "CRUSH",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Late Tram (deep house)",
+"technique": "ANT",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Late Tram (deep house)",
+"technique": "PINGPONG",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Northern Wire (melodic techno)",
+"technique": "POLY",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Northern Wire (melodic techno)",
+"technique": "GHOST",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Northern Wire (melodic techno)",
+"technique": "TELEPHONE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Warm Acid (experimental tech house)",
+"technique": "ROT",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Warm Acid (experimental tech house)",
+"technique": "GHOST",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Warm Acid (experimental tech house)",
+"technique": "FREEZE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Five Cell (experimental tech house)",
+"technique": "PMETER",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Five Cell (experimental tech house)",
+"technique": "DROP",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Five Cell (experimental tech house)",
+"technique": "TELEPHONE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Chord Shot (experimental tech house)",
+"technique": "POLY",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Chord Shot (experimental tech house)",
+"technique": "CRUSH",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Chord Shot (experimental tech house)",
+"technique": "ANT",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Bass Talks (experimental tech house)",
+"technique": "TAIL-ONLY",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Bass Talks (experimental tech house)",
+"technique": "OFF+",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Bass Talks (experimental tech house)",
+"technique": "PINGPONG",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Iron Thread (experimental tech house)",
+"technique": "DLY",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Iron Thread (experimental tech house)",
+"technique": "POLY",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Iron Thread (experimental tech house)",
+"technique": "FREEZE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Warm Acid (experimental tech house)",
+"technique": "ROT",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Warm Acid (experimental tech house)",
+"technique": "GHOST",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Warm Acid (experimental tech house)",
+"technique": "FREEZE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Five Cell (experimental tech house)",
+"technique": "PMETER",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Five Cell (experimental tech house)",
+"technique": "DROP",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Five Cell (experimental tech house)",
+"technique": "TELEPHONE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Chord Shot (experimental tech house)",
+"technique": "POLY",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Chord Shot (experimental tech house)",
+"technique": "CRUSH",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Chord Shot (experimental tech house)",
+"technique": "ANT",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Bass Talks (experimental tech house)",
+"technique": "TAIL-ONLY",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Bass Talks (experimental tech house)",
+"technique": "OFF+",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Bass Talks (experimental tech house)",
+"technique": "PINGPONG",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Iron Thread (experimental tech house)",
+"technique": "DLY",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Iron Thread (experimental tech house)",
+"technique": "POLY",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Iron Thread (experimental tech house)",
+"technique": "FREEZE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Warm Acid (experimental tech house) full",
+"technique": "ROT",
+"date": "2026-10-24",
+"signature": true
+},
+{
+"track": "Warm Acid (experimental tech house) full",
+"technique": "GHOST",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Warm Acid (experimental tech house) full",
+"technique": "FREEZE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Warm Acid (experimental tech house) full",
+"technique": "PMETER",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Warm Acid (experimental tech house) full",
+"technique": "CRUSH",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Warm Acid (experimental tech house) full",
+"technique": "TELEPHONE",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Warm Acid (experimental tech house) full",
+"technique": "PINGPONG",
+"date": "2026-10-24",
+"signature": false
+},
+{
+"track": "Clay Path (organic downtempo)",
+"technique": "DROP",
+"date": "2026-10-31",
+"signature": true
+},
+{
+"track": "Clay Path (organic downtempo)",
+"technique": "ANT",
+"date": "2026-10-31",
+"signature": false
+},
+{
+"track": "Clay Path (organic downtempo)",
+"technique": "HALF",
+"date": "2026-10-31",
+"signature": false
+},
+{
+"track": "Dust Relay (minimal)",
+"technique": "TAIL-ONLY",
+"date": "2026-10-31",
+"signature": true
+},
+{
+"track": "Dust Relay (minimal)",
+"technique": "OFF+",
+"date": "2026-10-31",
+"signature": false
+},
+{
+"track": "Dust Relay (minimal)",
+"technique": "FREEZE",
+"date": "2026-10-31",
+"signature": false
+},
+{
+"track": "Wire Garden (electro / breaks)",
+"technique": "POLY",
+"date": "2026-10-31",
+"signature": true
+},
+{
+"track": "Wire Garden (electro / breaks)",
+"technique": "DLY",
+"date": "2026-10-31",
+"signature": false
+},
+{
+"track": "Wire Garden (electro / breaks)",
+"technique": "PMETER",
+"date": "2026-10-31",
+"signature": false
+},
+{
+"track": "Paper Lamps (lo-fi house)",
+"technique": "TELEPHONE",
+"date": "2026-11-07",
+"signature": true
+},
+{
+"track": "Paper Lamps (lo-fi house)",
+"technique": "ROT",
+"date": "2026-11-07",
+"signature": false
+},
+{
+"track": "Paper Lamps (lo-fi house)",
+"technique": "CRUSH",
+"date": "2026-11-07",
+"signature": false
+},
+{
+"track": "Tidewater (melodic house)",
+"technique": "DROP",
+"date": "2026-11-07",
+"signature": true
+},
+{
+"track": "Tidewater (melodic house)",
+"technique": "GHOST",
+"date": "2026-11-07",
+"signature": false
+},
+{
+"track": "Tidewater (melodic house)",
+"technique": "ANT",
+"date": "2026-11-07",
+"signature": false
+},
+{
+"track": "Night Shift Steps (UK garage / 2-step)",
+"technique": "HALF",
+"date": "2026-11-07",
+"signature": true
+},
+{
+"track": "Night Shift Steps (UK garage / 2-step)",
+"technique": "FREEZE",
+"date": "2026-11-07",
+"signature": false
+},
+{
+"track": "Night Shift Steps (UK garage / 2-step)",
+"technique": "TAIL-ONLY",
+"date": "2026-11-07",
+"signature": false
+},
+{
+"track": "Basalt Room (dub techno)",
+"technique": "PMETER",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Basalt Room (dub techno)",
+"technique": "DLY",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Basalt Room (dub techno)",
+"technique": "POLY",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Harmattan (organic afro house)",
+"technique": "ROT",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Harmattan (organic afro house)",
+"technique": "TELEPHONE",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Harmattan (organic afro house)",
+"technique": "CRUSH",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Furnace Line (peak-time techno)",
+"technique": "ANT",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Furnace Line (peak-time techno)",
+"technique": "GHOST",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Furnace Line (peak-time techno)",
+"technique": "DROP",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Dust Ledger (trip-hop)",
+"technique": "ROT",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Dust Ledger (trip-hop)",
+"technique": "FREEZE",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Dust Ledger (trip-hop)",
+"technique": "TAIL-ONLY",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Salt Lamp (ambient downtempo)",
+"technique": "DLY",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Salt Lamp (ambient downtempo)",
+"technique": "HALF",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Salt Lamp (ambient downtempo)",
+"technique": "POLY",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Pine Hours (tech house)",
+"technique": "OFF+",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Pine Hours (tech house)",
+"technique": "GHOST",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Pine Hours (tech house)",
+"technique": "TELEPHONE",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Glasshouse Lines (progressive house)",
+"technique": "PMETER",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Glasshouse Lines (progressive house)",
+"technique": "DROP",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Glasshouse Lines (progressive house)",
+"technique": "CRUSH",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Night Spiral (psy / trance)",
+"technique": "ANT",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Night Spiral (psy / trance)",
+"technique": "POLY",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Night Spiral (psy / trance)",
+"technique": "FREEZE",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Low Tide Rush (drum & bass)",
+"technique": "HALF",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Low Tide Rush (drum & bass)",
+"technique": "GHOST",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Low Tide Rush (drum & bass)",
+"technique": "TAIL-ONLY",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Rust Relay (electro / breaks)",
+"technique": "DLY",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Rust Relay (electro / breaks)",
+"technique": "ROT",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Rust Relay (electro / breaks)",
+"technique": "OFF+",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Glass Harbor (breakbeat)",
+"technique": "ROT",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Glass Harbor (breakbeat)",
+"technique": "TELEPHONE",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Glass Harbor (breakbeat)",
+"technique": "DROP",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Tidewater Glass (breakbeat)",
+"technique": "CRUSH",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Tidewater Glass (breakbeat)",
+"technique": "DLY",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Tidewater Glass (breakbeat)",
+"technique": "FREEZE",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Salt Lantern (breakbeat jazz)",
+"technique": "GHOST",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Salt Lantern (breakbeat jazz)",
+"technique": "OFF+",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Salt Lantern (breakbeat jazz)",
+"technique": "TAIL-ONLY",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Low Tide Ledger (progressive breaks)",
+"technique": "POLY",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Low Tide Ledger (progressive breaks)",
+"technique": "ANT",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Low Tide Ledger (progressive breaks)",
+"technique": "HALF",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Low Tide Letters (dub breaks)",
+"technique": "ROT",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Low Tide Letters (dub breaks)",
+"technique": "CRUSH",
+"date": "2026-11-14",
+"signature": false
+},
+{
+"track": "Low Tide Letters (dub breaks)",
+"technique": "PMETER",
+"date": "2026-11-14",
+"signature": true
+},
+{
+"track": "Cinder Vespers (witch house)",
+"technique": "ROT",
+"date": "2026-11-15",
+"signature": false
+},
+{
+"track": "Cinder Vespers (witch house)",
+"technique": "FREEZE",
+"date": "2026-11-15",
+"signature": true
+},
+{
+"track": "Cinder Vespers (witch house)",
+"technique": "TAIL-ONLY",
+"date": "2026-11-15",
+"signature": false
+},
+{
+"track": "Ash Liturgy (witch house)",
+"technique": "DLY",
+"date": "2026-11-15",
+"signature": false
+},
+{
+"track": "Ash Liturgy (witch house)",
+"technique": "CRUSH",
+"date": "2026-11-15",
+"signature": true
+},
+{
+"track": "Ash Liturgy (witch house)",
+"technique": "DROP",
+"date": "2026-11-15",
+"signature": false
+},
+{
+"track": "Cinder Hex (witch house)",
+"technique": "GHOST",
+"date": "2026-11-15",
+"signature": false
+},
+{
+"track": "Cinder Hex (witch house)",
+"technique": "POLY",
+"date": "2026-11-15",
+"signature": true
+},
+{
+"track": "Cinder Hex (witch house)",
+"technique": "HALF",
+"date": "2026-11-15",
+"signature": false
+},
+{
+"track": "Ash Circle (witch house)",
+"technique": "PMETER",
+"date": "2026-11-15",
+"signature": true
+},
+{
+"track": "Ash Circle (witch house)",
+"technique": "OFF+",
+"date": "2026-11-15",
+"signature": false
+},
+{
+"track": "Ash Circle (witch house)",
+"technique": "FREEZE",
+"date": "2026-11-15",
+"signature": false
+},
+{
+"track": "Ash Lantern (witch house)",
+"technique": "ANT",
+"date": "2026-11-15",
+"signature": false
+},
+{
+"track": "Ash Lantern (witch house)",
+"technique": "TAIL-ONLY",
+"date": "2026-11-15",
+"signature": true
+},
+{
+"track": "Ash Lantern (witch house)",
+"technique": "DLY",
+"date": "2026-11-15",
+"signature": false
 }
 ],
 "votes": {
 "ROT": {
-"like": 1,
+"like": 2,
 "dislike": 0,
 "neutral": 0
 },
@@ -97,7 +841,7 @@
 "neutral": 0
 },
 "CRUSH": {
-"like": 1,
+"like": 2,
 "dislike": 0,
 "neutral": 0
 },
@@ -107,7 +851,7 @@
 "neutral": 0
 },
 "TELEPHONE": {
-"like": 1,
+"like": 2,
 "dislike": 0,
 "neutral": 0
 },
@@ -122,6 +866,16 @@
 "neutral": 0
 },
 "DROP": {
+"like": 1,
+"dislike": 0,
+"neutral": 0
+},
+"GATE": {
+"like": 0,
+"dislike": 2,
+"neutral": 0
+},
+"PMETER": {
 "like": 1,
 "dislike": 0,
 "neutral": 0
