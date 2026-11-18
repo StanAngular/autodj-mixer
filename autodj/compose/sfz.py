@@ -22,7 +22,9 @@ LIBS = {"rhodes": "jlearman.jRhodes3d-master/jRhodes3d-st.sfz",                 
         "fashionbass": "karoryfer.fashionbass/fashionbass_clean.sfz", "fashionbass_full": "karoryfer.fashionbass/fashionbass.sfz",
         "growlybass": "karoryfer.growlybass/growlybass_clean.sfz", "growlybass_dirty": "karoryfer.growlybass/growlybass_dirty.sfz",
         "wurlitzer": "GregSullivan.E-Pianos/Wurlitzer EP200/Wurlitzer EP200.sfz", "cp80": "GregSullivan.E-Pianos/CP80/CP80.sfz", "pianet": "GregSullivan.E-Pianos/Pianet T/Pianet T.sfz",
-        "bearsax": "karoryfer.bear-sax/Programs/1-solo-mono.sfz"}                      # sax: use MIDI 52-72 (48 reads two octaves off, 72+ silent)
+        # bearsax = ONE sustained sample per key (the looped_f layer, MIDI 29-75). 2026-11-18: the stock program 1-solo-mono.sfz is meant to be driven by CC; our engine
+        # played all its layers at once (sub-octave tone, breath-noise sample, close/open mics, attack + loop) = the «micro-hoarseness» Стас heard on held notes.
+        "bearsax": "karoryfer.bear-sax/bearsax_sustain.sfz", "bearsax_full": "karoryfer.bear-sax/Programs/1-solo-mono.sfz"}   # _full: all layers (not recommended)
 # NOT registered: karoryfer.black-and-green-guitars (the engine's auto octave measure gives -36 on it, so notes above MIDI 50 are silent; needs ins.oct override + an ear check)
 
 def note_num(v):

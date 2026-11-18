@@ -80,3 +80,15 @@ def test_recording_falls_back_to_nearest_sounding_note():
     x, m = V.recording(_Inst({69, 70}), 69, seconds=.5); assert m == 68 and np.abs(x).max() > .1
     x, m = V.recording(_Inst(set()), 69, seconds=.5); assert m == 69
     with pytest.raises(ValueError): V.recording(_Inst(set(range(60, 80))), 69, seconds=.5)
+
+
+def test_bearsax_is_one_sustained_layer_per_key_no_noise_or_sub_layers():
+    import os
+    from autodj.compose.sfz import SFZ, available
+    if not available().get("bearsax"): pytest.skip("bearsax not installed")
+    ins = SFZ("bearsax")
+    for m in (40, 55, 62, 68, 72):
+        picked = ins.pick(m, 100)
+        assert len(picked) == 1 and os.path.basename(picked[0]["_file"]).endswith("_looped_f.wav"), (m, [os.path.basename(r["_file"]) for r in picked])
+    full = SFZ("bearsax_full")                       # the stock program still plays several layers at once: that is what the clean one replaces
+    assert len(full.pick(62, 100)) > 1
