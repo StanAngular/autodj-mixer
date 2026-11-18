@@ -74,8 +74,14 @@ def main(argv=None):
             a.seed = zlib.crc32((a.name or os.path.basename(a.score)).encode()) % 100000
         print(f"render slot {slot}", flush=True); sfz.SQUEEZE_LOG.clear(); trk = mod.build(a.seed); info = trk.finish(raw, meta={"title": title, "seed": a.seed, "lead": meta.get("lead")}); info["squeezed"] = sfz.squeezed_report()
         drv = meta.get("premaster_drive", 3.0); pm = meta.get("premaster", "clip" if meta.get("master") == "studio" else "sat")   # P130
-        premaster(raw, pre, drive_db=drv, mode=pm); ms = warm(pre, mp3, target, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
-        fixed = []; eq_all, dt_all = [], 0.0
+        ref_eq, ref_curve = [], None                                                        # P142: META "reference" + "match_eq": the
+        if meta.get("reference") and meta.get("match_eq"):                                   # tonal balance moves toward the reference
+            try:
+                from .blueprint import match_eq, eq_plugins
+                ref_curve = match_eq(raw, meta["reference"], amount=float(meta["match_eq"])); ref_eq = eq_plugins(ref_curve)
+            except Exception as ex: ref_curve = {"error": f"{type(ex).__name__}: {str(ex)[:120]}"}
+        premaster(raw, pre, drive_db=drv, mode=pm, pre_eq=list(ref_eq)); ms = warm(pre, mp3, target, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
+        fixed = []; eq_all, dt_all = list(ref_eq), 0.0
         for _ in range(2):                                         # at most two master-side rounds (an EQ cut can raise the limiter)
             eq, dt = fixes_for(bad, met, ms, meta.get("gates"))
             if not (eq or dt): break
@@ -114,6 +120,13 @@ def main(argv=None):
         summ["fresh_notes"] = rev["notes"]; summ["problems"] += fresh.gates(rev, meta.get("gates")); summ["harmony"] = {k: v for k, v in (info.get("harmony") or {}).items() if k != "tension"} or None; summ["line_fit"] = info.get("line_fit")
         if not meta.get("fresh_skip"): fresh.record(info, title, fdb)
     except Exception as e: summ["fresh"] = {"error": f"{type(e).__name__}: {str(e)[:120]}"}
+    if meta.get("reference"):                                                                 # P142: this render against the reference
+        try:
+            from . import blueprint
+            cmp = blueprint.compare(mp3, meta["reference"], bpm=trk.bpm, ref_bpm=meta.get("reference_bpm"))
+            summ["reference"] = {k: cmp[k] for k in ("score", "diff", "ours", "ref")}; summ["reference_notes"] = blueprint.notes_for_summary(cmp)
+        except Exception as ex: summ["reference"] = {"error": f"{type(ex).__name__}: {str(ex)[:120]}"}; summ["reference_notes"] = []
+        if ref_curve is not None: summ["match_eq"] = ref_curve
     if a.review:
         from .review import review
         summ["review"] = review(mp3, summ, info, meta, os.path.join(outdir, f"{name}.review.txt"))
