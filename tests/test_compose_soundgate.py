@@ -58,3 +58,25 @@ def test_quality_never_brings_a_worn_sound_back():
 def test_most_worn_loses_least_worn_wins():
     db = db_with(["a.wav", "b.wav"], ["a.wav"])
     assert fresh.pick(["a.wav", "b.wav"], np.random.default_rng(0), db=db) == "b.wav"
+
+# ---- 2026-11-18 fixes: a silent layer is recorded (gate sees it), an instrument silent on a note falls back to a sounding neighbour
+def test_silent_layer_is_recorded_and_audible_one_is_not():
+    from autodj.compose import Track, ears
+    trk = Track(120, 2, seed=1).sections([(0, 2, "home1", dict(a=1, b=1))])
+    trk.add("a", np.zeros((trk.N, 2), np.float32)); trk.add("b", (0.1 * np.ones((trk.N, 2))).astype(np.float32))
+    assert trk.layers["a"] is None and trk.layers["b"] is not None
+    assert ears.silent_layers(trk.layers) == ["a"]
+
+class _Inst:
+    def __init__(self, silent): self.silent = silent
+    def render(self, ev, T):
+        y = np.zeros((int(T * 44100), 2), np.float32)
+        t, m, v, d = ev[0]
+        if m not in self.silent: y[:int(d * 44100)] = 0.2 * np.sin(np.arange(int(d * 44100)) / 20)[:, None]
+        return y
+
+def test_recording_falls_back_to_nearest_sounding_note():
+    from autodj.compose import evolve as V
+    x, m = V.recording(_Inst({69, 70}), 69, seconds=.5); assert m == 68 and np.abs(x).max() > .1
+    x, m = V.recording(_Inst(set()), 69, seconds=.5); assert m == 69
+    with pytest.raises(ValueError): V.recording(_Inst(set(range(60, 80))), 69, seconds=.5)

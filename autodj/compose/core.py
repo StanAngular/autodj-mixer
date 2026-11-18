@@ -134,7 +134,9 @@ class Track:
         from autodj.generate.mixbus import sidechain_duck
         from . import bus as _bus
         x = np.pad(x, ((0, max(0, self.N - len(x))), (0, 0)))[:self.N]; act = x[np.abs(x).max(1) > 1e-4]
-        if not len(act): return
+        if not len(act):                                                                 # 2026-11-18: a silent layer was dropped without a trace, so the
+            self.layers[name] = None; print("  + " + name + " (SILENT)", flush=True)     # silent-layer gate never saw it; now it is recorded as None
+            return
         if level is None: level = 10 ** (self.roles.get(role or name, ROLE_DB.get(role or name, -12)) / 20)
         if self.ref is None: self.ref = rms(act)
         x = x * (level * self.ref / rms(act)) * (self.env(name, smooth_bars) if env is None else env)

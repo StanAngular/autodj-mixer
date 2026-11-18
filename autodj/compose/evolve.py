@@ -47,7 +47,12 @@ def recording(src, midi=None, vel=90, seconds=4.0, sr=SR):
     instrument with .render (asked for ONE note of `seconds` at `midi`)"""
     if hasattr(src, "render"):
         if midi is None: raise ValueError("recording(instrument) needs the midi note to ask it for")
-        return _trim(_stereo(src.render([(0.0, int(midi), int(vel), float(seconds))], float(seconds) + 1.5))), int(midi)
+        # 2026-11-18 fix: an instrument can be silent on some notes (Bear Sax above MIDI 72, a gap in a multisample). The demo's top
+        # line then rendered as silence and the layer vanished. Ask the nearest notes (down first, within MAX_SHIFT) for a sounding one.
+        for d in [0] + [k for j in range(1, 8) for k in (-j, j)]:
+            x = _stereo(src.render([(0.0, int(midi) + d, int(vel), float(seconds))], float(seconds) + 1.5))
+            if x.size and float(np.abs(x).max()) > 1e-3: return _trim(x), int(midi) + d
+        raise ValueError(f"recording(instrument): no sounding note within 7 semitones of MIDI {int(midi)}")
     if isinstance(src, str):
         from .core import load_sample
         x = load_sample(src)
