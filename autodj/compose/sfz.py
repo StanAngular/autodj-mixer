@@ -17,7 +17,13 @@ NOTE = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
 LIBS = {"rhodes": "jlearman.jRhodes3d-master/jRhodes3d-st.sfz",                          # 1977 Rhodes Mark I Stage 73
         "piano": "Osiris_Piano-main/Programs/02-warm.sfz", "piano_natural": "Osiris_Piano-main/Programs/01-natural.sfz",
         "bass": "karoryfer.big-little-bass-main/Programs/02-big_little_soft_pluck.sfz",
-        "bass_pluck": "karoryfer.big-little-bass-main/Programs/01-big_little_pluck.sfz"}
+        "bass_pluck": "karoryfer.big-little-bass-main/Programs/01-big_little_pluck.sfz",
+        # 2026-11-18 new CC0 multisamples (sfzinstruments), audited with workspace/music/newpacks_2026_11_18/audit.py: pitch error median 5-7.5 c, every register sounds
+        "fashionbass": "karoryfer.fashionbass/fashionbass_clean.sfz", "fashionbass_full": "karoryfer.fashionbass/fashionbass.sfz",
+        "growlybass": "karoryfer.growlybass/growlybass_clean.sfz", "growlybass_dirty": "karoryfer.growlybass/growlybass_dirty.sfz",
+        "wurlitzer": "GregSullivan.E-Pianos/Wurlitzer EP200/Wurlitzer EP200.sfz", "cp80": "GregSullivan.E-Pianos/CP80/CP80.sfz", "pianet": "GregSullivan.E-Pianos/Pianet T/Pianet T.sfz",
+        "bearsax": "karoryfer.bear-sax/Programs/1-solo-mono.sfz"}                      # sax: use MIDI 52-72 (48 reads two octaves off, 72+ silent)
+# NOT registered: karoryfer.black-and-green-guitars (the engine's auto octave measure gives -36 on it, so notes above MIDI 50 are silent; needs ins.oct override + an ear check)
 
 def note_num(v):
     v = str(v).strip()
