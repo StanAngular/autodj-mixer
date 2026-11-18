@@ -92,3 +92,13 @@ def test_bearsax_is_one_sustained_layer_per_key_no_noise_or_sub_layers():
         assert len(picked) == 1 and os.path.basename(picked[0]["_file"]).endswith("_looped_f.wav"), (m, [os.path.basename(r["_file"]) for r in picked])
     full = SFZ("bearsax_full")                       # the stock program still plays several layers at once: that is what the clean one replaces
     assert len(full.pick(62, 100)) > 1
+
+def test_double_bass_and_tuba_are_one_pitched_layer_per_key_with_octave_override():
+    import os
+    from autodj.compose.sfz import SFZ, available, OCT_OVERRIDE
+    for n in ("dbass", "tuba"):
+        if not available().get(n): pytest.skip(n + " not installed")
+        ins = SFZ(n); assert ins.oct == OCT_OVERRIDE[n] == 0
+        for k in (34, 40, 46): assert len(ins.pick(k, 100)) == 1
+    assert "sus" in os.path.basename(SFZ("tuba").pick(40, 100)[0]["_file"])
+    assert "noise" not in os.path.basename(SFZ("dbass").pick(40, 100)[0]["_file"])

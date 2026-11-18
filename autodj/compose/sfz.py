@@ -24,7 +24,10 @@ LIBS = {"rhodes": "jlearman.jRhodes3d-master/jRhodes3d-st.sfz",                 
         "wurlitzer": "GregSullivan.E-Pianos/Wurlitzer EP200/Wurlitzer EP200.sfz", "cp80": "GregSullivan.E-Pianos/CP80/CP80.sfz", "pianet": "GregSullivan.E-Pianos/Pianet T/Pianet T.sfz",
         # bearsax = ONE sustained sample per key (the looped_f layer, MIDI 29-75). 2026-11-18: the stock program 1-solo-mono.sfz is meant to be driven by CC; our engine
         # played all its layers at once (sub-octave tone, breath-noise sample, close/open mics, attack + loop) = the «micro-hoarseness» Стас heard on held notes.
-        "bearsax": "karoryfer.bear-sax/bearsax_sustain.sfz", "bearsax_full": "karoryfer.bear-sax/Programs/1-solo-mono.sfz"}   # _full: all layers (not recommended)
+        "bearsax": "karoryfer.bear-sax/bearsax_sustain.sfz", "bearsax_full": "karoryfer.bear-sax/Programs/1-solo-mono.sfz",
+        # 2026-11-18 (Стас: «контрабас с рост человека, труба, а у тебя гитара»): real upright bass and tuba. Their auto octave measure is wrong (noise regions) -> OCT_OVERRIDE
+        "dbass": "dsmolken.double-bass/d_smolken_rubner_bass_pizz.sfz", "dbass_arco": "dsmolken.double-bass/d_smolken_rubner_bass_arco.sfz", "tuba": "karoryfer.war-tuba/tuba_sustain.sfz"}
+OCT_OVERRIDE = {"dbass": 0, "dbass_arco": 0, "tuba": 0}      # measured by hand: with oct=0 the sounding pitch equals the key (+-0.1 st over MIDI 30-62)   # _full: all layers (not recommended)
 # NOT registered: karoryfer.black-and-green-guitars (the engine's auto octave measure gives -36 on it, so notes above MIDI 50 are silent; needs ins.oct override + an ear check)
 
 def note_num(v):
@@ -102,6 +105,7 @@ class SFZ:
                 offs = [o for o in offs if o is not None]
                 return int(12 * round(np.median(offs) / 12)) if offs else 0
             self.oct = self._tc.get("oct:" + os.path.relpath(self.path, SFZ_ROOT), measure)
+            if name in OCT_OVERRIDE: self.oct = OCT_OVERRIDE[name]
 
     def _ccval(self, n):
         return self.cc.get(int(n), 0.0)
