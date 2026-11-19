@@ -1,0 +1,57 @@
+# Claw music knowledge (exported 2026-11-20 00:50)
+Auto-exported nightly by ClaudeClaw (`scripts/export-music-knowledge.py`). Read-only mirror for Hermes and GitHub: what Стас liked/disliked, how tracks are recreated and generated, tools.
+Rules in one line each live in `notes/` (feedback_*), tools in `tools/`, working examples in `examples/`, Hermes guides in `guides/`. Scores of finished tracks are NOT here (kept on disk by decision 2026-10-17).
+
+## Index
+- [AutoDJ generation Oct 2026](notes/project_autodj_generation_2026_10.md) — pushes via ~/.config/git/autodj-cred, Vital/VSCO/presets, ear notes (хрип, kick click), max 2 renders; ledger #2
+- [Notes before groove](notes/feedback_diagnose_notes_before_performance.md) — bad-sounding render: check pitches/scale/chords first, groove last
+- [Warm master for music](notes/feedback_music_warm_master.md) — Стас wants tracks soft: master_warm.py by default; reference tracks take brightness/loudness from the ref
+- [Compose kit](notes/project_compose_kit.md) — since 2026-10-17 tracks = score.py + `python -m autodj.compose run`; gates, autofix, P103 open items
+- [Sounds like the 90s](notes/feedback_music_sounds_90s.md) — DJ friend 2026-10-17: primitive, dated; keep improving the shared engine, learn from references
+- [Check source tuning](notes/feedback_check_tuning_of_sources.md) — 2026-10-17 «гармония хромает» = Vital preset an octave+semitone off + m2 clusters; tuning audit, clash gate, blind Gemini
+- [Music learning loop](notes/project_music_learning_loop.md) — tuning audit, clash gate, noisy Gemini ear, 5 refs, reftrack.py; fus01 nu-disco recreation; funk guitar/slap samples pending
+- [Transitions: short pull-back](notes/feedback_music_transitions_pullback.md) — no long drumless pits or cut-to-silence drops; 2-bar pull + drummer fill
+- [Artifact causes](notes/feedback_music_artifact_causes.md) — «дудка», щелчки, глюки на M:SS: causes found (sine click, clap flam, kick over-tuned, mapped fills)
+- [Long jobs: watchdog + reports](notes/feedback_long_jobs_watchdog.md) — plan anti-hang before big jobs; jobwatch.py heartbeat/kill/retry + Telegram stage reports; publish interim results; never pgrep own pattern
+- [Stable Audio Open on CPU](notes/reference_stable_audio_open.md) — install path, token, fp16-decoder trap, ~25 s per clip
+- [Lakh MIDI library](notes/project_lakh_midi_library.md) — 2026-10-19 corpus in autodj.compose: progressions, bass, drums, entry bars per style; ledger #5
+- [Lyria via Gemini API](notes/reference_lyria_gemini_music.md) — our key sees Lyria 3/3.5/RealTime (2026-10-19); prices; plan P106
+- [ACTIVE: engine plan P107](notes/project_engine_plan_p107.md) — music engine arc + 5-step pipeline; 3 best tracks (2026-10-23); 10-24 refs/lo-fi/experimental arc; ENGINE_PLAN.md, ledger #6
+- [Tech house micro tricks](notes/feedback_music_micro_tricks.md) — no reused signature trick; short broken inserts, hook in the gaps; no always-straight kick; dark FX
+- [Fragment vs full track](notes/feedback_fragment_vs_full_track.md) — exp 1: hook liked in 16 s failed in the full track; held maj7 = «не попадает»; stable_tone fix; no constant tambourine
+- [Cinematic series #7](notes/project_cinematic_series_2026_10.md) — from 2026-10-23: Röyksopp/Moderat/Jon Hopkins, Still There / Rhodes Rain; Vital lead = 90s flute -> P114
+- [Seed per track](notes/feedback_seed_per_track.md) — same seed only for variations of one track; name-derived seeds + hook registry
+- [Author StanPo](notes/feedback_stanpo_author.md) — all tracks authored StanPo; title «Name (style)», no StanPo in title (P111)
+- [Gemini listener](notes/reference_gemini_listener.md) — gemini-3.8-flash first (P112); hypotheses only, never gate on its timings
+- [Reference likeness](notes/feedback_reference_likeness.md) — 2026-10-24: tambourine-as-shaker, short notes, Vital synth smell, missing «курлыканье» voice = why sketches sounded far from refs
+- [Voice language + 2 dislikes](notes/feedback_voice_language.md) — voice text Ukrainian or English, NEVER Russian; no always-on «ц-ц-ц» cymbal; no horn-like «бибип» stabs
+- [No L/R flicker](notes/feedback_no_lr_flicker.md) — 2026-10-25: no autopan/pingpong/alternating pan; club tech house = straight kick, broken rhythm only in transitions (iron2/)
+- [Recreation sound gap](notes/feedback_recreation_sound_gap.md) — 2026-10-26 Detuned Dreams: stem gaps v1, then the from-scratch recipe in detuned2/ that matched (sung pyworld voice, stretched+wow pads, soft synth kick); 2026-10-28 AI-ambient x5 traps, "странное" -> back to liked Космос recipe
+- [Sample register squeeze](notes/feedback_sample_register.md) — 2026-10-28: «гармошка»/грубость = W.A. G1 pads resampled +24..31 st by oneshot; keep shift <= 7 st; P119-P122 pending
+- [Groove «кач» critique](notes/feedback_groove_kach.md) — 2026-11-01 producer: «все хуйня, пойми кач»; research (syncopation inverted U, bass LFA, microtiming small); P124 pending
+- [Progress updates](notes/feedback_progress_updates.md) — Стас asked twice for interim results; notify after every stage; ears tools abx.py (Audiobox Aesthetics) + arc.py with calibration numbers
+- [Ears substitutes](notes/reference_ears_audiobox.md) — 2026-11-02 Audiobox Aesthetics + arc/repetition metrics as a second listener; calibration numbers; P125 applied 2026-11-11 (commit 7781779)
+- [No recycled gimmicks](notes/feedback_no_recycled_gimmicks.md) — 2026-11-02: phone/modem/ghost-coo belong to their own tracks only; no fusion of old devices; one idea one mood; «стоп, не делай вариантов» = just record; 2026-11-11: NO pseudo-singing / coo / pitched vocal chops ever again, the voice/indie series = failed
+- [Bells bright + long tail](notes/feedback_bells_bright_long.md) — 2026-11-04 Scratch: do not muffle/stretch the whole bell; keep attack bright, extend tail separately
+- [Return to home motif](notes/feedback_return_to_home_motif.md) — 2026-11-04 Log: A-B-A-C-A rondo of the opening pattern; pre-select 5 pattern candidates by Audiobox before sending
+- [Night Shift works](notes/feedback_night_shift_works.md) — 2026-11-11 favourite track; carry principles only, never its chords/sounds (see fresh-every-track)
+- [Check silent layers](notes/feedback_check_silent_layers.md) — 2026-11-11 empty sections dict muted drums/bass/voice in 15 sent tracks; check layers_db for None before sending
+- [Fable audit P130-P133](notes/project_fable_audit_p130_p133.md) — 2026-11-12 mix graph, living synth, soundlab, depth report applied (e36886c); A/B + lab votes pending
+- [Fresh every track](notes/feedback_fresh_every_track.md) — 2026-11-14: same style != same sounds, blank page every track, do not open old scores; 2026-11-12 audit: harmony, sounds, drums chosen anew per track via chords.Plan / fresh.pick; old helpers wk.py/vibe.py retired; memory keeps principles not recipes
+- [No synth, samples only](notes/feedback_no_synth_sample_only.md) — 2026-11-13 new engine sounded synthy, worse than old loop on jazz/stutter; recorded samples only, no synth
+- [No slowed-down remakes](notes/feedback_no_slowdown_remake.md) — 2026-11-14 Furnace Embers = half-speed riff, «не музыка»; develop a theme at the genre's own tempo, theme only as a seed
+- [VSCO octave + amateur acoustics](notes/feedback_vsco_octave_amateur.md) — 2026-11-14 breaks5: violin spic files +12 st vs name (kit.ms trusts names) = «сабля»; solo piano/violin hooks = «дилетант»; measure pitch first
+- [SongEval (CMI-RM removed)](notes/reference_songeval_cmirm.md) — 2026-11-15 Кирилл «Groove Intelligence»: SongEval = weak signal only (clips <= 2 min, ears/songeval.sh); CMI-RM tested, ranked against Стас, deleted; his votes are the real judge
+- [Concept-fit for sharp elements](notes/feedback_concept_fit_effects.md) — 2026-11-15 claps in meditative Ash Lantern; fresh does not know mood; mood-based allow/deny list in briefs; trk.BEAT is samples not seconds
+- [VocalTractLab voice model](notes/reference_vocaltractlab.md) — 2026-11-15 installed at Стас request; exception: vowel pad only, quiet in hall; vtl/voice.py, tone bank
+- [Blind listening only](notes/feedback_blind_listening.md) — 2026-11-16 Gemini/Whisper hallucinated the lyrics because I named the song; always blind prompts, no language hint
+- [Harmony: new consonant by default](notes/feedback_harmony_new_default.md) — 2026-11-17 P137 applied; new tracks on consonant chords.Plan, old loop only on request (supersedes 11-13 old-loop rule)
+- [Report token cost](notes/feedback_report_token_cost.md) — 2026-11-13: after each track state tokens/USD used, why, and how to cut it (batch calls, fewer re-renders, /newchat)
+- [Stems only on request](notes/feedback_stems_on_request.md) — 2026-11-17: layer mp3s only when Стас asks
+- [CHIMERA vocal synth](notes/reference_chimera.md) — 2026-11-18 installed: physical-model voice, CLI, RU/EN syllables; exception only on request
+- [Sustained + short mixed](notes/feedback_sustain_mix.md) — 2026-11-18: P141 held notes good, but mix held and short by taste
+- [A/B taste learning](notes/project_ab_learning.md) — 2026-11-18 P144 ab.py + shared preference log for Claw/Hermes; R1 melodic house sent, awaiting letters
+- [Опа DnB favourite](notes/feedback_opa_dnb_favourite.md) — 2026-11-19 one of the best tracks; next DnB with new voice inserts, principles only
+- [Musicality check at end](notes/feedback_musicality_check_at_end.md) — 2026-11-19 reel v1 = noise (pitchless guitar pack, pyin glide notes); musicality.py before sending; blind Gemini is not a judge
+- [Recreation: own responsibility](notes/feedback_recreation_own_responsibility.md) — 2026-11-19 name the style first; correct analyzer notes by harmony/range/style; played samples not loops; print corrections
+- [Layers = 10 s clips, hats quiet](notes/feedback_layers_10s_clips_hats.md) — 2026-11-20 Glass Gate II: hats stick out; «по слоям» = one 10 s clip per layer where audible; sharp layers of Gate I liked

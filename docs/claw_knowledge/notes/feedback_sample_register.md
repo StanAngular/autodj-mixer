@@ -1,0 +1,21 @@
+---
+name: Sample register squeeze
+description: 2026-10-28 audit of «грубые звуки / гармошка»: W.A. Gm pads are G1 one-shots, oneshot() resampled them +24..+31 st; check the shift before using any one-shot
+type: feedback
+---
+Стас 28.10: «звуки грубоватые, гармошка грубая в начале Orbit». Cause: sfz.oneshot transposes by resampling with no limit; WATE_Gm_Pd_01/02/03 are G1 (midi 31) and were played as chords at 55-65 (x4-6 speed) = nasal reed «гармошка», short tails (loudness holes); 16 of 30 roles in ai1-5/sp1-3 > 1 octave away. Upper-mid «buzz» 1.5-5k/body 0.6-0.75 vs ref 0.08.
+**How to apply:** before using a one-shot, compare its keycenter (sfz/_oneshots/_keycenters.json) with the played notes; keep |shift| <= 7 st, else octave-fold, another sample, or synth. Full audit: workspace/music/AUDIT_sounds_2026-10-28.md; engine fixes P119-P122 wait for «применяй».
+**2026-10-28 applied («Применяй» Стаса):** P119-P122 are in the engine (autodj-mixer 52f4925). Стас added: «семплы не очень интересные даже без зажатия: оценивать ПЕРЕД применением; если не годятся, искать новое, предлагать, генерировать, но не ставить что попало».
+Rule: pick sounds through `autodj.compose.soundq.pick(role, lo, hi)` (score >= 60, window ±7 st); real multisamples (VSCO2 strings, Rhodes, piano) via `soundq.multisample`; his votes on audition reels go to `timbre_guard.add_verdict`. Run summary now lists `squeezed` roles; gates lr_motion / click / true_peak / register.
+Bug found: allpass chains with the same delay set commute -> identical channels (stereo.decorr) - always use distinct delay sets per channel.
+
+**2026-10-28 «Применяй» executed (engine 52f4925):** P119-P122 in autodj.compose (sfz register guard, soundq catalog of 722 sounds + pick/reel, stereo.py + gates lr_motion/click/true_peak/register, abc.py trio). Стас: «семплы ещё и неинтересные сами по себе; оценивать до применения, искать новое, предлагать, генерировать но не ставить что попало».
+Rule: no new sound goes into a track without (1) soundq.pick(role, lo, hi) in the register of the notes, (2) a vote from Стас on an audition reel. Generated candidates (Stable Audio, workspace/music/catalog/sao/) and the 3 reels (catalog/reels/, audition_2026-10-28.json) wait for his votes: `python3 workspace/music/catalog/vote.py REEL N good|bad "note"` -> timbre_guard.add_verdict.
+Two parallel sessions collided on these files (overwrote each other's stereo.py/abc.py/sfz.py tail): when ListAgents shows a busy peer, split files BEFORE editing and use `cat >` only on files that do not exist yet.
+
+**2026-10-31 Стас's audition votes + weekly sketches:** pads: only clip 4 (musicradar experimental «Drone 10/version 5») good, SAO pads bad; plucks/harps: ALL bad («примитивные, как дверной звонок»); basses: only W.A. Bass_Shot_7 good, SAO sub/moog and lofi bad. Weekly 31.10: A Clay Path = best («прогресс в мелодичной музыке, голос-имитация пения классно, органично»), B Dust Relay = «классные переходы с зависанием, телефонная пикалка интересна, можно намиксовать МОДЕМ», C Wire Garden = melody ok, some instruments old/primitive.
+Rule found: a «bad» vote on a class of sound (sub bass) makes timbre_guard refuse OTHER sounds of that class (Karoryfer bass in A). Fix = also store GOOD verdicts for sounds he liked in tracks (done for Karoryfer bass, jRhodes, Osiris piano). Full A: workspace/music/full_2026_10_31/ (full_a.py). B belongs to the other session (full_b.py + male Ukrainian phone voice).
+
+**2026-11-01 click gate lesson (Haunted House):** the P121 absolute HF-step gate (-20 dBFS) kept firing on an acoustic break; snare LPF/level did nothing — the culprit was the closed hats (pure 4.5-9 kHz transients on every 8th/16th), raised again by the master. Fix that worked: hats LPF 6 kHz + tame crest 9 + -4 dB. Find the source layer first (per-layer HF step), don't guess.
+
+**2026-11-01 filter lesson:** pedalboard `LowpassFilter` is a 6 dB/oct one-pole: "LPF 3800" on a snare/clap left real >6 kHz energy and the P121 click gate kept firing; per-layer HF-step diagnosis pointed at the snare layer, a 24 dB `LadderFilter` fixed it. Also: sparse intros 10-20 dB under the groove trip the jump gate (raise atmo/ghost levels in the intro); an attic/break that drops to near silence trips the spike gate (keep acid+sub alive at ~70 %).
