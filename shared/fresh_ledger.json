@@ -4095,6 +4095,469 @@
 "perc": "......x...x...x."
 },
 "harmony": "0:madd9 5:m7 0:madd9 8:maj7 0:madd9 5:m7 0:madd9 5:m7 || 0:madd9 0:m7 8:maj7 7:m7 0:madd9 0:m7 8:maj7 7:m7 0:madd9 0:m7 8:maj7 7:m7"
+},
+"AB R1 melodic house": {
+"date": "2026-11-18",
+"sources": [
+"CYMBAL_023.wav",
+"Distbd2.wav",
+"Hipclap1.wav",
+"Rimshot1.wav",
+"WART_Gm_Lead_Shot_21.wav",
+"WART_Gm_Pad_Shot_1.wav",
+"sfz:fashionbass"
+],
+"rhythms": {
+"kick": "x...x...x...x...",
+"backbeat": "....x.......x...",
+"perc": "...x...x......x.",
+"hat": "..x...x...x...x."
+},
+"harmony": "0:madd9 8:maj7 3:maj7 10:add9 0:madd9 8:maj7 3:maj7 10:add9 || 0:madd9 5:m7 0:madd9 8:maj7"
+},
+"Ladder S1 hook": {
+"date": "2026-11-18",
+"sources": [
+"sfz:bearsax",
+"sfz:fashionbass"
+],
+"rhythms": {},
+"harmony": "0:madd9 8:maj7 3:maj7 10:add9 0:madd9 8:maj7 3:maj7 10:add9 0:madd9 8:maj7 3:maj7 10:add9"
+},
+"Hook bass_stomp": {
+"date": "2026-11-18",
+"sources": [
+"WART_Gm_Bass_Shot_4.wav",
+"WATE_Clap_03.wav",
+"WATS_Kick_09.wav",
+"sfz:fashionbass"
+],
+"rhythms": {
+"kick": "x...x...x...x...",
+"backbeat": "x..............."
+},
+"harmony": "0:m7 1:maj7 0:m7 10:m7"
+},
+"Hook industrial_groove": {
+"date": "2026-11-18",
+"sources": [
+"WART_Gm_Org_Shot_1.wav",
+"WATE_Clap_08.wav",
+"WATS_Room_Kick_09_124BPM.wav",
+"sfz:fashionbass"
+],
+"rhythms": {
+"kick": "x...x...x...x...",
+"backbeat": "x..............."
+},
+"harmony": "0:m7 1:maj7 0:m7 10:m7"
+},
+"Hook perc_stab": {
+"date": "2026-11-18",
+"sources": [
+"WATE_Clap_06.wav",
+"WATE_Gm_Synth_06.wav",
+"WATS_Room_Kick_05_124BPM.wav",
+"sfz:fashionbass"
+],
+"rhythms": {
+"kick": "x...x...x...x...",
+"backbeat": "x..............."
+},
+"harmony": "0:m7 1:maj7 0:m7 10:m7"
+},
+"Hook dark_atmos": {
+"date": "2026-11-18",
+"sources": [
+"WART_Gm_Pad_Shot_2.wav",
+"WATE_Clap_09.wav",
+"WATS_Kick_08.wav",
+"sfz:fashionbass"
+],
+"rhythms": {
+"kick": "x...x...x...x...",
+"backbeat": "x..............."
+},
+"harmony": "0:m7 1:maj7 0:m7 10:m7"
+},
+"Step 2 Beat D": {
+"date": "2026-11-18",
+"sources": [
+"WART_Gm_Pad_Shot_2.wav",
+"WART_HiHat_2.wav",
+"WATE_Ride_01.wav",
+"WATS_Clap_07.wav",
+"WATS_Kick_04.wav",
+"sfz:fashionbass"
+],
+"rhythms": {
+"kick": "x...x...x...x...",
+"backbeat": "....x.......x...",
+"hat": "x..............."
+},
+"harmony": "0:m7 1:maj7 0:m7 10:m7"
+},
+"Ladder S2 beat": {
+"date": "2026-11-18",
+"sources": [
+"Aclotom2.wav",
+"Bassdrum-24.wav",
+"Rapclap2.wav",
+"Rimshot.wav",
+"Snaredrum-01.wav",
+"sfz:bearsax",
+"sfz:fashionbass"
+],
+"rhythms": {
+"kick": "x.......x...x...",
+"perc": "..x...x..x.x..x."
+},
+"harmony": "0:madd9 8:maj7 3:maj7 10:add9 0:madd9 8:maj7 3:maj7 10:add9 0:madd9 8:maj7"
+},
+"Reel DeUZ recreation": {
+"date": "2026-11-18",
+"sources": [
+"78ch.wav",
+"Bassdrum-33.wav",
+"CYMBAL_015.wav",
+"Rapclap2.wav",
+"Sidestick-01.wav",
+"Snare 1.wav",
+"TOMS_059.wav",
+"sfz:dbass",
+"sfz:tuba"
+],
+"rhythms": {
+"kick": "x...x...x...x...",
+"backbeat": "....x.....x.x...",
+"hat": "x.x.x.x.x.x.x.x.",
+"perc": "..x.x.x...x.x.x."
+},
+"harmony": null
+},
+"Reel DeUZ recreation v2": {
+"date": "2026-11-18",
+"sources": [
+"Bassdrum-09.wav",
+"CYMBAL_016.wav",
+"Hardclap.wav",
+"Open Hat.wav",
+"Rimshot-07.wav",
+"Snare3.wav",
+"Tom-02.wav",
+"Tom-03.wav",
+"sfz:dbass",
+"sfz:tuba"
+],
+"rhythms": {
+"kick": "x...x...x...x...",
+"backbeat": "....x.....x.x..x",
+"hat": "x.x.x.x.x.x.x.x.",
+"perc": "...x.x...x.x.x.."
+},
+"harmony": null
+},
+"Reel Dbjt recreation": {
+"date": "2026-11-18",
+"sources": [],
+"rhythms": {
+"kick": ".x..............",
+"hat": "..x.x......x....",
+"backbeat": ".....x..x....x.."
+},
+"harmony": null
+},
+"Cosmic Acid (deep house)": {
+"date": "2026-11-18",
+"sources": [
+"WART_Clap_2.wav",
+"WART_HiHat_9.wav",
+"WART_Percussion_2.wav",
+"WATS_Room_Kick_06_124BPM.wav",
+"sfz:cp80",
+"sfz:fashionbass",
+"sfz:wurlitzer"
+],
+"rhythms": {
+"kick": "x...x...x...x...",
+"backbeat": "....x.......x...",
+"hat": "x...............",
+"perc": "x..............."
+},
+"harmony": "0:madd9 5:m7 0:madd9 8:maj7 0:madd9 5:m7 0:madd9 5:m7"
+},
+"Broken Signal (breakbeat)": {
+"date": "2026-11-18",
+"sources": [
+"WATS_Clap_05.wav",
+"WATS_Closed_HiHat_08.wav",
+"WATS_Kick_10.wav",
+"sfz:cp80",
+"sfz:fashionbass",
+"sfz:wurlitzer"
+],
+"rhythms": {
+"kick": "x..........x....",
+"backbeat": "....x.......x...",
+"hat": "x..............."
+},
+"harmony": "0:madd9 5:m7 0:madd9 8:maj7 0:madd9 5:m7 0:madd9 5:m7"
+},
+"Nebula Drift (drum & bass)": {
+"date": "2026-11-18",
+"sources": [
+"WART_HiHat_13.wav",
+"WART_Kick_11.wav",
+"WATS_Clap_09.wav",
+"sfz:cp80",
+"sfz:fashionbass",
+"sfz:wurlitzer"
+],
+"rhythms": {
+"kick": "x.........x.....",
+"backbeat": "....x...x...x...",
+"hat": "x..............."
+},
+"harmony": "0:madd9 5:m7 0:madd9 8:maj7 0:madd9 5:m7 0:madd9 5:m7 0:madd9 5:m7 0:madd9 8:maj7"
+},
+"В місті все спокійно (drum and bass)": {
+"date": "2026-11-19",
+"sources": [
+"Bassdrum-15.wav",
+"Bassdrum-24.wav",
+"CYMBAL_005.wav",
+"CYMBAL_050.wav",
+"DelayS.wav",
+"FX_064.wav",
+"LooseS.wav",
+"WART_Gm_Bass_Shot_10.wav",
+"WART_Gm_Bass_Shot_9.wav",
+"WART_Gm_Lead_Shot_23.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"cp01.wav"
+],
+"rhythms": {
+"kick": "..........x.....",
+"backbeat": "....x.......x...",
+"hat": "...x............",
+"perc": "x..............."
+},
+"harmony": "0:madd9 8:maj7 3:maj7 10:add9 0:madd9 8:maj7 3:maj7 10:add9 0:madd9 8:maj7 3:maj7 10:add9 || 0:madd9 8:maj7 5:m7 7:7sus4 0:madd9 8:maj7 5:m7 7:7sus4 0:madd9 8:maj7 5:m7 7:7sus4"
+},
+"Ку-ку (psychedelic drum and bass)": {
+"date": "2026-11-19",
+"sources": [
+"CYCdh_K1close_Rim-03.wav",
+"CYCdh_K1close_Snr-04.wav",
+"WART_Gm_Bass_Shot_2.wav",
+"WART_Kick_3.wav",
+"WATE_Clap_01.wav",
+"WATS_Closed_HiHat_10.wav",
+"WATS_Open_HiHat_05.wav",
+"viola.sfz"
+],
+"rhythms": {
+"kick": "x.........x.....",
+"backbeat": "....x.......x...",
+"hat": "..........x...x.",
+"perc": "..........x....."
+},
+"harmony": null
+},
+"Опа без петли (drum and bass)": {
+"date": "2026-11-19",
+"sources": [
+"Bassdrum-01.wav",
+"Bassdrum-15.wav",
+"CYMBAL_019.wav",
+"Crash.wav",
+"Hihat.wav",
+"Snaredrum-06.wav",
+"Video-sd.wav",
+"WART_Gm_Bass_Shot_10.wav",
+"WART_Gm_Bass_Shot_9.wav",
+"WART_Gm_Pad_Shot_1.wav",
+"WATE_Gm_Lead_10.wav",
+"cp0.wav"
+],
+"rhythms": {
+"kick": "x.........x.....",
+"backbeat": "....x.......x...",
+"hat": "...x.x..........",
+"perc": "x..............."
+},
+"harmony": "8:maj7 10:add9 0:madd9 0:madd9 8:maj7 10:add9 0:madd9 0:madd9 8:maj7 10:add9 0:madd9 0:madd9 || 0:madd9 5:m7 8:maj7 7:m7 0:madd9 5:m7 8:maj7 7:m7 0:madd9 5:m7 8:maj7 7:m7"
+},
+"Glass Gate (broken melodic techno)": {
+"date": "2026-11-19",
+"sources": [
+"Bassdrum-10.wav",
+"CYMBAL_024.wav",
+"Hat Open-04.wav",
+"Hc2clap.wav",
+"Rim.wav",
+"Snaredrum-01.wav",
+"WART_Gm_Bass_Shot_3.wav",
+"WART_Gm_Lead_Shot_18.wav",
+"WART_Gm_Lead_Shot_19.wav",
+"WART_Gm_Pad_Shot_1.wav"
+],
+"rhythms": {
+"kick": "x.....x.....x...",
+"backbeat": "....x.......x...",
+"hat": ".x...x...x...x..",
+"perc": "...x.......x...."
+},
+"harmony": "0:madd9 8:maj7 0:madd9 8:maj7 0:madd9 8:maj7 0:madd9 5:m7"
+},
+"Glass Gate II (broken melodic techno)": {
+"date": "2026-11-20",
+"sources": [
+"78OHH.wav",
+"Bassdrum-25.wav",
+"CYMBAL_017.wav",
+"Rimshot-04.wav",
+"Snaredrum.wav",
+"WART_Gm_Lead_Shot_6.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WATE_Gm_Bass_02.wav",
+"cp1.wav"
+],
+"rhythms": {
+"kick": "......x.....x...",
+"backbeat": "....x.......x...",
+"hat": ".x...x...x...x.."
+},
+"harmony": "0:madd9 5:m7 0:madd9 8:maj7 0:madd9 5:m7 0:madd9 5:m7"
+},
+"Concrete Hours (broken melodic techno)": {
+"date": "2026-11-20",
+"sources": [
+"Bassdrum-09.wav",
+"CYMBAL_027.wav",
+"Hi Hat.wav",
+"Rimshot-05.wav",
+"Shakecla.wav",
+"Snaredrum-03.wav",
+"WART_Gm_Bass_Shot_3.wav",
+"WART_Gm_Pad_Shot_1.wav",
+"WATE_Gm_Lead_15.wav"
+],
+"rhythms": {
+"kick": "......x.....x...",
+"backbeat": "....x.......x...",
+"hat": "..x.......x...x."
+},
+"harmony": "8:maj7 10:add9 0:madd9 0:madd9 8:maj7 10:add9 0:madd9 0:madd9 8:maj7 10:add9 0:madd9 0:madd9"
+},
+"Salt Line (breaks with sax)": {
+"date": "2026-11-20",
+"sources": [
+"Bassdrum-03.wav",
+"PopCHH.wav",
+"Snare15.wav",
+"cp2.wav",
+"sfz:cp80",
+"sfz:dbass",
+"sfz:wurlitzer"
+],
+"rhythms": {
+"kick": "x......x........",
+"backbeat": "........x.......",
+"hat": "....x.......x..."
+},
+"harmony": "0:madd9 8:maj7 5:m7 7:7sus4 0:madd9 8:maj7 5:m7 7:7sus4 0:madd9 8:maj7 5:m7 7:7sus4"
+},
+"Glow Fade (indie house)": {
+"date": "2026-11-20",
+"sources": [
+"WART_Gm_Bass_Shot_4.wav",
+"WART_Gm_Chord_Shot_1.wav",
+"WART_Gm_Pad_Shot_2.wav",
+"WATE_Gm_Lead_08.wav",
+"WATS_Clap_10.wav",
+"WATS_Kick_07.wav",
+"WATS_Open_HiHat_04.wav"
+],
+"rhythms": {
+"kick": "x.....x.....x...",
+"backbeat": "....x.......x...",
+"hat": "x.x.x.x.x.x.x.x."
+},
+"harmony": "0:madd9 5:m7 0:madd9 8:maj7"
+},
+"Float Acid (indie house)": {
+"date": "2026-11-20",
+"sources": [
+"WART_Clap_10.wav",
+"WART_Gm_Bass_Shot_2.wav",
+"WART_Gm_Pad_Shot_1.wav",
+"WATE_Gm_Lead_16.wav",
+"WATE_Gm_Synth_05.wav",
+"WATS_Closed_HiHat_01.wav",
+"WATS_Kick_01.wav"
+],
+"rhythms": {
+"kick": "x.......x....x..",
+"backbeat": ".....x.......x..",
+"hat": "..x...x...x...x."
+},
+"harmony": "0:madd9 5:m7 0:madd9 8:maj7 0:madd9 5:m7 0:madd9 5:m7"
+},
+"Tin Pipe Drops (downtempo with sax)": {
+"date": "2026-11-20",
+"sources": [
+"Bassdrum-24.wav",
+"CYMBAL_010.wav",
+"Rim shot.wav",
+"Snare 1.wav",
+"sfz:cp80",
+"sfz:dbass",
+"sfz:wurlitzer"
+],
+"rhythms": {
+"kick": "x.........x.....",
+"backbeat": "........x.......",
+"hat": "..x...x...x...x."
+},
+"harmony": null
+},
+"Night Crossing (rolling melodic techno)": {
+"date": "2026-11-20",
+"sources": [
+"Bassdrum-10.wav",
+"CYMBAL_001.wav",
+"Rimshot2.wav",
+"Snaredrum-02.wav",
+"WATE_Gm_Bass_02.wav",
+"sfz:cp80",
+"sfz:rhodes"
+],
+"rhythms": {
+"kick": "x......x........",
+"backbeat": ".....x.......x..",
+"hat": "..x...x..x....x."
+},
+"harmony": "0:madd9 5:m7 8:maj7 7:m7 0:madd9 5:m7 8:maj7 7:m7 0:madd9 5:m7 8:maj7 7:m7 || 0:madd9 8:maj7 3:maj7 10:add9 0:madd9 8:maj7 3:maj7 10:add9 0:madd9 8:maj7 3:maj7 10:add9"
+},
+"Neon Decay (techno breakbeat)": {
+"date": "2026-11-20",
+"sources": [
+"WART_Gm_Bass_Shot_9.wav",
+"WART_Gm_Lead_Shot_21.wav",
+"WART_HiHat_6.wav",
+"WART_Percussion_7.wav",
+"WATE_Clap_05.wav",
+"WATE_Gm_Synth_05.wav",
+"WATS_Room_Kick_08_124BPM.wav"
+],
+"rhythms": {
+"kick": "x.......x.......",
+"backbeat": "....x.......x...",
+"hat": "..x...x...x...x.",
+"perc": "...x...x...x...."
+},
+"harmony": "0:madd9 0:m7 8:maj7 7:m7 0:madd9 0:m7 8:maj7 7:m7 0:madd9 0:m7 8:maj7 7:m7"
 }
 }
 }
