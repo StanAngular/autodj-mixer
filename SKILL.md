@@ -15,7 +15,8 @@ triggers:
   - madmom, beat detection, annotation, pyrubberband, LR4 crossover
   - mix analysis, artefact detection, quality validation, catbox upload
   - catalog, retention, cleanup wav, orchestrate, report
-tags: [audio, dj, mixing, production, automation, a1f, camelot, path-b, agent-rules]
+  - compose, score, original track creation, создать трек, придумай трек
+tags: [audio, dj, mixing, production, automation, a1f, camelot, path-b, agent-rules, compose]
 ---
 
 # autodj-mixer — operational guide for ALL agents
@@ -360,8 +361,9 @@ trk.mono_low(150)
 - **Glob misses**: open-hat patterns may not match → guard `if K["ohat"] is not None` and `if len(Bf["ohat"])`. HiHat files live in `WA/Cymbals/*HiHat*.wav` — NOT WA/Hihats/. Always verify drum sample globs match reality before rendering.
 - **fresh.pick() returns None when worn**: `fresh.pick()` returns `None` when ALL candidates in a folder have been used 10+ times. `load_sample(None, .*)` returns `None` → the layer is silent. Guard hat/ride/perc with `if sample is not None and len(sample)`. Use a fallback: re-call `fresh.pick(candidates, rng, db=None)` to bypass the worn check.
 - **Numpy truthiness**: use `len(buf)` not bare `if buf:` for numpy buffer arrays.
-- **Fresh/worn warnings**: worn samples (13+ tracks) and repeated drum patterns are warnings, not gate failures. Gate fails only on silent layers.
+- **Gate failures (P146)**: gate fails on silent layers AND on bad sounds (wobble, noise, pitch outside ±7 st). The `allow_silent` / `allow_bad_sounds` META flags are **ignored by the engine** — fix the sounds/layers instead. Exception only with env `AUTODJ_GATE_OVERRIDE=1` + `allow_reason` in META on explicit request. Worn samples (13+ tracks) and repeated drum patterns are warnings, not gate failures.
 - **plan.bass() 4-tuples**: `plan.bass()` returns `(step, length, midi, velocity)` — unpack with `for s, l, m, v in bass`. Using 3 vars raises ValueError.
+- **sfz.render velocity is INT**: `sfz.oneshot(file).render(events, T)` expects velocity as **int 1–127**. Float 0–1 is cast to 0 → silent. `MT.accent(step, v)` returns proper int velocity. Format: `(t_sec, midi_pitch, vel_int, dur_sec)`.
 - **NumPy seed types**: `np.random.default_rng([seed, val])` requires both `seed` and `val` to be ints. Passing a float (e.g., `mt.time()` return) raises `TypeError: seed must be integer`. Pre-seed one rng at the start and reuse it, or `int()` wrap.
 - **Distortion API**: `pedalboard.Distortion(drive_db=float)` is the only parameter. No `hard_clip_db` or other kwargs.
 - **Render output**: `out/score.mp3` + `out/score.summary.json`. Exit code 3 = hard gate (silent layers); MP3 still written, `--send` blocked.
