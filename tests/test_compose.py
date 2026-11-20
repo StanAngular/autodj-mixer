@@ -1033,7 +1033,8 @@ def test_gate_failures_passes_clean_render_and_explicit_opt_out():
     from autodj.compose import ears
     assert ears.gate_failures({"silent_layers": []}, {}) == []
     assert ears.gate_failures({}, {}) == []
-    assert ears.gate_failures({"silent_layers": ["fx"]}, {"allow_silent": True}) == []
+    assert ears.gate_failures({"silent_layers": ["fx"]}, {"allow_silent": True}) == ["silent_layers"]            # P146: the flag alone is ignored
+    assert ears.gate_failures({"silent_layers": ["fx"]}, {"allow_silent": True}, override=True) == []
 
 def test_pick_never_returns_banned_techniques(tmp_path):
     import numpy as np
@@ -1047,3 +1048,14 @@ def test_pick_can_still_return_a_banned_technique_when_banned_is_cleared(tmp_pat
     from autodj.compose import operators as O
     assert O.pick(1, rng=np.random.default_rng(0), path=str(tmp_path / "reg.json"), pool=["GATE"], banned=()) == ["GATE"]
     assert O.pick(1, rng=np.random.default_rng(0), path=str(tmp_path / "reg.json"), pool=["GATE", "ANT"]) == ["ANT"]
+
+
+def test_gate_override_needs_env_and_reason(monkeypatch):
+    from autodj.compose import ears
+    monkeypatch.delenv("AUTODJ_GATE_OVERRIDE", raising=False)
+    assert not ears.gate_override({"allow_silent": True, "allow_reason": "deliberate"})
+    monkeypatch.setenv("AUTODJ_GATE_OVERRIDE", "1")
+    assert not ears.gate_override({"allow_silent": True}) and not ears.gate_override({"allow_reason": "  "})
+    assert ears.gate_override({"allow_silent": True, "allow_reason": "Стас asked for a pseudo-voice"})
+    assert ears.gate_failures({"silent_layers": ["fx"]}, {"allow_silent": True, "allow_reason": "ok"}) == []
+    assert ears.gate_failures({"silent_layers": ["fx"]}, {}) == ["silent_layers"]

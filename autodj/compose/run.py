@@ -136,7 +136,10 @@ def main(argv=None):
         summ["bad_sounds"] = bad
     except Exception as ex: summ["bad_sounds"] = {}; print("soundgate:", ex)
     summ["gate_failed"] = ears.gate_failures(summ, meta)                                      # hard stop: silent layer = muted part (2026-11-16)
-    if summ["gate_failed"]: print("ГЕЙТ: " + ", ".join(summ["gate_failed"]) + ": отправка заблокирована (meta allow_silent=True отключает)", flush=True)
+    _flags = [k for k in ("allow_silent", "allow_bad_sounds") if meta.get(k)]                  # P146: the flags alone do not open the gates
+    if _flags and ears.gate_override(meta): summ["gate_override_reason"] = str(meta.get("allow_reason")); summ["problems"].append("ГЕЙТ ОБХОД по просьбе Стаса: " + str(meta.get("allow_reason")))
+    elif _flags: summ["ignored_allow_flags"] = _flags; summ["problems"].append("флаги META " + ", ".join(_flags) + " игнорируются: гейты включены (обход только по просьбе Стаса: env AUTODJ_GATE_OVERRIDE=1 + allow_reason)")
+    if summ["gate_failed"]: print("ГЕЙТ: " + ", ".join(summ["gate_failed"]) + ": отправка заблокирована. Исправь звуки или слои: флаги allow_* не помогают", flush=True)
     if a.send and not summ["gate_failed"]: summ["telegram"] = send_telegram(mp3, title)
     json.dump(summ, open(os.path.join(outdir, f"{name}.summary.json"), "w"), ensure_ascii=False, indent=1)
     try:

@@ -42,7 +42,9 @@ def test_report_flags_only_bad_measured_sources(tmp_path, monkeypatch):
 
 def test_gate_blocks_bad_sounds_and_opt_out():
     assert "bad_sounds" in ears.gate_failures({"bad_sounds": {"x.wav": ["r"]}}, {}) and not ears.gate_failures({"bad_sounds": {}}, {})
-    assert not ears.gate_failures({"bad_sounds": {"x.wav": ["r"]}}, {"allow_bad_sounds": True})
+    assert "bad_sounds" in ears.gate_failures({"bad_sounds": {"x.wav": ["r"]}}, {"allow_bad_sounds": True})                       # P146: the flag alone does nothing
+    assert "bad_sounds" in ears.gate_failures({"bad_sounds": {"x.wav": ["r"]}}, {"allow_bad_sounds": True, "allow_reason": "x"})   # a reason without the env var does nothing either
+    assert not ears.gate_failures({"bad_sounds": {"x.wav": ["r"]}}, {"allow_bad_sounds": True}, override=True)
 
 def db_with(*tracks): return {"tracks": {f"t{i}": {"sources": s} for i, s in enumerate(tracks)}}
 

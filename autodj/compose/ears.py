@@ -11,12 +11,20 @@ ABX_PATH = "/home/cclaw/.local/lib/abx"
 def silent_layers(layers_db, floor_db=-90.0):
     return sorted(n for n, v in (layers_db or {}).items() if v is None or v <= floor_db)
 
-def gate_failures(summ, meta=None):
+def gate_override(meta=None):
+    """P146 (2026-11-20): `allow_silent` / `allow_bad_sounds` in META do NOTHING by themselves (Hermes hid 5 bad sounds and 2 silent layers with them in Float Acid).
+    An intentional exception needs BOTH the environment variable AUTODJ_GATE_OVERRIDE=1 (set only when Стас explicitly asked for it, e.g. a deliberate pseudo-voice) AND a
+    non-empty `allow_reason` in META; the reason is written into the summary."""
+    import os
+    return os.environ.get("AUTODJ_GATE_OVERRIDE") == "1" and bool(str((meta or {}).get("allow_reason", "")).strip())
+
+def gate_failures(summ, meta=None, override=None):
     """2026-11-16 (friction top-3): HARD stops. A silent layer means a muted part of the arrangement (15 tracks went out without drums on 2026-11-11);
-    reporting it as a problem was not enough. `meta["allow_silent"]=True` is the explicit opt-out. Returns the list of failed gate names."""
+    reporting it as a problem was not enough. P146: the opt-out flags only count under gate_override(meta) (env + reason), otherwise they are ignored. Returns the list of failed gate names."""
+    meta = meta or {}; ov = gate_override(meta) if override is None else override
     out = []
-    if (summ or {}).get("silent_layers") and not (meta or {}).get("allow_silent"): out.append("silent_layers")
-    if (meta or {}).get("allow_bad_sounds"): return out
+    if (summ or {}).get("silent_layers") and not (ov and meta.get("allow_silent")): out.append("silent_layers")
+    if ov and meta.get("allow_bad_sounds"): return out
     if summ.get("bad_sounds"): out.append("bad_sounds")                       # P139: a detuned/wobbling/noisy one-shot, or a sample played > 7 st from its note on > 30 % of notes
     return out
 
