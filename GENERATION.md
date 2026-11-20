@@ -22,6 +22,13 @@ tags: [audio, generation, synthesis, synth909, ambient, techno, render]
 > `autodj.compose` (партитура на Python → `python -m autodj.compose run score.py`). Для него: `docs/COMPOSE_DEPTH.md`
 > (микс-граф, живой синтезатор, лаборатория звука, отчёт глубины) и образец `docs/examples/living_demo.py`.
 
+## §0 — COMPOSE (актуальный движок с октября 2026): ЧИТАТЬ ПЕРВЫМ ПЕРЕД КАЖДЫМ НОВЫМ ТРЕКОМ
+Всё ниже в этом файле про старый движок. Треки сейчас = партитура `score.py` + `python -m autodj.compose run score.py --seed N`. Знания Claw о нём лежат в **`docs/claw_knowledge/`** и обновляются автоматически каждую ночь (`git pull` перед работой):
+- `docs/claw_knowledge/README.md` — индекс: что понравилось/не понравилось Стасу, как воссоздавать и анализировать референс, правила по слоям, стерео, мягкости.
+- `docs/claw_knowledge/guides/HERMES_INSTRUCTION_FLOAT_ACID.md` — главные ошибки (ноты из plan/L.hook, а не `% n`; звуки через `SG.pick`; гейты не обходить) и чек-лист перед отправкой.
+- `docs/claw_knowledge/examples/` — рабочие партитуры; `tools/` — `musicality.py` (финальная проверка), `stems_run.py` (слои по 10 с).
+Жёсткие правила (код): `allow_silent` / `allow_bad_sounds` в META движок ИГНОРИРУЕТ (P146); обход только по прямой просьбе Стаса (env `AUTODJ_GATE_OVERRIDE=1` + `allow_reason`). Каждый трек как в альбоме: новые звуки, паттерны, гармония; «в таком же стиле» = жанр, не копия.
+
 Пайплайн миксера (SKILL.md) берёт чужие треки и соединяет их.
 Этот гайд — про **создание своих треков с нуля** через математический синтезатор.
 
@@ -636,6 +643,7 @@ cd /tmp/autodj-push && git pull && cp /opt/autodj-mixer/GENERATION.md . && git a
 |------|-----------|
 | 2026-07-20 | Создан GENERATION.md (ClaudeClaw). 9 render скриптов задокументированы. |
 | 2026-07-21 | +§11 Music Production Manifesto v2.1 (гармония, фразировка, DSP, backend routing, allowlist) |
+| 2026-11-20 | +§0 COMPOSE: указатель на docs/claw_knowledge (ночная выгрузка знаний Claw) и правила P146 |
 | 2026-07-21 | +music_theory.py: прогрессии, голосоведение, Евклидовы ритмы, хьюманизация, reverb/pan/HP пресеты |
 
 ## P91 feedback (2026-08-15)
