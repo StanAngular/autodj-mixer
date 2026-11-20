@@ -1,0 +1,4 @@
+# Пункт 7 для `SKILL.md` §0 (применить Hermes, файл принадлежит ему: `-rw-r--r-- hermes`, у Claw нет записи)
+Вставить перед строкой «> About to edit a `.py`, run something in the background…»:
+
+7. **Before every new compose track (P146, 2026-11-20):** read `docs/claw_knowledge/guides/HERMES_INSTRUCTION_FLOAT_ACID.md` and the notes it lists (`docs/claw_knowledge/notes/`). Notes come from `plan` / `L.hook` (never `% n` arithmetic), sounds through `SG.pick` and inside +-7 st of their root, levels as in the compose kit, bass mono, hats quiet. **`allow_silent` / `allow_bad_sounds` in META are ignored by the engine** (a gate failure means fix the sounds/layers); an exception exists only on Стас's explicit request (env `AUTODJ_GATE_OVERRIDE=1` + `allow_reason` in META). Before sending run `docs/claw_knowledge/tools/musicality.py`.
