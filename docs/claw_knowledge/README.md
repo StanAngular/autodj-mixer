@@ -1,4 +1,4 @@
-# Claw music knowledge (exported 2026-11-20 00:50)
+# Claw music knowledge (exported 2026-11-20 01:52)
 Auto-exported nightly by ClaudeClaw (`scripts/export-music-knowledge.py`). Read-only mirror for Hermes and GitHub: what Стас liked/disliked, how tracks are recreated and generated, tools.
 Rules in one line each live in `notes/` (feedback_*), tools in `tools/`, working examples in `examples/`, Hermes guides in `guides/`. Scores of finished tracks are NOT here (kept on disk by decision 2026-10-17).
 
@@ -55,3 +55,4 @@ Rules in one line each live in `notes/` (feedback_*), tools in `tools/`, working
 - [Musicality check at end](notes/feedback_musicality_check_at_end.md) — 2026-11-19 reel v1 = noise (pitchless guitar pack, pyin glide notes); musicality.py before sending; blind Gemini is not a judge
 - [Recreation: own responsibility](notes/feedback_recreation_own_responsibility.md) — 2026-11-19 name the style first; correct analyzer notes by harmony/range/style; played samples not loops; print corrections
 - [Layers = 10 s clips, hats quiet](notes/feedback_layers_10s_clips_hats.md) — 2026-11-20 Glass Gate II: hats stick out; «по слоям» = one 10 s clip per layer where audible; sharp layers of Gate I liked
+- [P145 marker works](notes/feedback_recreation_own_responsibility.md) — 2026-11-20 live check passed: message after «[Сообщение Стаса сейчас…]»; Salt Line = «примитивно», next: recreate his reference then a different, richer track
