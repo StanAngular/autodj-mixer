@@ -39,6 +39,7 @@ You are an **OPERATOR of the pipeline, not its developer.** Run mixes and report
 4. **Never delete or alter data to "pass" a step.** (Retention cleanup §1 is the only allowed deletion, AFTER delivery, via `cleanup_wavs.py`.)
 5. **Always SHOW the work** (§6): approval tracklist (BPM/Camelot/YouTube + playlist), the harmonic chain, the preview reel **with beeps**, the final templated report.
 6. **Discipline:** `git pull` before work · `pytest tests/unit -q` before any push · one concern per commit · `git apply --check` before applying · verify pushed tree via `git log origin/main` (don't trust summaries) · never invent commit hashes.
+7. **Before every new compose track (P146, 2026-11-20):** read `docs/claw_knowledge/guides/HERMES_INSTRUCTION_FLOAT_ACID.md` and the notes it lists (`docs/claw_knowledge/notes/`). Notes come from `plan` / `L.hook` (never `% n` arithmetic), sounds through `SG.pick` and inside +-7 st of their root, levels as in the compose kit, bass mono, hats quiet. **`allow_silent` / `allow_bad_sounds` in META are ignored by the engine** (a gate failure means fix the sounds/layers); an exception exists only on Стас's explicit request (env `AUTODJ_GATE_OVERRIDE=1` + `allow_reason` in META). Before sending run `docs/claw_knowledge/tools/musicality.py`.
 
 > About to edit a `.py`, run something in the background, fake a file, or skip the preview — **stop and report instead.**
 
@@ -251,3 +252,125 @@ For "one track per country", "French organic house", underground, new releases:
 Reliable last.fm for this: `getTopTracks(artist)` (concrete tracks), `getSimilar` (expand), `tag.getTopArtists` (genre). Avoid leaning on `geo.*` for "from country".
 
 - **A1F структура → вход/выход (P57)**: микшер примагничивает энергетическую точку выхода к ближайшему `outro/break/inst` и входа к `intro/inst` (`a1f_snap_bar`), bounded ±4 бара — энергия остаётся якорем, off при `no_a1f`. Перевод обрезанной сетки в полную через смещение `eb`. Лог: `A1F exit snap: bar12→bar14 (outro)`. **Требует live-сверки** (аудио в песочнице не прогнать): сравнить микс `a1f` vs `no_a1f`, если переход хуже — это локально и обратимо. Vocal-aware бленды — следующий шаг.
+
+---
+
+## §9 — COMPOSE ENGINE: original track creation (`autodj/compose/`)
+
+**Location:** `/opt/autodj-mixer/autodj/compose/`
+**Activation:** `source /opt/autodj-mixer/.venv/bin/activate`
+**Run command:**
+```sh
+cd /opt/autodj-mixer
+PYTHONPATH=/opt/autodj-mixer python3 -m autodj.compose run scores/<track_name>/score.py --title "Name (style)" [--seed <N>]
+```
+**Docs ref:** `/opt/autodj-mixer/scores/<track>/score.py` (example), `docs/COMPOSE_HARMONY.md`, `docs/COMPOSE_DEPTH.md`, `docs/COMPOSE_VECTOR.md`
+
+Each track = one `scores/<track_name>/score.py` with `build(seed) -> Track` and `META` dict (`title`, `genre`, `key`, `target`, `master`, `lead`).
+
+### Modern API (docs 2026-11-18, commit 64b5aa0)
+
+**Harmony (chords.py):**
+```python
+plan = C.Plan.build("A", trk.tl, "minor_plagal", "lament", seed=seed)
+plan.attach(trk)                              # registers harmony_notes in summary
+V = plan.voicings("drop2", 50, 74, 4)         # [(step, len, [midi ...])]
+bass = plan.bass(rng, 29, 45, style="root", against=V)
+ctx = L.context(plan, V, bass)
+```
+Idioms for moods: `chords.idioms("deep")` lists home idioms, `"deep"`→ `minor_plagal`, `"melodic"`→ `lament`, etc.
+
+**Melody (lines.py):**
+```python
+h8 = L.hook(plan, rng, 62, 79, 4, ctx)        # 8-bar hook A A' A B
+hook = L.tile(h8, plan, 62, 79, [bars], ctx, origin=4)
+top, topline = L.topline(plan, rng, 66, 76)    # slow colour notes, one per chord
+```
+
+**Microtiming (microtiming.py):**
+```python
+mt = MT.Ensemble(trk, seed)
+t_sec = mt.time(bar, step, "pluck")            # → float seconds
+```
+
+**Sections:**
+```python
+PL = [("intro", 4), ("home1", 16), ("journey", 12), ...]
+secs = [(b, b+n, name, {kick:1, bass:1, hook:1, ...}) for name, n in PL]
+trk = Track(122, 68, seed=seed).sections(secs)
+```
+Section names determine harmonic role: `intro*`, `home*`, `journey*`, `break*`, `build*`, `outro*`.
+
+### Sample handling (rules: only recorded samples, NO Vital/synth)
+
+**SFZ multisamples** (best for keys/bass/pad — each note = native recording):
+```python
+SFZ("wurlitzer").render(events, T)      # events = [(t_sec, midi, vel, dur_sec), ...]
+```
+Library at `/home/cclaw/samples/sfz/` (readable by hermes). Registered: rhodes, wurlitzer, cp80, pianet, piano, bass, fashionbass, growlybass, bearsax.
+
+**One-shot samples** (bass shots, lead shots — `sfz.py`):
+```python
+sfz.oneshot(file, release=.06, cache_dir="/home/hermes/.hermes/cache/scratch/sfz/_oneshots")
+```
+**cache_dir must be writable** — the default `SFZ_ROOT/_oneshots/` is under `/home/cclaw/samples/sfz/` (not writable by hermes).
+
+**Soundgate** (quality check before use — `soundgate.py`):
+```python
+SG.pick(candidates, "bass", lo, hi, rng, db=db, title=title)   # returns path
+```
+Filters: wobble > 20¢, noise > 0.1, root outside note range. Strict mode raises if no clean candidate.
+
+**Drums** (least used — `fresh.py`):
+```python
+fresh.pick(glob.glob(WA + "Kicks/*.wav"), rng, db=db, title=title)
+```
+
+**Sample paths (assets.py):**
+| Var | Path |
+|---|---|
+| `WA` | `/home/cclaw/samples/wa_techno/WAV MIDI Presets/` (Kicks, Claps, Cymbals, Synth & Bass Shots, Percussion) |
+| `WA2` | `/home/cclaw/samples/wa2/WAV MIDI Loops/` |
+| `AUTODJ_SFZ` (env) | `/home/cclaw/samples/sfz/` (multisample libraries) |
+
+### Mixing
+
+```python
+trk.bus("drums", fx=[glue()], parallel=(smash(), .12))
+trk.space("room", kind="room")
+trk.space("hall", kind="hall", back_db=-5)
+
+trk.add("kick", buf, 1.0, bus="drums")                              # FIRST → duck reference
+trk.add("bass", buf, level=10**(-3/20), duck=-6.0, key="kick", release_ms=90)
+trk.add("hook", buf, level=10**(-7/20), duck=-3.0, key="kick", send={"room": .12})
+trk.add("keys", buf, level=10**(-10/20), duck=-3.0, key="kick", depth=.3, send={"room": .15})
+trk.add("pad",  buf, level=10**(-14/20), duck=-4.0, key="kick", depth=.7, send={"hall": .18})
+trk.mono_low(150)
+```
+- `level` relative to the first layer (1.0 = 0 dB).
+- `key="kick"` ducking: the kick layer must be added FIRST (raises KeyError otherwise).
+- `send=` routes into `trk.space()` verbusses.
+- `depth` 0 = front, 1 = back.
+
+### Pitfalls
+
+- **Lock files**: `/tmp/autodj-render-{k}.lock` owned by cclaw with /tmp sticky bit → hermes cannot delete or O_CREAT. **Fix**: set `TMPDIR=/home/hermes/.hermes/cache/scratch` env var (the wrapper reads it); the hardcoded /tmp path in lock.py cannot be patched due to perms.
+- **SFZ oneshot writes**: always pass explicit `cache_dir` to `sfz.oneshot()` — don't rely on SFZ_ROOT default.
+- **Add order**: the layer that ducks to `"kick"` must be trk.add'd AFTER the `"kick"` layer.
+- **Glob misses**: open-hat patterns may not match → guard `if K["ohat"] is not None` and `if len(Bf["ohat"])`. HiHat files live in `WA/Cymbals/*HiHat*.wav` — NOT WA/Hihats/. Always verify drum sample globs match reality before rendering.
+- **fresh.pick() returns None when worn**: `fresh.pick()` returns `None` when ALL candidates in a folder have been used 10+ times. `load_sample(None, .*)` returns `None` → the layer is silent. Guard hat/ride/perc with `if sample is not None and len(sample)`. Use a fallback: re-call `fresh.pick(candidates, rng, db=None)` to bypass the worn check.
+- **Numpy truthiness**: use `len(buf)` not bare `if buf:` for numpy buffer arrays.
+- **Fresh/worn warnings**: worn samples (13+ tracks) and repeated drum patterns are warnings, not gate failures. Gate fails only on silent layers.
+- **plan.bass() 4-tuples**: `plan.bass()` returns `(step, length, midi, velocity)` — unpack with `for s, l, m, v in bass`. Using 3 vars raises ValueError.
+- **NumPy seed types**: `np.random.default_rng([seed, val])` requires both `seed` and `val` to be ints. Passing a float (e.g., `mt.time()` return) raises `TypeError: seed must be integer`. Pre-seed one rng at the start and reuse it, or `int()` wrap.
+- **Distortion API**: `pedalboard.Distortion(drive_db=float)` is the only parameter. No `hard_clip_db` or other kwargs.
+- **Render output**: `out/score.mp3` + `out/score.summary.json`. Exit code 3 = hard gate (silent layers); MP3 still written, `--send` blocked.
+- **Max 2 renders per track** (Стас rule). Verify sample paths before rendering.
+
+### User preferences (from docs, Стас rules — violations are regressions)
+- Only recorded samples. No synthesizer, no Vital.
+- Every layer serves the track. No constant hi-hat/ride/shaker the whole track. No tambourine, no L/R-panning, no "beep" stabs, no PINGPONG/GATE.
+- No vocal chops, no vocal samples. Vocals (CHIMERA) only on explicit request. Language: Ukrainian or English. Russian only on request.
+- Each track from a clean slate: don't reuse sounds, patterns, or chord progressions from past tracks.
+- Author: **StanPo**. Title format: `"Name (style)"`.
+- Final judge: Стас's ears. Gemini and Whisper are blind hypotheses.
