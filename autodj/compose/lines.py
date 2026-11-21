@@ -293,3 +293,36 @@ def evolve(notes, plan, rng, lo, hi, bars, period=8, ctx=None, origin=None, kind
             pool = [x for x in kinds if x != last] or list(kinds); last = str(rng.choice(pool)); part = develop(notes, plan, last, lo, hi, rng, ctx, sh)
         out += [n for n in part if n[0] < plan.bars * 16]
     return smooth(out, plan, lo, hi, ctx)
+
+# ---- P158 (2026-11-21, audit 2): the hook has a STORY over the track and a register of its own ------------------------------------------------
+def register_above(voicings, span=12, gap=1, ceiling=88):
+    """(lo, hi) for a lead that sits ABOVE the chords: lo = the highest chord note + gap (Slate Harbor: hook inside the keys' register, clash 9)"""
+    top = max((max(v) for *_, v in voicings if len(v)), default=67); lo = min(ceiling - span, top + gap); return int(lo), int(lo + span)
+
+def story(notes, plan, rng, lo, hi, sections, arc, period=8, ctx=None, origin=None):
+    """the hook over the whole track, by section role and energy (arrange.energy_arc):
+    intro: a teaser (only the motif's first bar, from the middle of the intro), home: the hook as it is, then one development, journey: a sequence (the same
+    shape on other degrees), the last home (energy 1.0, the peak): the hook lifted a third higher inside [lo, hi] (develop "sequence" +2 steps) with its
+    long notes kept, break: the fragment, build / outro: nothing (the arc breathes). Returns all notes, sorted."""
+    from .chords import role_of
+    if not notes: return []
+    o = (notes[0][0] // 16 // period * period) if origin is None else origin; out = []
+    first_bar = [n for n in notes if n[0] < notes[0][0] + 16]
+    for a, b, name, *_ in sections:
+        a, b = int(a), int(b); r = role_of(name); e = arc.get(name, .5)
+        if b <= a or r in ("build", "outro"): continue
+        if r == "intro":                                                             # the teaser: the motif's first bar, from the middle of the intro on
+            for bar in range(a + (b - a) // 2, b, max(2, period // 2)): out += [n for n in refit(first_bar, plan, lo, hi, ctx, (bar - o) * 16) if n[0] < b * 16]
+            continue
+        for k, bar in enumerate(range(a, b, period)):
+            sh = (bar - o) * 16
+            if r == "break": part = develop(notes, plan, "fragment", lo, hi, rng, ctx, sh)
+            elif r == "journey": part = develop(notes, plan, "sequence", lo, hi, rng, ctx, sh)
+            elif e >= .99:
+                up = [(s, l, m, v) for s, l, m, v in notes]; sc = _scale(plan, lo, hi)
+                def lift(m):
+                    i = min(range(len(sc)), key=lambda j: abs(sc[j] - m)); return sc[min(len(sc) - 1, i + 2)]
+                part = smooth(refit([(s, l, lift(m), min(127, v + 8)) for s, l, m, v in up], plan, lo, hi, ctx, sh), plan, lo, hi, ctx)
+            else: part = refit(notes, plan, lo, hi, ctx, sh) if k % 2 == 0 else develop(notes, plan, str(rng.choice(["invert", "displace", "sequence"])), lo, hi, rng, ctx, sh)
+            out += [n for n in part if a * 16 <= n[0] < b * 16]
+    return sorted(out)

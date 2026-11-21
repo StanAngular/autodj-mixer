@@ -99,6 +99,15 @@ def band_problems(bo):
         if r[0] and drum_class(r[0]) in ("kick", "backbeat") and r[1] > .6: out.append(f"полосу {g} занимает {r[0]} ({r[1]:.0%}): ухо слышит его щелчок раньше музыки")
     return out
 
+LEAD_UNDER_KICK_MAX = 3.0
+def lead_problems(bo, lead):
+    """P158: the lead (META["lead"]) to the ear more than LEAD_UNDER_KICK_MAX dB under the kick = the hook is not heard first"""
+    if not bo or not lead: return []
+    h = bo.get("heard_db") or {}; k = next((n for n in h if n.lower().startswith("kick")), None)
+    if lead not in h or k is None: return []
+    d = h[k] - h[lead]
+    return [f"хук «{lead}» на слух на {d:.1f} дБ тише бочки (> {LEAD_UNDER_KICK_MAX}): подними хук или его регистр (lines.register_above)"] if d > LEAD_UNDER_KICK_MAX else []
+
 def drum_sharp_problems(sources):
     """P154: problem lines for kick / clap / snare sources that drumq finds too sharp"""
     try:
