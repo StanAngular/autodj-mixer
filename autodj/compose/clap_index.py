@@ -111,10 +111,11 @@ def embedding_of(sample, path=None):
 ROLE_PROMPTS = {"kick": "a kick drum hit", "snare": "a snare drum hit", "clap": "a hand clap", "hats": "a hi-hat", "cymbal": "a crash cymbal or ride cymbal",
                 "perc": "a percussion hit like conga, bongo, wood block or shaker", "bass": "a bass note", "pad": "a sustained synth pad chord",
                 "keys": "a piano or electric piano note", "lead": "a synth lead note", "strings": "a string instrument, violin or cello", "fx": "a sound effect, riser or noise"}
+UNPITCHED = {"kick", "snare", "clap", "hats", "open", "ride", "cymbal", "shaker", "perc", "rim", "tom", "fx"}
 ROLE_OK = {"hats": ("hats", "cymbal"), "open": ("hats", "cymbal"), "ride": ("cymbal", "hats"), "shaker": ("perc", "hats"), "rim": ("snare", "perc", "clap"), "sub": ("bass",),
            "chords": ("pad", "keys"), "rhodes": ("keys",), "pluck": ("lead", "keys"), "arp": ("lead", "keys"), "texture": ("fx", "pad")}
-NAME_DENY = {"kick": r"synth|bass|pad|lead|chord|stab|hat|snare|clap|perc|tom|fx|loop|vox|vocal", "snare": r"kick|bass|synth|pad|hat|loop", "clap": r"kick|bass|synth|pad|hat|loop",
-             "hats": r"kick|snare|clap|bass|synth|pad|loop", "bass": r"kick|(^|[^a-z])bd|snare|hat|clap|loop"}
+NAME_DENY = {"kick": r"synth|bass|pad|lead|chord|stab|hat|snare|clap|perc|tom|fx|loop|vox|vocal", "snare": r"kick|bass|synth|pad|hat|loop", "clap": r"kick|bass|synth|pad|hat|loop|snare|snr",
+             "hats": r"kick|snare|clap|bass|synth|pad|loop|tamb|shak|perc", "bass": r"kick|(^|[^a-z])bd|snare|hat|clap|loop"}
 # the file name is a weak signal, but a name that clearly says another role vetoes the zero-shot label (2026-11-21: «kick» found WATS_Synth_Shot_10_C)
 # zero-shot check on the 17746 files (2026-11-21; file names as truth): kick 0.99, clap 0.82, snare 0.74, hats 0.67 (+cymbal 0.29), bass 0.43 (one-shot basses often sound like kicks)
 _ROLES = {}
@@ -163,9 +164,10 @@ def candidates(text=None, k=12, near=None, near_weight=.5, min_dur=None, max_dur
 def pick(text=None, role=None, lo=None, hi=None, rng=None, title=None, near=None, k=None, top=12, strict=True, margin=.06, **kw):
     """CLAP proposes the `top` best candidates, soundgate.pick throws out the bad ones (pitch / noise / wobble / range) and takes the least used:
     CI.pick("soft closed hi-hat", role="hats", near=[kick_path], rng=rng). kw go to candidates (min_dur, max_dur, per_dir, contains, near_weight)."""
-    from . import soundgate
+    from . import soundgate, fresh
     c = candidates(text, top, near, role=role, margin=margin, **kw)        # only the relevant ones go to freshness: least-used must not mean least-fitting
     if not c: raise ValueError(f"clap_index.pick: no candidates for {text!r} (is the index built? python -m autodj.compose.clap_index status)")
+    if role in UNPITCHED: return fresh.pick(c, rng, k=k, title=title)      # soundgate measures PITCH (a kick's pitch drop reads as «wobble»): drums skip it
     return soundgate.pick(c, role=role, lo=lo, hi=hi, rng=rng, title=title, k=k, strict=strict)
 
 class _Timeout(Exception): pass

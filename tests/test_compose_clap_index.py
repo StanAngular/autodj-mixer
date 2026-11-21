@@ -63,7 +63,8 @@ def test_pick_goes_through_soundgate_and_fresh(tmp_path, monkeypatch):
     def fake_pick(c, **kw): seen["c"] = c; seen["kw"] = kw; return c[-1]
     monkeypatch.setattr(SG, "pick", fake_pick)
     monkeypatch.setattr(CI, "index_dir", lambda path=None: d); monkeypatch.setattr(CI, "sound_roles", lambda path=None: np.array(["kick"] * 3 + ["hats"] * 3 + ["pad"]))
-    r = CI.pick("hat", role="hats", top=2, per_dir=None); assert r in seen["c"] and len(seen["c"]) == 2 and seen["kw"]["role"] == "hats" and all("hat" in p for p in seen["c"])
+    monkeypatch.setattr(CI, "embed_text", lambda texts: np.stack([vec({"kick": 0, "hat": 2, "pad": 5}[t]) for t in texts]))
+    r = CI.pick("pad", role="pad", top=2, per_dir=None, margin=None); assert r in seen["c"] and seen["kw"]["role"] == "pad" and "/x/c/pad.wav" in seen["c"]
     monkeypatch.setattr(CI, "candidates", lambda *a, **k: [])
     with pytest.raises(ValueError): CI.pick("nothing")
 
@@ -76,3 +77,11 @@ def test_role_filter_uses_the_zero_shot_label_and_a_contradicting_name_vetoes_it
     monkeypatch.setattr(CI, "_index", lambda path=None: (P[:1] + ["/x/a/Synth_Shot_10.wav"] + P[2:], *CI.load_index(d)[1:], {}))
     assert "/x/a/Synth_Shot_10.wav" not in CI.candidates("kick", 9, role="kick", per_dir=None, path=d)          # the name says synth: vetoed
     assert CI.candidates("kick", 9, role=None, per_dir=None, path=d)                                           # no role: no filter
+
+def test_drums_skip_the_pitch_gate_and_tonal_roles_go_through_it(tmp_path, monkeypatch):
+    d, P = _fake_index(tmp_path, monkeypatch); from autodj.compose import soundgate as SG, fresh
+    monkeypatch.setattr(CI, "index_dir", lambda path=None: d); monkeypatch.setattr(CI, "sound_roles", lambda path=None: np.array(["kick"] * 3 + ["hats"] * 3 + ["pad"]))
+    calls = []
+    monkeypatch.setattr(SG, "pick", lambda c, **kw: calls.append("sg") or c[0]); monkeypatch.setattr(fresh, "pick", lambda c, rng=None, k=None, title=None, **kw: calls.append("fresh") or c[0])
+    CI.pick("kick", role="kick", per_dir=None); assert calls == ["fresh"]
+    calls.clear(); CI.pick("pad", role="pad", per_dir=None); assert calls == ["sg"]

@@ -104,3 +104,9 @@ def test_double_bass_and_tuba_are_one_pitched_layer_per_key_with_octave_override
         for k in (34, 40, 46): assert len(ins.pick(k, 100)) == 1
     assert "sus" in os.path.basename(SFZ("tuba").pick(40, 100)[0]["_file"])
     assert "noise" not in os.path.basename(SFZ("dbass").pick(40, 100)[0]["_file"])
+
+def test_report_skips_drum_hits_but_still_flags_a_bad_tonal_shot(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUTODJ_SOUND_QUALITY", str(tmp_path / "q.json")); G._MEM.clear()
+    bad = {"root": 40.0, "cents": 0, "wobble": 283, "noise": .001, "kind": "note", "pcs": 1}
+    G._MEM["db"] = {"CYCdh_Kurz07-Kick03.wav": bad, "Hat Closed-03.wav": bad, "WART_Gm_Bass_Shot_4.wav": bad}
+    assert list(G.report(["CYCdh_Kurz07-Kick03.wav", "Hat Closed-03.wav", "WART_Gm_Bass_Shot_4.wav"])) == ["WART_Gm_Bass_Shot_4.wav"]

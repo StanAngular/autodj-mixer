@@ -86,8 +86,10 @@ def pick(candidates, role=None, lo=None, hi=None, rng=None, db=None, title=None,
 
 def report(sources, root_dirs=("/home/cclaw/samples",)):
     """gate input: {source name: [reasons]} for the sources of a render that were measured and are hard-bad (never raises; unmeasured = unknown = fine)"""
+    from .fresh import drum_class
     db = _load(); out = {}
     for s in sources or []:
+        if drum_class(os.path.basename(s)) is not None: continue                   # 2026-11-21: a drum hit has no pitch to judge (a kick's pitch drop read as «wobble ±283 c»)
         m = db.get(os.path.basename(s))
         if m and not m.get("error"):
             _, bad = quality(m)
