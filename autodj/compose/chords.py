@@ -444,6 +444,50 @@ def role_of(name):
         if any(n.startswith(k) for k in keys): return r
     return "home"
 
+
+# ---- P147 / P148 (2026-11-21, audit of the composition core) --------------------------------------------------------------------
+RECENT = 15                                       # P147: a progression heard in one of this many latest tracks may not open the next one
+SIG_LEN = 4                                       # ... compared by its first chords (degree:quality), so a re-ordered tail does not hide a repeat
+
+class HarmonyRepeat(ValueError):
+    """P147: the home progression of this track opens like one of the latest tracks"""
+
+def signature(fp, n=SIG_LEN):
+    """key-independent opening of a harmony fingerprint (the home section): its first n "degree:quality" chords"""
+    return " ".join(((fp or "").split(" || ")[0]).split()[:n])
+
+def recent_signatures(db=None, title=None, n=RECENT):
+    """{signature: [titles]} of the n latest tracks with a harmony in the freshness ledger (this track's own title is skipped: a re-render is not a repeat)"""
+    from . import fresh
+    db = db if db is not None else fresh.load(); out = {}
+    rows = [(t, e.get("harmony")) for t, e in db["tracks"].items() if e.get("harmony") and t != title][-n:]
+    for t, fp in rows: out.setdefault(signature(fp), []).append(t)
+    return out
+
+def check_repeat(plan, title=None, db=None, rhythm=None):
+    """P147: raise HarmonyRepeat when the plan's home progression opens like one of the RECENT latest tracks; the message names the tracks and
+    lists idioms that do not (same tonic and mode family)"""
+    seen = recent_signatures(db, title); sig = signature(plan.fingerprint())
+    if not sig or sig not in seen: return
+    alt = []
+    for name in idioms(None, plan.mode):
+        try: s2 = signature(" ".join(f"{(c.root - plan.tonic) % 12}:{c.qual}" for _, c in tune(name, plan.tonic, 1, rhythm)))
+        except Exception: continue
+        if s2 not in seen: alt.append(name)
+    raise HarmonyRepeat(f"the home progression ({sig}) already opened {', '.join(seen[sig][-3:])}: choose another idiom"
+                        + (f" (free now: {', '.join(alt[:6])})" if alt else "") + ". Only on Стас's request: Plan.build(..., allow_repeat=\"why\")")
+
+def with_journey_role(sections, roles, journey):
+    """P148: a journey idiom was ordered but no section has the journey role (verse / A2 / final all count as home): the middle home section
+    takes it, so the second progression is heard. Returns (roles, assigned section name or None); one home section only -> nothing to assign."""
+    if not journey: return roles, None
+    rs = [(s[2], (roles or {}).get(s[2]) or role_of(s[2])) for s in sections if int(s[1]) > int(s[0])]
+    if any(r == "journey" for _, r in rs): return roles, None
+    homes = [n for n, r in rs if r == "home"]
+    if len(homes) < 2: return roles, None
+    pick = homes[len(homes) // 2]
+    return {**(roles or {}), pick: "journey"}, pick
+
 class Plan:
     """the chords of the whole track: self.slots = [(start_step, length, Chord, section_name)]"""
     def __init__(self, tonic, mode, bars, slots, meta=None, palette="jazz"):
@@ -454,14 +498,31 @@ class Plan:
         self._starts = np.array([s[0] for s in slots])
 
     @classmethod
-    def build(cls, tonic, sections, home, journey=None, seed=0, roles=None, journey_shift=None, colour=0, slide=None, lean=None, palette="consonant", rhythm=None):
+    def build(cls, tonic, sections, home, journey=None, seed=0, roles=None, journey_shift=None, colour=0, slide=None, lean=None, palette="consonant", rhythm=None, title=None, allow_repeat=None):
         """sections: [(bar_a, bar_b, name, ...)] (Track.tl works). home / journey: idiom names (journey None = the home sentence
         re-harmonised). roles: {section name: role} to override role_of(). colour: +1 richer, -1 plainer chords.
         palette "consonant" (default, P137): every section inside one scale, one sweet colour per chord, changes on the bar line,
         variations by chords of the same scale; jazz idioms given here are brought into the scale (diatonicise). journey_shift None:
         the journey stays in the home scale (a major idiom sits on the relative major). rhythm: bars per chord (1 or 2) instead of
         the idiom's own. palette "jazz": the P134 behaviour (chromatic slides, early changes, neapolitan / backdoor turnarounds,
-        mixed modes); slide / lean: how often slides and early changes appear there (default .4)."""
+        mixed modes); slide / lean: how often slides and early changes appear there (default .4).
+        P147: inside `autodj.compose run` (the render's title is known) a home progression that opens like one of the RECENT latest tracks of the
+        freshness ledger raises HarmonyRepeat; title= overrides the render's title; allow_repeat="reason" (a non-empty text, only on Стас's
+        request) switches the check off and is written to meta. P148: a journey idiom without a journey section goes to the middle home section."""
+        roles, promoted = with_journey_role(sections, roles, journey)
+        plan = cls._build(tonic, sections, home, journey, seed, roles, journey_shift, colour, slide, lean, palette, rhythm)
+        if promoted: plan.meta["journey_section"] = promoted
+        elif journey and not any(role_of(s[2]) == "journey" or (roles or {}).get(s[2]) == "journey" for s in sections): plan.meta["journey_unused"] = True
+        from . import fresh
+        t = title or fresh.TITLE
+        if allow_repeat:
+            if isinstance(allow_repeat, str) and allow_repeat.strip(): plan.meta["repeat_allowed"] = allow_repeat.strip()
+            else: raise ValueError('allow_repeat must be a reason text: allow_repeat="Стас asked for the old loop"')
+        elif t: check_repeat(plan, t, rhythm=rhythm)
+        return plan
+
+    @classmethod
+    def _build(cls, tonic, sections, home, journey, seed, roles, journey_shift, colour, slide, lean, palette, rhythm):
         if palette != "jazz": return cls._consonant(tonic, sections, home, journey, seed, roles, journey_shift, colour, slide or 0, lean or 0, rhythm)
         slide = .4 if slide is None else slide; lean = .4 if lean is None else lean; journey_shift = journey_shift or 0
         rng = np.random.default_rng([seed, 134]); t = pc_of(tonic); H = sentence(home, t); mode = IDIOMS[home]["mode"]

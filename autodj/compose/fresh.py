@@ -23,6 +23,7 @@ LEDGER = "/opt/autodj-mixer/shared/fresh_ledger.json"          # override: env A
 def ledger_path(path=None):
     return path or os.environ.get("AUTODJ_FRESH_LEDGER") or LEDGER
 USED = {}                                        # sources of the render in this process: key -> count
+TITLE = None                                     # P147: title of the render in progress (set by run.py): switches the harmony repeat check of chords.Plan.build on
 WORN = 3                                         # a source / pattern found in this many earlier tracks is «worn»
 CLASS = (("kick", ("kick", "bd")), ("hat", ("hat", "hh", "ride", "cymbal")), ("backbeat", ("clap", "snare", "rim", "snr")), ("shaker", ("shk", "shaker", "tamb")),
          ("perc", ("perc", "conga", "tom", "clave", "bongo", "tumba", "click")))
@@ -38,7 +39,8 @@ def used(path, kind=None):
     return path
 
 def reset():
-    USED.clear()
+    global TITLE
+    USED.clear(); TITLE = None
 
 def drum_class(name):
     n = name.lower()
