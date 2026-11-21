@@ -70,6 +70,61 @@ def drum_plan(sections, arc, rng=None, phrase=8):
                 if nxt_roll and last: C += [(br, st, 40 + 6 * i) for i, st in enumerate((13, 14, 15))]
     return {"kick": sorted(K), "clap": sorted(C)}
 
+# ---- P165 (audit 3): drum_plan v2 = the whole kit from the energy arc AND a rhythm profile (rhythm_profiles) -----------------------------------------
+def _lerp(lo, hi, e): return lo + (hi - lo) * float(np.clip(e, 0, 1))
+def _db(v, db): return int(np.clip(v * 10 ** (db / 20), 1, 127))
+
+def drum_plan_v2(sections, arc, profile, rng=None, phrase=8):
+    """{"kick", "clap", "hats", "perc": [(bar, step, vel)], "ohat": [(bar, step, vel, length_s)]} for the sections (role_of: intro / home / journey / break / build / outro),
+    shaped by the profile of the style (rhythm_profiles.profile): the kick FAMILY (four / two_step / half / broken / sparse), the backbeat from backbeat_min_energy
+    (one beat below, both above, soft ghost notes before the next bar when ghost_backbeat), hats with accent_db contrast (the 2nd and 4th offbeat stronger) and
+    16th ghosts (ghost_hat_db) from energy .7, the open hat ringing open_hat_s low..high energy, percussion perc_per_bar low..high with a cell that changes every
+    8 bars (the density grows at the PEAK while the kick stays), and the BREATH: dropout_beats (<= 4) of silence for kick and perc at the end of the bar before a
+    home (always before the peak), at most once in 16 bars, never inside a home. Nothing is written for a style that has none of it (ambient: no hats, no clap)."""
+    rng = rng or np.random.default_rng(0); P = profile; out = {k: [] for k in ("kick", "clap", "hats", "perc", "ohat")}; last_drop = -99; bseed = int(rng.integers(0, 1 << 30))
+    fam = P["kick_family"]; secs = [(int(a), int(b), name) for a, b, name, *_ in sections if int(b) > int(a)]
+    for si, (a, b, name) in enumerate(secs):
+        e = arc.get(name, .5); r = role_of(name); n = b - a; nxt = secs[si + 1] if si + 1 < len(secs) else None
+        for br in range(a, b):
+            k = br - a; end8 = (k % phrase) == phrase - 1; lastbar = br == b - 1; breath = 0
+            if lastbar and nxt and role_of(nxt[2]) == "home" and P["dropout_beats"] and (br - last_drop >= 16) and r != "break":
+                breath = int(P["dropout_beats"]); last_drop = br                                                              # the breath comes at the end of a section, never inside a home
+            cut = 16 - 4 * breath if breath else 16                                                                            # steps >= cut are silent for kick and perc
+            # -- kick
+            if r == "break" and fam != "sparse": ks = []
+            elif r in ("intro", "outro"): ks = ([0, 8] if fam != "sparse" else [0]) if not ((r == "intro" and k >= n - 4) or (r == "outro" and k < 4)) else {"four": [0, 4, 8, 12], "two_step": [0, 10], "half": [0, 10], "broken": [0, 10], "sparse": [0]}[fam]
+            elif r == "build": ks = list(range(0, 16, 2)) if lastbar and fam in ("four", "two_step", "broken") else {"four": [0, 4, 8, 12], "two_step": [0, 10], "half": [0, 10], "broken": [0, 6, 10], "sparse": [0]}[fam]
+            else:
+                if fam == "four": ks = [0, 4, 8, 12]
+                elif fam == "two_step": ks = [0, 10] if br % 2 == 0 else [0, 7, 10]
+                elif fam == "half": ks = [0, 10] if br % 2 == 0 else [0, 6]
+                elif fam == "broken": ks = [list(c) for c in ([0, 6, 10], [0, 3, 10], [0, 7, 10, 14], [0, 10])][int(rng.integers(0, 4))]
+                else: ks = [0] if br % 2 == 0 else []
+                if end8 and fam == "four": ks = [0, 4, 8] if rng.random() < .5 else [0, 4, 8, 12]
+            for st in [x for x in ks if x < cut]: out["kick"].append((br, st, int(np.clip((118 if st == 0 else 92 + 20 * e) + rng.integers(-4, 5), 60, 127))))
+            if breath: out["kick"].append((br, 15, int(40 + 15 * e)))                                                          # a soft pickup out of the breath
+            # -- backbeat
+            if r in ("home", "journey", "build") and e >= P["backbeat_min_energy"] and fam != "sparse":
+                cs = {"half": [8], "four": [4, 12], "two_step": [4, 12], "broken": [4, 12]}[fam] if e >= P["backbeat_min_energy"] + .2 else ([12] if fam != "half" else [8])
+                out["clap"] += [(br, st, int(np.clip(80 + 30 * e + rng.integers(-5, 6), 50, 120))) for st in cs]
+                if P["ghost_backbeat"] and e >= .7 and k % 4 == 3: out["clap"].append((br, 15, 40))
+            # -- hats
+            hat_on = r != "break" and fam != "sparse" and (P["hat_accent_db"] > 0 or P["ghost_hat_db"] is not None or P["open_hat_s"][1] > 0)
+            if hat_on:
+                base = int(78 + 22 * e); strong, weak = _db(base, P["hat_accent_db"] / 2), _db(base, -P["hat_accent_db"] / 2)
+                flip = (k % 4 == 3)                                                                                       # every 4th bar the accent moves to the other offbeats
+                for st in (2, 6, 10, 14): out["hats"].append((br, st, strong if (st in (6, 14)) != flip else weak))
+                if P["ghost_hat_db"] is not None and e >= .7 and k % 4 in (1, 3):
+                    for st in sorted(rng.choice([1, 3, 5, 9, 11, 13], 3, replace=False).tolist()): out["hats"].append((br, int(st), _db(base, -P["ghost_hat_db"])))
+                lo, hi = P["open_hat_s"]
+                if hi > 0 and e >= .5 and br % 2 == 1 and not breath: out["ohat"].append((br, 14, int(np.clip(60 + 25 * e, 1, 127)), round(_lerp(lo, hi, e), 3)))
+            # -- percussion: the cell changes every 8 bars; the density follows the energy, the peak is denser
+            lo, hi = P["perc_per_bar"]; cnt = int(round(_lerp(lo, hi, e))) if r in ("home", "journey", "build") else (min(1, hi) if r in ("intro", "outro") and hi else 0)
+            if cnt:
+                prng = np.random.default_rng([bseed, br // 8, cnt]); cell = sorted(prng.choice([3, 5, 7, 9, 11, 13, 14, 15], min(cnt, 8), replace=False).tolist())
+                out["perc"] += [(br, st, int(40 + 30 * e + rng.integers(-5, 6))) for st in cell if st < cut and (br + st) % 5]
+    return {k: sorted(v) for k, v in out.items()}
+
 def log_drums(trk, plan):
     trk.drum_events = {**getattr(trk, "drum_events", {}), **{k: list(v) for k, v in plan.items()}}; return trk
 
@@ -79,9 +134,9 @@ def drum_static(trk_or_events, bars=None):
     out = {}
     for role, xs in (ev or {}).items():
         if not xs: continue
-        n = (bars or (max(b for b, *_ in xs) + 1)); sig = [tuple() for _ in range(n)]
+        n = (bars or (max(x[0] for x in xs) + 1)); sig = [tuple() for _ in range(n)]
         by = {}
-        for b, st, v in xs: by.setdefault(int(b), []).append((int(st), int(v) // 16))
+        for x in xs: by.setdefault(int(x[0]), []).append((int(x[1]), int(x[2]) // 16))
         sig = [tuple(sorted(by.get(i, ()))) for i in range(n)]; run = best = 1 if sig[0] else 0
         for i in range(1, n):
             run = run + 1 if sig[i] and sig[i] == sig[i - 1] else (1 if sig[i] else 0); best = max(best, run)
@@ -89,4 +144,5 @@ def drum_static(trk_or_events, bars=None):
     return out
 
 def drum_static_problems(trk):
-    return [f"ударный {r} играет один и тот же такт {n} тактов подряд (> {DRUM_STATIC_MAX}): дай ему план по секциям (arrange.drum_plan)" for r, n in drum_static(trk).items() if n > DRUM_STATIC_MAX]
+    lim = lambda r: DRUM_STATIC_MAX * (2 if r == "clap" else 1)                                  # a steady backbeat is normal: the clap is held to twice the limit
+    return [f"ударный {r} играет один и тот же такт {n} тактов подряд (> {lim(r)}): дай ему план по секциям (arrange.drum_plan)" for r, n in drum_static(trk).items() if n > lim(r)]

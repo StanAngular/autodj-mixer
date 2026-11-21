@@ -152,3 +152,44 @@ def report(trk, sources=None):
     t = d["timing"]
     if t and t["version"] >= 2 and t["kick_sd_ms"] not in (None, 0.0): notes.append(f"бочка не на сетке: sd {t['kick_sd_ms']} мс")
     return d, notes
+
+# ---- P164: the checklist of the six questions of the «Rhythm & Drive» block, answered for every render -----------------------------------------
+def checklist(trk, summ=None, rep=None):
+    """[(question, status, text)] status ok / warn / unknown: the six questions of the audit block (felt tempo, spring, parts together, dynamics, plastic drums, style accuracy).
+    summ: the render summary (kick_bass, top); rep: the dict of report(trk). Only reports: no gate until Стас has heard the thresholds."""
+    summ = summ or {}; rep = rep or report(trk, None)[0]; out = []; de = rep.get("density"); pr = TASK.get("profile")
+    if de and len(de["per_bar"]) >= 2 and de["mean"] > 0:
+        r = de["range"] / de["mean"]; lo = min(de["per_bar"], key=de["per_bar"].get); hi = max(de["per_bar"], key=de["per_bar"].get)
+        out.append(("1 Ощущаемый темп и пульс", "ok" if r >= limit("density_range_min") else "warn", f"плотность ударных от {de['per_bar'][lo]} ({lo}) до {de['per_bar'][hi]} ({hi}) онсета на такт, разброс {r:.0%} при ожидании от {limit('density_range_min'):.0%}"))
+    else: out.append(("1 Ощущаемый темп и пульс", "unknown", "нет данных по ударным слоям"))
+    t = rep.get("timing")
+    if t and t["swing"]:
+        sw = t["swing"].get("hats") if t["swing"].get("hats") is not None else max(t["swing"].values()); want = pr["swing"] if pr else None
+        ok = sw >= .02 if want is None else abs(sw - want) <= .05
+        out.append(("2 Пружина, свинг, микротайминг", "ok" if ok else "warn", f"измеренный свинг хэтов {sw:.0%} 16-й" + (f", профиль стиля {want:.0%}" if want is not None else "") + f", микротайминг версии {t['version']}" + (f", sd бочки {t['kick_sd_ms']} мс" if t["kick_sd_ms"] is not None else "")))
+    else: out.append(("2 Пружина, свинг, микротайминг", "unknown" if not t else "warn", "партитура не пишет тайминг через Ensemble: свинг и сдвиги не измеримы" if not t else "свинг не обнаружен: сетка ровная"))
+    kb = summ.get("kick_bass")
+    out.append(("3 Kick, bass, клэп, перкуссия вместе", "unknown" if kb is None else ("ok" if kb <= .5 else "warn"), "доля нот баса на ударах бочки: " + ("нет данных" if kb is None else f"{kb:.0%}")))
+    ks = rep.get("kick_spread_db"); dr = rep.get("dropouts"); bad = []
+    if ks is not None and ks < limit("kick_spread_min_db"): bad.append(f"бочка ровная ({ks} дБ)")
+    if dr and dr["peak_without"]: bad.append("нет вдоха перед пиком")
+    out.append(("4 Динамика ритм-секции", "warn" if bad else ("unknown" if ks is None and not dr else "ok"), "; ".join(bad) if bad else f"разброс бочки {ks} дБ, вдох перед пиком есть" if ks is not None else "нет данных"))
+    hc = rep.get("hat_contrast_db") or {}; top = summ.get("top") or {}; bad = [f"хэты «{n}»: контраст {c} дБ" for n, c in hc.items() if c < limit("hat_contrast_min_db")]
+    if top and top.get("hat_share_of_top", 0) > .4 and top.get("top_vs_body_db", -99) > -10: bad.append("хэты занимают верх")
+    out.append(("5 Однообразные / пластиковые ударные", "warn" if bad else ("ok" if hc else "unknown"), "; ".join(bad) if bad else "акценты хэтов есть" if hc else "хэтов в данных нет"))
+    fam = pr["kick_family"] if pr else None
+    if fam and trk is not None and getattr(trk, "act", None):
+        from .chords import role_of
+        L = _layers(trk, ("kick",)); by = {}
+        for E in L.values():
+            for br, st, d in _onset_db(E, trk.bars): by[br] = by.get(br, 0) + 1
+        homes = [b for a, e_, n_, *_ in trk.tl if role_of(n_) == "home" for b in range(int(a), int(e_))]; per = float(np.mean([by.get(b, 0) for b in homes])) if homes else None
+        if per is not None:
+            ok = per >= 3.4 if fam == "four" else (per <= 3.2 if fam in ("two_step", "half", "broken") else per <= 1.5)
+            out.append(("6 Ритм соответствует стилю", "ok" if ok else "warn", f"стиль {pr['style']}: семейство бочки «{fam}», в home {per:.1f} ударов на такт"))
+        else: out.append(("6 Ритм соответствует стилю", "unknown", "нет секций home"))
+    else: out.append(("6 Ритм соответствует стилю", "unknown", "стиль не задан (META[\"task\"][\"style\"])"))
+    return out
+
+def checklist_text(cl):
+    mark = {"ok": "✓", "warn": "⚠", "unknown": "?"}; return "\n".join(f"{mark[s]} {q}: {t}" for q, s, t in cl)

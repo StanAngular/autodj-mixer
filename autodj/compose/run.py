@@ -130,7 +130,10 @@ def main(argv=None):
     try:
         from . import rhythm; summ["rhythm_drive"], summ["rhythm_notes"] = rhythm.report(trk, info.get("sources"))                          # P162: report only
     except Exception as e: summ["rhythm_drive"], summ["rhythm_notes"] = None, [f"rhythm.report: {type(e).__name__}: {e}"]
-    summ["kick_bass"] = ears.kick_bass(trk)                                                   # P150: share of bass notes on kick hits (None = unknown)
+    summ["kick_bass"] = ears.kick_bass(trk)
+    try:
+        from . import rhythm; cl = rhythm.checklist(trk, summ, summ.get("rhythm_drive")); summ["rhythm_checklist"] = [list(x) for x in cl]                       # P164: six questions, every render
+    except Exception as e: summ["rhythm_checklist"] = [["checklist", "unknown", f"{type(e).__name__}: {e}"]]                                                   # P150: share of bass notes on kick hits (None = unknown)
     try: summ["arc"] = ears.arc(mp3, trk.bpm)
     except Exception as e: summ["arc"] = {"error": f"{type(e).__name__}: {str(e)[:100]}"}
     if a.ears or meta.get("ears"): summ["ears"] = ears.abx(mp3)
