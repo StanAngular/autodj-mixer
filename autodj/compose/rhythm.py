@@ -122,10 +122,19 @@ def timing(trk):
 
 # ---- the task (flexible thresholds) -----------------------------------------------------------------------------------------------------------
 DEFAULT = {"density_range_min": .12, "hat_contrast_min_db": 1.5, "kick_spread_min_db": .8}
-TASK = {"mood": "neutral", "limits": {}}
+TASK = {"mood": "neutral", "limits": {}, "profile": None}
 MOOD = {"soft": .6, "calm": .6, "ambient": .4, "neutral": 1.0, "club": 1.0, "hard": 1.2, "aggressive": 1.3}     # how much change / accent a task is expected to have
-def set_task(mood=None, limits=None): TASK["mood"] = mood or "neutral"; TASK["limits"] = dict(limits or {})
-def limit(name): return TASK["limits"].get(name, DEFAULT[name] * MOOD.get(TASK["mood"], 1.0))
+PROFILE_KEYS = {"density_range_min": "density_range_min", "hat_contrast_min_db": "hat_contrast_min_db", "kick_spread_min_db": "kick_spread_db"}
+def set_task(mood=None, limits=None, style=None, profile=None):
+    """P167: style (rhythm_profiles) makes the thresholds those of that style (mood scales them), profile = overrides of its keys, limits = explicit numbers (win)"""
+    TASK["mood"] = mood or "neutral"; TASK["limits"] = dict(limits or {}); TASK["profile"] = None
+    if style:
+        from .rhythm_profiles import profile as _p; TASK["profile"] = _p(style, mood, **(profile or {}))
+def limit(name):
+    if name in TASK["limits"]: return TASK["limits"][name]
+    pr = TASK.get("profile")
+    if pr and name in PROFILE_KEYS: return pr[PROFILE_KEYS[name]] * (.8 if name == "kick_spread_min_db" else 1.0)     # the report warns below 80 % of the style's expected kick spread
+    return DEFAULT[name] * MOOD.get(TASK["mood"], 1.0)
 
 def report(trk, sources=None):
     """-> (dict for summary["rhythm_drive"], [Russian notes])"""
