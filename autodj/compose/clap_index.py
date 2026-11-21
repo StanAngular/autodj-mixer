@@ -169,7 +169,8 @@ def pick(text=None, role=None, lo=None, hi=None, rng=None, title=None, near=None
     if not c: raise ValueError(f"clap_index.pick: no candidates for {text!r} (is the index built? python -m autodj.compose.clap_index status)")
     if role in UNPITCHED:                                                   # soundgate measures PITCH (a kick's pitch drop reads as «wobble»): drums skip it
         from . import drumq                                                 # P154: ... but a drum hit is measured for sharpness before freshness may choose it
-        good = [p for p in c if drumq.ok(p, role)]
+        from . import verdicts                                              # P159: a confirmed rule from Стас's verdicts refuses too
+        good = [p for p in c if drumq.ok(p, role) and not verdicts.check(p, role)[0]]
         if not good:
             if strict and role in drumq.LIMITS: raise ValueError(f"clap_index.pick: all {len(c)} {role} candidates for {text!r} are too sharp (drumq): describe a softer sound or widen top")
             good = c
