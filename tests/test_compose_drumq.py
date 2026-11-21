@@ -75,3 +75,6 @@ def test_references_set_the_limit_a_sharp_reference_allows_a_sharp_hit(tmp_path)
 def test_unknown_role_has_no_limits_and_run_reads_the_task_from_meta():
     assert drumq.limits("hats") == {}
     import inspect; from autodj.compose import run; assert "drumq.set_task(**(meta.get(\"task\") or {}))" in inspect.getsource(run.main)
+
+def test_the_shared_task_dict_with_style_and_profile_is_accepted():
+    drumq.set_task(mood="soft", style="garage", profile={"swing": .1}); assert drumq.TASK["mood"] == "soft"; drumq.set_task()

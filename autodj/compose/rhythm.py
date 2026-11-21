@@ -97,17 +97,18 @@ def kick_spread(trk):
     return None
 
 def dropouts(trk):
-    """{"before": [sections whose previous bar has fewer than half of the kick's usual hits], "peak_without": True when the last home has none}"""
+    """{"before": [sections whose previous bar has its kick hits in the second half (steps 8-14) cut to half or less of the usual count], "peak_without": True when the last home has none}"""
     L = _layers(trk, ("kick",))
     if not L: return None
     by = {}
-    for br, st, d in _onset_db(next(iter(L.values())), trk.bars): by[br] = by.get(br, 0) + 1
-    usual = float(np.median([v for v in by.values()] or [0])); out = []; homes = []
+    for br, st, d in _onset_db(next(iter(L.values())), trk.bars):
+        if 8 <= st <= 14: by[br] = by.get(br, 0) + 1                                     # the soft pickup on step 15 does not count as the beat
+    usual = float(np.median([by.get(b, 0) for b in range(trk.bars)] or [0])); out = []; homes = []
     from .chords import role_of
     for a, b, name, *_ in trk.tl:
         if role_of(name) == "home" and int(a) > 0:
             homes.append(name)
-            if by.get(int(a) - 1, 0) < .5 * usual: out.append(name)
+            if usual > 0 and by.get(int(a) - 1, 0) <= .5 * usual: out.append(name)
     return {"before": out, "peak_without": bool(homes) and homes[-1] not in out, "usual_hits_per_bar": round(usual, 1)}
 
 def timing(trk):

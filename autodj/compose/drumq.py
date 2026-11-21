@@ -55,10 +55,11 @@ def features(path):
 # ---- P161 (Стас: «пороги не только из референсов, гибко исходя из задачи»): the limits are resolved PER TASK -----------------------------------
 MOOD_SCALE = {"soft": .8, "calm": .8, "ambient": .7, "neutral": 1.0, "club": 1.0, "hard": 1.35, "aggressive": 1.5}
 TASK = {"mood": "neutral", "refs": {}, "limits": {}}
-def set_task(mood=None, refs=None, limits=None):
+def set_task(mood=None, refs=None, limits=None, style=None, profile=None):
     """the task of this render: mood (MOOD_SCALE: soft / calm / ambient stricter, hard / aggressive looser), refs = {role: [reference hit files or feature dicts]}
     (the limit becomes what the references do + REF_HEADROOM: a task that wants a sharp hit is allowed one), limits = {role: {axis: value}} explicit
-    numbers for this task; all optional. Called by run.py from META["task"]; set_task() resets to the defaults."""
+    numbers for this task; all optional. style / profile belong to rhythm.set_task and are accepted (META["task"] is shared) and ignored here.
+    Called by run.py from META["task"]; set_task() resets to the defaults."""
     TASK["mood"] = mood or "neutral"; TASK["limits"] = {r: dict(v) for r, v in (limits or {}).items()}; TASK["refs"] = {}
     for role, xs in (refs or {}).items():
         ms = [x if isinstance(x, dict) else features(x) for x in (xs if isinstance(xs, (list, tuple)) else [xs])]; TASK["refs"][role] = [m for m in ms if m and not m.get("error")]
