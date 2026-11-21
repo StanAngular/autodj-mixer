@@ -9,8 +9,9 @@ soundq, the final choice stays with the score (and Стас). Nothing here chang
     python -m autodj.compose.clap_index status
 
 In a score:  from autodj.compose import clap_index as CI;  CI.search("soft closed hi-hat", k=20)  ->  [(path, score, dur_s)]
+             hat = CI.pick("soft closed hi-hat", role="hats", near=[kick], rng=rng, max_dur=.5)   (P152b: CLAP proposes, soundgate filters, fresh picks)
 Index: shared/clap_index/shard_NNNN.npz (paths, float16 embeddings, durations); override the folder with env AUTODJ_CLAP_INDEX."""
-import argparse, glob, os, signal, sys, time
+import argparse, glob, os, re, signal, sys, time
 import numpy as np
 
 MODEL = "laion/clap-htsat-unfused"   # NOT larger_clap_music: its embeddings collapse under transformers 4.57 (text-text cosine 1.0, tested 2026-11-21)
@@ -94,6 +95,78 @@ def similar(sample, k=20, min_dur=None, max_dur=None, path=None, per_dir=None):
     """files that sound like `sample` (an indexed path or any audio file), the sample itself excluded"""
     P, E, D = load_index(path); x, _ = load_audio(sample)
     return _rank(P, E, D, embed_audio([x])[0], k, min_dur, max_dur, exclude=sample, per_dir=per_dir) if len(P) else []
+
+# ---- P152b (2026-11-21): CLAP as the candidate source of the sound choice, and layers that fit the ones already chosen ----------------------
+_IDX = {}
+def _index(path=None):
+    d = index_dir(path)
+    if d not in _IDX: P, E, D = load_index(path); _IDX[d] = (P, E, D, {p: i for i, p in enumerate(P)})
+    return _IDX[d]
+
+def embedding_of(sample, path=None):
+    """the unit embedding of a file: from the index when it is there, else computed"""
+    P, E, D, at = _index(path); i = at.get(sample)
+    return E[i] if i is not None else embed_audio([load_audio(sample)[0]])[0]
+
+ROLE_PROMPTS = {"kick": "a kick drum hit", "snare": "a snare drum hit", "clap": "a hand clap", "hats": "a hi-hat", "cymbal": "a crash cymbal or ride cymbal",
+                "perc": "a percussion hit like conga, bongo, wood block or shaker", "bass": "a bass note", "pad": "a sustained synth pad chord",
+                "keys": "a piano or electric piano note", "lead": "a synth lead note", "strings": "a string instrument, violin or cello", "fx": "a sound effect, riser or noise"}
+ROLE_OK = {"hats": ("hats", "cymbal"), "open": ("hats", "cymbal"), "ride": ("cymbal", "hats"), "shaker": ("perc", "hats"), "rim": ("snare", "perc", "clap"), "sub": ("bass",),
+           "chords": ("pad", "keys"), "rhodes": ("keys",), "pluck": ("lead", "keys"), "arp": ("lead", "keys"), "texture": ("fx", "pad")}
+NAME_DENY = {"kick": r"synth|bass|pad|lead|chord|stab|hat|snare|clap|perc|tom|fx|loop|vox|vocal", "snare": r"kick|bass|synth|pad|hat|loop", "clap": r"kick|bass|synth|pad|hat|loop",
+             "hats": r"kick|snare|clap|bass|synth|pad|loop", "bass": r"kick|(^|[^a-z])bd|snare|hat|clap|loop"}
+# the file name is a weak signal, but a name that clearly says another role vetoes the zero-shot label (2026-11-21: «kick» found WATS_Synth_Shot_10_C)
+# zero-shot check on the 17746 files (2026-11-21; file names as truth): kick 0.99, clap 0.82, snare 0.74, hats 0.67 (+cymbal 0.29), bass 0.43 (one-shot basses often sound like kicks)
+_ROLES = {}
+def sound_roles(path=None):
+    """the zero-shot role (a ROLE_PROMPTS key) of every indexed file, by its nearest role prompt (cached)"""
+    d = index_dir(path)
+    if d not in _ROLES:
+        P, E, D, at = _index(path); T = embed_text(list(ROLE_PROMPTS.values())); _ROLES[d] = np.array(list(ROLE_PROMPTS))[np.argmax(E @ T.T, 1)] if len(P) else np.array([])
+    return _ROLES[d]
+
+def _scored(text=None, near=None, near_weight=.5, min_dur=None, max_dur=None, contains=None, role=None, path=None):
+    if not text and not near: raise ValueError("clap_index.candidates: give text= and/or near=")
+    P, E, D, at = _index(path)
+    if not len(P): return P, np.zeros(0, np.float32)
+    s = np.zeros(len(P), np.float32); w = near_weight if (text and near) else 1.0
+    if text: s += (1 - w if near else 1.0) * (E @ embed_text([text])[0])
+    if near:
+        nv = np.stack([embedding_of(n, path) for n in near]); s += w * (E @ nv.T).mean(1)
+    ok = np.ones(len(P), bool)
+    if min_dur is not None: ok &= D >= min_dur
+    if max_dur is not None: ok &= D <= max_dur
+    if contains: ok &= np.array([contains.lower() in p.lower() for p in P])
+    if role is not None and (role in ROLE_PROMPTS or role in ROLE_OK):
+        ok &= np.isin(sound_roles(path), ROLE_OK.get(role, (role,)))
+        rx = NAME_DENY.get(role) or NAME_DENY.get((ROLE_OK.get(role) or ("",))[0])
+        if rx: ok &= np.array([not re.search(rx, p.rsplit("/", 1)[-1].lower()) for p in P])
+    for n in near or []:
+        if n in at: ok[at[n]] = False
+    return P, np.where(ok, s, -9)
+
+def candidates(text=None, k=12, near=None, near_weight=.5, min_dur=None, max_dur=None, per_dir=2, contains=None, path=None, role=None, margin=None, scores=False):
+    """the k files that best match `text` and/or sound like the files in `near` (sounds already chosen for this track: a kick -> hats of the same
+    character). score = (1 - near_weight) * cos(text) + near_weight * mean cos(near); without text only near counts, without near only text.
+    role: only files whose zero-shot role (sound_roles) fits it (ROLE_OK families: hats also take cymbals). margin: only files within that much of the
+    best score. Returns paths best first (per_dir: at most that many from one folder; near files are excluded); scores=True: [(path, score)]."""
+    P, s = _scored(text, near, near_weight, min_dur, max_dur, contains, role, path); out, seen = [], {}
+    if not len(P): return []
+    order = np.argsort(-s); best = s[order[0]]
+    for i in order:
+        if s[i] <= -9 or len(out) >= k or (margin is not None and s[i] < best - margin): break
+        d = os.path.dirname(P[i])
+        if per_dir and seen.get(d, 0) >= per_dir: continue
+        seen[d] = seen.get(d, 0) + 1; out.append((P[i], round(float(s[i]), 3)) if scores else P[i])
+    return out
+
+def pick(text=None, role=None, lo=None, hi=None, rng=None, title=None, near=None, k=None, top=12, strict=True, margin=.06, **kw):
+    """CLAP proposes the `top` best candidates, soundgate.pick throws out the bad ones (pitch / noise / wobble / range) and takes the least used:
+    CI.pick("soft closed hi-hat", role="hats", near=[kick_path], rng=rng). kw go to candidates (min_dur, max_dur, per_dir, contains, near_weight)."""
+    from . import soundgate
+    c = candidates(text, top, near, role=role, margin=margin, **kw)        # only the relevant ones go to freshness: least-used must not mean least-fitting
+    if not c: raise ValueError(f"clap_index.pick: no candidates for {text!r} (is the index built? python -m autodj.compose.clap_index status)")
+    return soundgate.pick(c, role=role, lo=lo, hi=hi, rng=rng, title=title, k=k, strict=strict)
 
 class _Timeout(Exception): pass
 def _alarm(sig, frm): raise _Timeout()

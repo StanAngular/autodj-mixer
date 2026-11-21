@@ -42,3 +42,37 @@ def test_per_dir_limits_results_from_one_folder_and_default_keeps_all(lib):
     root, idx = lib; CI.build(str(root), path=idx, log=lambda *_: None)
     assert len(CI.search("kick", 4, path=idx)) == 4
     r = CI.search("kick", 4, path=idx, per_dir=1); dirs = [p.rsplit("/", 1)[0] for p, *_ in r]; assert len(dirs) == len(set(dirs)) and len(r) == 2      # root folder once, sub folder once
+
+def _fake_index(tmp_path, monkeypatch):
+    d = tmp_path / "fidx"; d.mkdir(); P = [f"/x/a/kick{i}.wav" for i in range(3)] + [f"/x/b/hat{i}.wav" for i in range(3)] + ["/x/c/pad.wav"]
+    E = np.stack([vec(0) * .9 + vec(3) * .1 * i for i in range(3)] + [vec(2) * .9 + vec(4) * (.1 + .1 * i) for i in range(3)] + [vec(5)])
+    E = E / np.linalg.norm(E, axis=1, keepdims=True); np.savez(d / "shard_0000.npz", paths=np.array(P), emb=E.astype(np.float16), dur=np.array([.3] * 6 + [8.0], np.float32))
+    monkeypatch.setattr(CI, "embed_text", lambda texts: np.stack([vec({"kick": 0, "hat": 2, "pad": 5}[t]) for t in texts])); CI._IDX.clear(); return str(d), P
+
+def test_candidates_by_text_by_near_and_both(tmp_path, monkeypatch):
+    d, P = _fake_index(tmp_path, monkeypatch)
+    assert all("kick" in p for p in CI.candidates("kick", 2, per_dir=None, path=d))
+    near = CI.candidates(near=["/x/b/hat0.wav"], k=2, per_dir=None, path=d); assert all("hat" in p for p in near) and "/x/b/hat0.wav" not in near    # sounds like the chosen hat, the hat itself excluded
+    mix = CI.candidates("hat", 3, near=["/x/a/kick0.wav"], near_weight=.3, per_dir=None, path=d); assert "hat" in mix[0]                               # text leads, near only re-orders
+    assert CI.candidates("pad", 3, max_dur=1, per_dir=None, path=d)[0] != "/x/c/pad.wav"                                                                 # filters still apply
+    with pytest.raises(ValueError): CI.candidates(path=d)
+
+def test_pick_goes_through_soundgate_and_fresh(tmp_path, monkeypatch):
+    d, P = _fake_index(tmp_path, monkeypatch); from autodj.compose import soundgate as SG
+    seen = {}
+    def fake_pick(c, **kw): seen["c"] = c; seen["kw"] = kw; return c[-1]
+    monkeypatch.setattr(SG, "pick", fake_pick)
+    monkeypatch.setattr(CI, "index_dir", lambda path=None: d); monkeypatch.setattr(CI, "sound_roles", lambda path=None: np.array(["kick"] * 3 + ["hats"] * 3 + ["pad"]))
+    r = CI.pick("hat", role="hats", top=2, per_dir=None); assert r in seen["c"] and len(seen["c"]) == 2 and seen["kw"]["role"] == "hats" and all("hat" in p for p in seen["c"])
+    monkeypatch.setattr(CI, "candidates", lambda *a, **k: [])
+    with pytest.raises(ValueError): CI.pick("nothing")
+
+def test_role_filter_uses_the_zero_shot_label_and_a_contradicting_name_vetoes_it(tmp_path, monkeypatch):
+    d, P = _fake_index(tmp_path, monkeypatch); labels = np.array(["kick", "kick", "kick", "hats", "hats", "cymbal", "pad"])
+    monkeypatch.setattr(CI, "sound_roles", lambda path=None: labels)
+    assert set(CI.candidates("kick", 9, role="kick", per_dir=None, path=d)) == set(P[:3])
+    assert set(CI.candidates("hat", 9, role="hats", per_dir=None, path=d)) == set(P[3:6])                      # hats family takes the cymbal too
+    labels[1] = "kick"; P2 = list(P); 
+    monkeypatch.setattr(CI, "_index", lambda path=None: (P[:1] + ["/x/a/Synth_Shot_10.wav"] + P[2:], *CI.load_index(d)[1:], {}))
+    assert "/x/a/Synth_Shot_10.wav" not in CI.candidates("kick", 9, role="kick", per_dir=None, path=d)          # the name says synth: vetoed
+    assert CI.candidates("kick", 9, role=None, per_dir=None, path=d)                                           # no role: no filter
