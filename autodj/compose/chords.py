@@ -518,7 +518,7 @@ class Plan:
         self._starts = np.array([s[0] for s in slots])
 
     @classmethod
-    def build(cls, tonic, sections, home, journey=None, seed=0, roles=None, journey_shift=None, colour=0, slide=None, lean=None, palette="consonant", rhythm=None, title=None, allow_repeat=None):
+    def build(cls, tonic, sections, home, journey=None, seed=0, roles=None, journey_shift=None, colour=0, slide=None, lean=None, palette="consonant", rhythm=None, title=None, allow_repeat=None, arc=None):
         """sections: [(bar_a, bar_b, name, ...)] (Track.tl works). home / journey: idiom names (journey None = the home sentence
         re-harmonised). roles: {section name: role} to override role_of(). colour: +1 richer, -1 plainer chords.
         palette "consonant" (default, P137): every section inside one scale, one sweet colour per chord, changes on the bar line,
@@ -531,6 +531,7 @@ class Plan:
         request) switches the check off and is written to meta. P148: a journey idiom without a journey section goes to the middle home section."""
         roles, promoted = with_journey_role(sections, roles, journey)
         plan = cls._build(tonic, sections, home, journey, seed, roles, journey_shift, colour, slide, lean, palette, rhythm)
+        if arc and palette != "jazz": plan = cls._peak(plan, tonic, sections, home, journey, seed, roles, journey_shift, colour, rhythm, arc)
         if promoted: plan.meta["journey_section"] = promoted
         elif journey and not any(role_of(s[2]) == "journey" or (roles or {}).get(s[2]) == "journey" for s in sections): plan.meta["journey_unused"] = True
         from . import fresh
@@ -540,6 +541,16 @@ class Plan:
             else: raise ValueError('allow_repeat must be a reason text: allow_repeat="Стас asked for the old loop"')
         elif t: check_repeat(plan, t, rhythm=rhythm)
         return plan
+
+    @classmethod
+    def _peak(cls, plan, tonic, sections, home, journey, seed, roles, journey_shift, colour, rhythm, arc):
+        """P160 (audit 2: home1 == home3 note for note, the harmony stands still inside the track): the home sections at the peak of the energy arc
+        (arc[name] >= .99) take the SAME sentence one colour richer (colour + 1: m9 / maj9 / 6-9 instead of add9 / maj7), still inside the scale"""
+        peak = {s[2] for s in sections if arc.get(s[2], 0) >= .99 and ((roles or {}).get(s[2]) or role_of(s[2])) == "home"}
+        if not peak: return plan
+        rich = cls._consonant(tonic, sections, home, journey, seed, roles, journey_shift, colour + 1, 0, 0, rhythm)
+        slots = [r if s[3] in peak else s for s, r in zip(plan.slots, rich.slots)] if len(rich.slots) == len(plan.slots) else plan.slots
+        out = cls(plan.tonic, plan.mode, plan.bars, slots, {**plan.meta, "peak_colour": sorted(peak)}, palette=plan.palette); return out
 
     @classmethod
     def _build(cls, tonic, sections, home, journey, seed, roles, journey_shift, colour, slide, lean, palette, rhythm):
