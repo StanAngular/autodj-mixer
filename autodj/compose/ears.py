@@ -70,6 +70,15 @@ def top_failures(summ, meta=None):
     g = (meta or {}).get("gates") or {}; t = (summ or {}).get("top")
     return ["hat_top"] if t and "hat_top_max" in g and t["hat_share_of_top"] > g["hat_top_max"] and t["top_vs_body_db"] > TOP_VS_BODY_MAX_DB else []
 
+def kick_tuning_problems(sources, harmony):
+    """P153: problem lines for kicks whose body is not on the tonic or the fifth of the track and that the score did not retune (kicktune.kick_in_key)"""
+    try:
+        from . import kicktune
+        t = (harmony or {}).get("tonic")
+        if not t: return []
+        return [f"бочка {n} звучит на {d:+.0f} полутонов от тоники/квинты ({t}): подстрой её (kicktune.kick_in_key + retune), иначе весь микс теряет тональность" for n, d in kicktune.report(sources, t)]
+    except Exception: return []
+
 KICK_BASS_MAX = .5            # P150: more than this share of the bass notes on kick hits = bass and kick play the same rhythm (the unison has no «кач»)
 
 def kick_bass(trk):

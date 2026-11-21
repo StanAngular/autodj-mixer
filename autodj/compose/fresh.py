@@ -23,6 +23,7 @@ LEDGER = "/opt/autodj-mixer/shared/fresh_ledger.json"          # override: env A
 def ledger_path(path=None):
     return path or os.environ.get("AUTODJ_FRESH_LEDGER") or LEDGER
 USED = {}                                        # sources of the render in this process: key -> count
+PATHS = {}                                       # P153: file name -> full path of the sources loaded in this render (kicktune.report needs the file)
 TITLE = None                                     # P147: title of the render in progress (set by run.py): switches the harmony repeat check of chords.Plan.build on
 WORN = 3                                         # a source / pattern found in this many earlier tracks is «worn»
 CLASS = (("kick", ("kick", "bd")), ("hat", ("hat", "hh", "ride", "cymbal")), ("backbeat", ("clap", "snare", "rim", "snr")), ("shaker", ("shk", "shaker", "tamb")),
@@ -34,13 +35,15 @@ def key_of(path):
 
 def used(path, kind=None):
     """note that this render loaded a sound source (never raises)"""
-    try: k = key_of(path); USED[k] = USED.get(k, 0) + 1
+    try:
+        k = key_of(path); USED[k] = USED.get(k, 0) + 1
+        if os.path.isabs(str(path)) and not str(path).startswith(("sfz:", "lab:", "synth:")): PATHS[k] = str(path)
     except Exception: pass
     return path
 
 def reset():
     global TITLE
-    USED.clear(); TITLE = None
+    USED.clear(); PATHS.clear(); TITLE = None
 
 def drum_class(name):
     n = name.lower()
