@@ -38,6 +38,38 @@ def literal_runs(notes, bar_s, s16_s, min_notes=2):
         if best[0]: out[name] = best
     return out
 
+TOP_FROM, BODY = 13, (6, 11)      # P151: depth.EDGES bands: top = 4.9 kHz and above, body = 316 Hz .. 2.2 kHz
+TOP_VS_BODY_MAX_DB, HAT_SHARE_MAX = -10.0, .4
+def top_balance(trk):
+    """P151 (audit 2026-11-21: «хэты торчат»: a layer's level is RMS against the kick, so a top-heavy hat layer at -15 dB is far louder to the ear):
+    what the layers really played (trk.act, step x band energy) -> {"top_vs_body_db": energy above 4.9 kHz against 316 Hz..2.2 kHz of all layers,
+    "hat_share_of_top": the part of that top energy that belongs to hat / shaker layers, "hat_trim_db": how much to lower the hat layers to bring
+    top_vs_body down to TOP_VS_BODY_MAX_DB (0 when it is already there)}. Calibrated on 4 renders: Glass Gate II (hats stick out) -7.6 dB / 0.48,
+    Concrete Hours -11.8 / 0.12, Salt Line -15.2 / 0.06. None when unknown."""
+    from .fresh import drum_class
+    try:
+        E = {n: np.asarray(e).sum(0) for n, e in (getattr(trk, "act", {}) or {}).items() if e is not None}
+        if not E: return None
+        tot = sum(E.values()); top = float(tot[TOP_FROM:].sum()); body = float(tot[BODY[0]:BODY[1]].sum())
+        if top <= 0 or body <= 0: return None
+        hat = float(sum(e[TOP_FROM:].sum() for n, e in E.items() if drum_class(n) in ("hat", "shaker"))); v = 10 * np.log10(top / body)
+        trim = 0.0
+        if v > TOP_VS_BODY_MAX_DB and hat > 0:
+            room = body * 10 ** (TOP_VS_BODY_MAX_DB / 10) - (top - hat); trim = -12.0 if room <= 0 else min(0.0, 10 * np.log10(room / hat))
+        return {"top_vs_body_db": round(float(v), 1), "hat_share_of_top": round(hat / top, 2), "hat_trim_db": round(float(max(trim, -12.0)), 1)}
+    except Exception: return None
+
+def top_problems(top, meta=None):
+    """problem lines (report only) when hats own the top and the top is loud against the body; META["gates"]["hat_top_max"] makes the share a hard gate name"""
+    if not top: return []
+    if top["hat_share_of_top"] > HAT_SHARE_MAX and top["top_vs_body_db"] > TOP_VS_BODY_MAX_DB:
+        return [f"хэты торчат: {top['hat_share_of_top']:.0%} энергии выше 4.9 кГц, верх {top['top_vs_body_db']} дБ к телу (норма <= {TOP_VS_BODY_MAX_DB}): опусти слои hats/shaker примерно на {abs(top['hat_trim_db'])} дБ"]
+    return []
+
+def top_failures(summ, meta=None):
+    g = (meta or {}).get("gates") or {}; t = (summ or {}).get("top")
+    return ["hat_top"] if t and "hat_top_max" in g and t["hat_share_of_top"] > g["hat_top_max"] and t["top_vs_body_db"] > TOP_VS_BODY_MAX_DB else []
+
 KICK_BASS_MAX = .5            # P150: more than this share of the bass notes on kick hits = bass and kick play the same rhythm (the unison has no «кач»)
 
 def kick_bass(trk):
@@ -73,6 +105,7 @@ def gate_failures(summ, meta=None, override=None):
     meta = meta or {}; ov = gate_override(meta) if override is None else override
     out = []
     if (summ or {}).get("silent_layers") and not (ov and meta.get("allow_silent")): out.append("silent_layers")
+    out += top_failures(summ, meta)                                                       # P151: only when META["gates"]["hat_top_max"] is set
     if kick_bass_failures(summ, meta, ov): out.append("kick_bass")                       # P150
     if literal_failures(summ, meta, ov): out.append("literal_repeat")                     # P149: a layer that loops the same bars for > 32 bars
     if ov and meta.get("allow_bad_sounds"): return out
