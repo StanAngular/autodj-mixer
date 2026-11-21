@@ -51,3 +51,27 @@ def test_ci_pick_drops_sharp_drums_before_freshness(tmp_path, monkeypatch):
     with pytest.raises(ValueError): CI.pick("kick", role="kick")
     got.clear(); assert CI.pick("kick", role="kick", strict=False) == bad                                       # not strict: falls back rather than failing
     got.clear(); assert CI.pick("hat", role="hats") == bad                                                       # roles without limits are not filtered
+
+# ---- P161: limits per task ------------------------------------------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _task_reset(): drumq.set_task(); yield; drumq.set_task()
+
+def test_mood_moves_the_limits_both_ways():
+    base = drumq.limits("kick")["crest"]; drumq.set_task(mood="soft"); assert drumq.limits("kick")["crest"] < base
+    drumq.set_task(mood="hard"); assert drumq.limits("kick")["crest"] > base; drumq.set_task(); assert drumq.limits("kick")["crest"] == base
+
+def test_the_same_hit_can_be_refused_for_a_soft_task_and_pass_for_a_hard_one(tmp_path):
+    p = wav(tmp_path, "mid_kick.wav", np.concatenate([[.9], body()[1:] * .4]).astype(np.float32)); m = drumq.features(p); c = m["crest"]
+    drumq.set_task(limits={"kick": {"crest": c - 1}}); assert drumq.problems(m, "kick")
+    drumq.set_task(limits={"kick": {"crest": c + 1}}); assert drumq.problems(m, "kick") == []
+
+def test_references_set_the_limit_a_sharp_reference_allows_a_sharp_hit(tmp_path):
+    spiky = wav(tmp_path, "spiky_kick.wav", spiky_kick()); round_ = wav(tmp_path, "round_kick.wav", soft_kick()); m = drumq.features(spiky)
+    assert drumq.problems(m, "kick")                                                         # the defaults refuse it
+    drumq.set_task(refs={"kick": [spiky]}); assert drumq.problems(m, "kick") == [] and drumq.limits("kick")["crest"] == pytest.approx(m["crest"] * drumq.REF_HEADROOM)
+    drumq.set_task(refs={"kick": [round_]}); assert drumq.problems(m, "kick")                # a round reference makes the limit tighter than the default for this hit
+    assert drumq.set_task(refs={"kick": [{"error": "silent"}]}) is None and drumq.limits("kick") == drumq.limits("kick", {"mood": "neutral"})   # an unmeasurable reference is ignored
+
+def test_unknown_role_has_no_limits_and_run_reads_the_task_from_meta():
+    assert drumq.limits("hats") == {}
+    import inspect; from autodj.compose import run; assert "drumq.set_task(**(meta.get(\"task\") or {}))" in inspect.getsource(run.main)

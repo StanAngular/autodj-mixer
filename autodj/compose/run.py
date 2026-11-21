@@ -78,7 +78,9 @@ def main(argv=None):
     a = ap.parse_args(argv); t0 = time.time()
     from . import fresh
     fresh.reset()                                                                             # P135: sources are counted per render, from the score's import on
-    mod = load_score(a.score); meta = getattr(mod, "META", {}); name = a.name or os.path.splitext(os.path.basename(a.score))[0]
+    mod = load_score(a.score); meta = getattr(mod, "META", {})
+    from . import drumq; drumq.set_task(**(meta.get("task") or {}))                          # P161: sharpness limits of THIS task (mood / references / explicit numbers)
+    name = a.name or os.path.splitext(os.path.basename(a.score))[0]
     outdir = a.outdir or os.path.join(os.path.dirname(os.path.abspath(a.score)), "out"); os.makedirs(outdir, exist_ok=True)
     target = a.target if a.target is not None else meta.get("target", -14.0); title = clean_title(a.title or meta.get("title", name)); fresh.TITLE = title                # P147: from here chords.Plan.build refuses a progression the latest tracks opened with
     raw, pre, mp3 = (os.path.join(outdir, f"{name}{s}") for s in ("_raw.wav", "_pre.wav", ".mp3"))

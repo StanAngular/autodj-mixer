@@ -52,9 +52,31 @@ def features(path):
         except OSError: pass
     return db[k]
 
-def problems(m, role):
-    """reasons a hit is too sharp for the role (kick / clap / snare); unknown role or unmeasured -> []"""
-    lim = LIMITS.get(role)
+# ---- P161 (Стас: «пороги не только из референсов, гибко исходя из задачи»): the limits are resolved PER TASK -----------------------------------
+MOOD_SCALE = {"soft": .8, "calm": .8, "ambient": .7, "neutral": 1.0, "club": 1.0, "hard": 1.35, "aggressive": 1.5}
+TASK = {"mood": "neutral", "refs": {}, "limits": {}}
+def set_task(mood=None, refs=None, limits=None):
+    """the task of this render: mood (MOOD_SCALE: soft / calm / ambient stricter, hard / aggressive looser), refs = {role: [reference hit files or feature dicts]}
+    (the limit becomes what the references do + REF_HEADROOM: a task that wants a sharp hit is allowed one), limits = {role: {axis: value}} explicit
+    numbers for this task; all optional. Called by run.py from META["task"]; set_task() resets to the defaults."""
+    TASK["mood"] = mood or "neutral"; TASK["limits"] = {r: dict(v) for r, v in (limits or {}).items()}; TASK["refs"] = {}
+    for role, xs in (refs or {}).items():
+        ms = [x if isinstance(x, dict) else features(x) for x in (xs if isinstance(xs, (list, tuple)) else [xs])]; TASK["refs"][role] = [m for m in ms if m and not m.get("error")]
+
+REF_HEADROOM = 1.15
+def limits(role, task=None):
+    """{axis: max} for the role under the task: defaults x mood, then what the references of the task do (+15 %), then explicit limits"""
+    t = task or TASK; base = LIMITS.get(role)
+    if not base: return {}
+    k = MOOD_SCALE.get(t.get("mood") or "neutral", 1.0); out = {ax: v * k for ax, v in base.items()}
+    for ax in out:
+        vals = [m[ax] for m in (t.get("refs") or {}).get(role, []) if m.get(ax) is not None]
+        if vals: out[ax] = max(vals) * REF_HEADROOM
+    out.update((t.get("limits") or {}).get(role, {})); return out
+
+def problems(m, role, task=None):
+    """reasons a hit is too sharp for the role (kick / clap / snare) under the task (limits()); unknown role or unmeasured -> []"""
+    lim = limits(role, task)
     if not lim or not m or m.get("error"): return []
     out = []
     if "crest" in lim and m["crest"] > lim["crest"]: out.append(f"острый пик: crest {m['crest']} дБ > {lim['crest']}")
@@ -62,7 +84,7 @@ def problems(m, role):
     if "cen" in lim and m["cen"] > lim["cen"]: out.append(f"слишком ярко: центроид {m['cen']} Гц > {lim['cen']:.0f}")
     return out
 
-def ok(path, role): return not problems(features(path), role)
+def ok(path, role, task=None): return not problems(features(path), role, task)
 
 def report(sources):
     """{file: reasons} for kick / clap / snare sources (by file name class, fresh.PATHS gives the file) that are too sharp"""
