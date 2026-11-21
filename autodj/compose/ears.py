@@ -38,6 +38,28 @@ def literal_runs(notes, bar_s, s16_s, min_notes=2):
         if best[0]: out[name] = best
     return out
 
+KICK_BASS_MAX = .5            # P150: more than this share of the bass notes on kick hits = bass and kick play the same rhythm (the unison has no «кач»)
+
+def kick_bass(trk):
+    """P150: share of the bass notes that land on a kick hit, from what the layers really played (trk.act["kick"], trk.notes of the bass layers); None when unknown"""
+    from .depth import onsets
+    try:
+        E = (getattr(trk, "act", {}) or {}).get("kick")
+        if E is None: return None
+        ks = {b: s for b, s in enumerate(onsets(E, trk.bars)) if s}; steps = []
+        for name, ev in (trk.notes or {}).items():
+            if "bass" in name.lower() or name.lower() == "sub":
+                steps += [(int(e[0] / trk.BAR + 1e-6), int(round((e[0] % trk.BAR) / trk.S16)) % 16) for e in ev]
+        from .chords import kick_bass_overlap
+        r = kick_bass_overlap(steps, ks); return None if r is None else round(r, 2)
+    except Exception: return None
+
+def kick_bass_failures(summ, meta=None, override=None):
+    """["kick_bass ..."] when the bass sits on the kick (> KICK_BASS_MAX). META["gates"]["kick_bass_max"] moves the limit only under gate_override (P146)."""
+    meta = meta or {}; ov = gate_override(meta) if override is None else override
+    lim = ((meta.get("gates") or {}).get("kick_bass_max") if ov else None) or KICK_BASS_MAX; r = (summ or {}).get("kick_bass")
+    return [f"{r:.0%} нот баса совпадает с бочкой (> {lim:.0%})"] if isinstance(r, (int, float)) and r > lim else []
+
 def literal_failures(summ, meta=None, override=None):
     """names of the layers that loop literally for more than LITERAL_RUN_MAX bars. META["gates"]["literal_run_max"] moves the limit only under
     gate_override(meta) (P146: Стас asked for it + reason); otherwise it is ignored."""
@@ -51,6 +73,7 @@ def gate_failures(summ, meta=None, override=None):
     meta = meta or {}; ov = gate_override(meta) if override is None else override
     out = []
     if (summ or {}).get("silent_layers") and not (ov and meta.get("allow_silent")): out.append("silent_layers")
+    if kick_bass_failures(summ, meta, ov): out.append("kick_bass")                       # P150
     if literal_failures(summ, meta, ov): out.append("literal_repeat")                     # P149: a layer that loops the same bars for > 32 bars
     if ov and meta.get("allow_bad_sounds"): return out
     if summ.get("bad_sounds"): out.append("bad_sounds")                       # P139: a detuned/wobbling/noisy one-shot, or a sample played > 7 st from its note on > 30 % of notes

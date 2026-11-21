@@ -14,12 +14,12 @@ def pink(n, seed=0, beta=1.0):
 
 class Ensemble:
     def __init__(self, trk, seed=0, drift_ms=6.0, role_jitter_ms=2.5):
-        self.trk = trk; nsteps = trk.bars * 16 + 16
+        self.trk = trk; nsteps = trk.bars * 16 + 16; self.swing = float(getattr(trk, "swing", 0.0) or 0.0)    # P150: the track's own swing (a fraction of a 16th on the odd steps) now counts
         self.drift = pink(nsteps, seed) * drift_ms                              # shared by every player
         self.jit = {r: pink(nsteps, seed + 97 + i, beta=.6) * role_jitter_ms for i, r in enumerate(ROLE_MS)}
     def offset_ms(self, br, st, role):
         i = int(br * 16 + st); sw = ROLE_SWING.get(role, 0.0) * (self.trk.S16 * 1000 * .18 if int(st) % 2 else 0)
-        j = self.jit.get(role); ms = self.drift[i] + ROLE_MS.get(role, 0.0) + (j[i] if j is not None else 0) + sw
+        j = self.jit.get(role); ms = self.drift[i] + ROLE_MS.get(role, 0.0) + (j[i] if j is not None else 0) + sw + (self.swing * self.trk.S16 * 1000 if int(st) % 2 else 0)
         return float(np.clip(ms, -LIMIT_MS, LIMIT_MS))
     def time(self, br, st, role):
         return br * self.trk.BAR + st * self.trk.S16 + self.offset_ms(br, st, role) / 1000.0

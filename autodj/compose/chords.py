@@ -488,6 +488,26 @@ def with_journey_role(sections, roles, journey):
     pick = homes[len(homes) // 2]
     return {**(roles or {}), pick: "journey"}, pick
 
+def bass_around_kick(steps, kick, keep=()):
+    """P150: bass onsets of one bar (16th steps) built around the kick. A step on a kick hit stays only if it is in `keep` (the root of a chord change);
+    any other moves to the nearest free 16th beside the hit (after it first, then before), or goes when there is none. The bar never ends up empty."""
+    kick = {int(k) % 16 for k in kick}; out = set(); first = sorted(steps)
+    for st in first:
+        if st not in kick or st in keep: out.add(st); continue
+        alt = next((x for x in (st + 1, st - 1, st + 2, st - 2) if 0 <= x < 16 and x not in kick and x not in out and x not in first), None)
+        if alt is not None: out.add(alt)
+    return sorted(out) if out else first[:1]
+
+def kick_bass_overlap(bass_steps, kick_steps):
+    """P150: share of the bass notes (list of 16th steps within their bars, one entry per note, bar aligned with kick_steps[bar]) that land on a kick hit.
+    bass_steps: [(bar, step)]; kick_steps: {bar: set(steps)}. Bars without a kick are not counted. None when there is nothing to compare."""
+    n = hit = 0
+    for bar, st in bass_steps:
+        k = kick_steps.get(bar)
+        if not k: continue
+        n += 1; hit += int(st in k)
+    return None if not n else hit / n
+
 class Plan:
     """the chords of the whole track: self.slots = [(start_step, length, Chord, section_name)]"""
     def __init__(self, tonic, mode, bars, slots, meta=None, palette="jazz"):
@@ -604,8 +624,9 @@ class Plan:
         """[(start_step, length, [midi ...])] for every slot, voice-led across the whole track"""
         v = lead([s[2] for s in self.slots], style, lo, hi, n, self.key, top)
         return [(s[0], s[1], vv) for s, vv in zip(self.slots, v)]
-    def bass(self, rng, lo=28, hi=45, style="root", cell=None, approach=None, legato=.85, against=None):
-        """[(step_abs, len, midi, vel)]. style "root": the chord's bass note on every change, root / octave / fifth / seventh between;
+    def bass(self, rng, lo=28, hi=45, style="root", cell=None, approach=None, legato=.85, against=None, kick=None):
+        """[(step_abs, len, midi, vel)]. P150 kick: the kick's 16th steps of one bar (or a function bar -> steps): the bass is built AROUND it - a note on a
+        kick step survives only as the root of a chord change, every other one moves to the free 16th next to the kick (answers between the hits). style "root": the chord's bass note on every change, root / octave / fifth / seventh between;
         "line": bass notes re-chosen for a stepwise line (inversions); "pedal": the tonic throughout. Before a change the last
         short note may become an APPROACH note a semitone or a scale step from the next bass note. cell: 16th steps of one bar
         (default: a new syncopated cell every 8 bars, its 4th bar varied). against: the voicings that sound above (Plan.voicings):
@@ -624,7 +645,9 @@ class Plan:
             if cell is None and bar % 8 == 0: cur = bass_cell(rng, on_kick=False, onsets=(3, 5)); var = sorted(set(cur[:-1]) | {int(rng.choice([11, 13, 14, 15]))})
             c = cell if cell is not None else (var if bar % 4 == 3 else cur)
             ch_on = {s[0] - bar * 16 for s in slots if bar * 16 <= s[0] < (bar + 1) * 16 and (s[0] % 2 == 0 or s[0] % 16 in c)}     # the bass marks every change
-            on += [bar * 16 + s for s in sorted(ch_on | {s for s in c if s - 1 not in ch_on})]                      # ... and gives that note room
+            steps = sorted(ch_on | {s for s in c if s - 1 not in ch_on})                                           # ... and gives that note room
+            if kick is not None: steps = bass_around_kick(steps, set(kick(bar) if callable(kick) else kick), keep=ch_on)
+            on += [bar * 16 + s for s in steps]
         out = []; prev = lo + 7
         for i, st in enumerate(on):
             s0, n, ch, _ = at(st); nxt_on = on[i + 1] if i + 1 < len(on) else st + 4; ln = max(1, min(nxt_on - st, 6))
