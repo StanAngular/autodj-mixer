@@ -130,6 +130,11 @@ def main(argv=None):
     try:
         from . import rhythm; summ["rhythm_drive"], summ["rhythm_notes"] = rhythm.report(trk, info.get("sources"))                          # P162: report only
     except Exception as e: summ["rhythm_drive"], summ["rhythm_notes"] = None, [f"rhythm.report: {type(e).__name__}: {e}"]
+    try:                                                                                        # P175: how much the mix sounds like its genre card's genre (CLAP, a report)
+        g = (meta.get("task") or {}).get("genre")
+        if g:
+            from . import genres; c = genres.card(g); summ["genre_similarity"] = genres.similarity(mp3, c["labels"])
+    except Exception as e: summ["genre_similarity"] = {"error": f"{type(e).__name__}: {e}"}
     summ["kick_bass"] = ears.kick_bass(trk)
     try:
         from . import rhythm; cl = rhythm.checklist(trk, summ, summ.get("rhythm_drive")); summ["rhythm_checklist"] = [list(x) for x in cl]                       # P164: six questions, every render

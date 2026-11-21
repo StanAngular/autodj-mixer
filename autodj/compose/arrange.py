@@ -81,7 +81,7 @@ def drum_plan_v2(sections, arc, profile, rng=None, phrase=8):
     16th ghosts (ghost_hat_db) from energy .7, the open hat ringing open_hat_s low..high energy, percussion perc_per_bar low..high with a cell that changes every
     8 bars (the density grows at the PEAK while the kick stays), and the BREATH: dropout_beats (<= 4) of silence for kick and perc at the end of the bar before a
     home (always before the peak), at most once in 16 bars, never inside a home. Nothing is written for a style that has none of it (ambient: no hats, no clap)."""
-    rng = rng or np.random.default_rng(0); P = profile; out = {k: [] for k in ("kick", "clap", "hats", "perc", "ohat")}; last_drop = -99; bseed = int(rng.integers(0, 1 << 30))
+    rng = rng or np.random.default_rng(0); P = {**{"hat16": False, "shaker": False, "fill_every": 0}, **profile}; out = {k: [] for k in ("kick", "clap", "hats", "perc", "ohat", "shaker", "fill")}; last_drop = -99; bseed = int(rng.integers(0, 1 << 30))
     fam = P["kick_family"]; secs = [(int(a), int(b), name) for a, b, name, *_ in sections if int(b) > int(a)]
     for si, (a, b, name) in enumerate(secs):
         e = arc.get(name, .5); r = role_of(name); n = b - a; nxt = secs[si + 1] if si + 1 < len(secs) else None
@@ -114,10 +114,16 @@ def drum_plan_v2(sections, arc, profile, rng=None, phrase=8):
                 base = int(78 + 22 * e); strong, weak = _db(base, P["hat_accent_db"] / 2), _db(base, -P["hat_accent_db"] / 2)
                 flip = (k % 4 == 3)                                                                                       # every 4th bar the accent moves to the other offbeats
                 for st in (2, 6, 10, 14): out["hats"].append((br, st, strong if (st in (6, 14)) != flip else weak))
-                if P["ghost_hat_db"] is not None and e >= .7 and k % 4 in (1, 3):
+                if P["hat16"] and e >= .6:                                                  # P171: the steady 16th line of tech house (not random ghosts)
+                    for st in (1, 3, 5, 7, 9, 11, 13, 15): out["hats"].append((br, st, _db(base, -P["ghost_hat_db"] if P["ghost_hat_db"] is not None else -10)))
+                elif P["ghost_hat_db"] is not None and e >= .7 and k % 4 in (1, 3):
                     for st in sorted(rng.choice([1, 3, 5, 9, 11, 13], 3, replace=False).tolist()): out["hats"].append((br, int(st), _db(base, -P["ghost_hat_db"])))
                 lo, hi = P["open_hat_s"]
                 if hi > 0 and e >= .5 and br % 2 == 1 and not breath: out["ohat"].append((br, 14, int(np.clip(60 + 25 * e, 1, 127)), round(_lerp(lo, hi, e), 3)))
+            if P["shaker"] and e >= .5 and r not in ("break",):                             # P171: shaker 16ths, accent on the 8th after each beat
+                out["shaker"] += [(br, st, int(np.clip((70 if st % 4 == 2 else 46) + 20 * e + rng.integers(-4, 5), 1, 127))) for st in range(16) if st < cut]
+            if P["fill_every"] and r in ("home", "journey") and (k % P["fill_every"]) == P["fill_every"] - 1 and not breath:   # P171: a machine fill into the next phrase
+                out["fill"] += [(br, st, 50 + 12 * i) for i, st in enumerate((12, 13, 14, 15))]
             # -- percussion: the cell changes every 8 bars; the density follows the energy, the peak is denser
             lo, hi = P["perc_per_bar"]; cnt = int(round(_lerp(lo, hi, e))) if r in ("home", "journey", "build") else (min(1, hi) if r in ("intro", "outro") and hi else 0)
             if cnt:

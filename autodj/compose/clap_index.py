@@ -109,13 +109,13 @@ def embedding_of(sample, path=None):
     return E[i] if i is not None else embed_audio([load_audio(sample)[0]])[0]
 
 ROLE_PROMPTS = {"kick": "a kick drum hit", "snare": "a snare drum hit", "clap": "a hand clap", "hats": "a hi-hat", "cymbal": "a crash cymbal or ride cymbal",
-                "perc": "a percussion hit like conga, bongo, wood block or shaker", "bass": "a bass note", "pad": "a sustained synth pad chord",
+                "perc": "a short percussion hit", "bass": "a bass note", "pad": "a sustained synth pad chord",
                 "keys": "a piano or electric piano note", "lead": "a synth lead note", "strings": "a string instrument, violin or cello", "fx": "a sound effect, riser or noise"}
 UNPITCHED = {"kick", "snare", "clap", "hats", "open", "ride", "cymbal", "shaker", "perc", "rim", "tom", "fx"}
 ROLE_OK = {"hats": ("hats", "cymbal"), "open": ("hats", "cymbal"), "ride": ("cymbal", "hats"), "shaker": ("perc", "hats"), "rim": ("snare", "perc", "clap"), "sub": ("bass",),
            "chords": ("pad", "keys"), "rhodes": ("keys",), "pluck": ("lead", "keys"), "arp": ("lead", "keys"), "texture": ("fx", "pad")}
 NAME_DENY = {"kick": r"synth|bass|pad|lead|chord|stab|hat|snare|clap|perc|tom|fx|loop|vox|vocal", "snare": r"kick|bass|synth|pad|hat|loop", "clap": r"kick|bass|synth|pad|hat|loop|snare|snr|whip|crack|gun|laser|zap|slap",
-             "hats": r"kick|snare|clap|bass|synth|pad|loop|tamb|shak|perc", "bass": r"kick|(^|[^a-z])bd|snare|hat|clap|loop"}
+             "hats": r"kick|snare|clap|bass|synth|pad|loop|tamb|shak|perc|cabasa|conga|clave|bongo|maraca|guiro|agogo", "bass": r"kick|(^|[^a-z])bd|snare|hat|clap|loop"}
 # the file name is a weak signal, but a name that clearly says another role vetoes the zero-shot label (2026-11-21: «kick» found WATS_Synth_Shot_10_C)
 # zero-shot check on the 17746 files (2026-11-21; file names as truth): kick 0.99, clap 0.82, snare 0.74, hats 0.67 (+cymbal 0.29), bass 0.43 (one-shot basses often sound like kicks)
 _ROLES = {}

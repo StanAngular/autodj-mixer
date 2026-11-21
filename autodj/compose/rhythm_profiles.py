@@ -24,9 +24,13 @@ BASE = dict(
     kick_spread_db=1.0,         # expected spread of the kick hits (accent shape), dB
     density_range_min=.12,      # report: (max - min) / mean of the drum onsets per bar over the sections
     hat_contrast_min_db=1.5,    # report: contrast of the hat hits
+    hat16=False,                # P171: a steady 16th hat line (accents on the offbeat) from energy .6 instead of random ghosts
+    shaker=False,               # P171: a shaker layer on 16ths (its own accent shape) from energy .5
+    fill_every=0,               # P171: a short machine fill (rim / perc) in the last beat of every N bars (0 = none)
 )
 STYLES = {
     "house":        dict(swing=.08, push_ms={"bass": -3.0, "perc": -2.0}, kick_family="four", hat_accent_db=3.0, ghost_hat_db=14.0, open_hat_s=(.15, .35), perc_per_bar=(2, 6), backbeat_min_energy=.5, dropout_beats=2, kick_spread_db=1.2, density_range_min=.12, hat_contrast_min_db=2.0),
+    "tech_house":   dict(swing=.08, push_ms={"bass": -2.0}, kick_family="four", hat_accent_db=3.0, ghost_hat_db=9.0, open_hat_s=(.06, .16), perc_per_bar=(0, 2), backbeat_min_energy=.4, dropout_beats=2, kick_spread_db=1.0, density_range_min=.12, hat_contrast_min_db=2.0, hat16=True, shaker=True, fill_every=8),
     "deep":         dict(swing=.10, push_ms={"perc": -2.0}, kick_family="four", hat_accent_db=2.0, ghost_hat_db=16.0, open_hat_s=(.1, .3), perc_per_bar=(2, 5), ghost_backbeat=True, backbeat_min_energy=.6, dropout_beats=2, kick_spread_db=1.0, density_range_min=.10, hat_contrast_min_db=1.8),
     "melodic":      dict(swing=.04, push_ms={"bass": -2.0}, kick_family="four", hat_accent_db=2.5, ghost_hat_db=16.0, open_hat_s=(.15, .4), perc_per_bar=(1, 5), backbeat_min_energy=.6, dropout_beats=3, kick_spread_db=1.0, density_range_min=.12, hat_contrast_min_db=1.8),
     "garage":       dict(swing=.16, push_ms={"hats": 2.0}, kick_family="two_step", hat_accent_db=3.5, ghost_hat_db=12.0, open_hat_s=(.1, .25), perc_per_bar=(3, 8), ghost_backbeat=True, backbeat_min_energy=.3, dropout_beats=2, kick_spread_db=1.5, density_range_min=.12, hat_contrast_min_db=2.5),
@@ -37,7 +41,7 @@ STYLES = {
     "breaks":       dict(swing=.12, push_ms={"hats": 2.0}, kick_family="broken", hat_accent_db=4.0, ghost_hat_db=10.0, open_hat_s=(.1, .25), perc_per_bar=(3, 8), ghost_backbeat=True, backbeat_min_energy=.2, dropout_beats=2, kick_spread_db=2.5, density_range_min=.12, hat_contrast_min_db=3.0),
     "ambient":      dict(swing=.0, push_ms={}, kick_family="sparse", hat_accent_db=0.0, ghost_hat_db=None, open_hat_s=(0.0, 0.0), perc_per_bar=(0, 2), backbeat_min_energy=1.1, dropout_beats=0, kick_spread_db=0.0, density_range_min=.05, hat_contrast_min_db=0.0),
 }
-ALIAS = {"tech house": "house", "tech_house": "house", "deep house": "deep", "deep_house": "deep", "deep melodic house": "melodic", "melodic house": "melodic", "melodic_house": "melodic",
+ALIAS = {"tech house": "tech_house", "techhouse": "tech_house", "berlin tech house": "tech_house", "deep house": "deep", "deep_house": "deep", "deep melodic house": "melodic", "melodic house": "melodic", "melodic_house": "melodic",
          "organic": "deep", "uk garage": "garage", "2-step": "garage", "two-step": "garage", "minimal techno": "minimal", "deep techno": "techno", "hard techno": "techno",
          "trip hop": "downtempo", "trip-hop": "downtempo", "lofi": "downtempo", "lo-fi": "downtempo", "witch house": "witch_house", "breakbeat": "breaks", "dnb": "breaks",
          "magical ambient": "ambient", "drone": "ambient"}
