@@ -37,3 +37,8 @@ def test_search_ranks_by_meaning_and_filters(lib):
 
 def test_empty_index_gives_empty_results(tmp_path):
     assert CI.search("kick", 3, path=str(tmp_path / "none")) == []
+
+def test_per_dir_limits_results_from_one_folder_and_default_keeps_all(lib):
+    root, idx = lib; CI.build(str(root), path=idx, log=lambda *_: None)
+    assert len(CI.search("kick", 4, path=idx)) == 4
+    r = CI.search("kick", 4, path=idx, per_dir=1); dirs = [p.rsplit("/", 1)[0] for p, *_ in r]; assert len(dirs) == len(set(dirs)) and len(r) == 2      # root folder once, sub folder once

@@ -68,24 +68,32 @@ def load_index(path=None):
         z = np.load(f, allow_pickle=False); P += z["paths"].tolist(); E.append(z["emb"].astype(np.float32)); D.append(z["dur"])
     return P, np.concatenate(E), np.concatenate(D)
 
-def _rank(P, E, D, q, k, min_dur, max_dur, exclude=None):
+def _rank(P, E, D, q, k, min_dur, max_dur, exclude=None, per_dir=None):
+    """per_dir: at most this many results from one folder (a multisample library lists one sound as dozens of near-identical files)"""
     s = E @ q; ok = np.ones(len(P), bool)
     if min_dur is not None: ok &= D >= min_dur
     if max_dur is not None: ok &= D <= max_dur
     s = np.where(ok, s, -9)
-    return [(P[i], round(float(s[i]), 3), round(float(D[i]), 2)) for i in np.argsort(-s)[:k + (1 if exclude else 0)] if s[i] > -9 and P[i] != exclude][:k]
+    out, seen = [], {}
+    for i in np.argsort(-s):
+        if s[i] <= -9 or len(out) >= k: break
+        if P[i] == exclude: continue
+        d = os.path.dirname(P[i])
+        if per_dir and seen.get(d, 0) >= per_dir: continue
+        seen[d] = seen.get(d, 0) + 1; out.append((P[i], round(float(s[i]), 3), round(float(D[i]), 2)))
+    return out
 
-def search(text, k=20, min_dur=None, max_dur=None, path=None, contains=None):
+def search(text, k=20, min_dur=None, max_dur=None, path=None, contains=None, per_dir=None):
     """text -> the k best files [(path, cosine, duration_s)]; contains: keep only paths with this substring (e.g. "Kicks")"""
     P, E, D = load_index(path)
     if contains:
         keep = [i for i, p in enumerate(P) if contains.lower() in p.lower()]; P, E, D = [P[i] for i in keep], E[keep], D[keep]
-    return _rank(P, E, D, embed_text([text])[0], k, min_dur, max_dur) if len(P) else []
+    return _rank(P, E, D, embed_text([text])[0], k, min_dur, max_dur, per_dir=per_dir) if len(P) else []
 
-def similar(sample, k=20, min_dur=None, max_dur=None, path=None):
+def similar(sample, k=20, min_dur=None, max_dur=None, path=None, per_dir=None):
     """files that sound like `sample` (an indexed path or any audio file), the sample itself excluded"""
     P, E, D = load_index(path); x, _ = load_audio(sample)
-    return _rank(P, E, D, embed_audio([x])[0], k, min_dur, max_dur, exclude=sample) if len(P) else []
+    return _rank(P, E, D, embed_audio([x])[0], k, min_dur, max_dur, exclude=sample, per_dir=per_dir) if len(P) else []
 
 class _Timeout(Exception): pass
 def _alarm(sig, frm): raise _Timeout()
@@ -123,14 +131,14 @@ def build(root="~/samples", limit=None, shard=256, batch=16, path=None, per_file
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="autodj.compose.clap_index"); sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build"); b.add_argument("--root", default="~/samples"); b.add_argument("--limit", type=int); b.add_argument("--shard", type=int, default=256); b.add_argument("--batch", type=int, default=16)
-    s = sub.add_parser("search"); s.add_argument("text"); s.add_argument("-k", type=int, default=20); s.add_argument("--min-dur", type=float); s.add_argument("--max-dur", type=float); s.add_argument("--contains")
-    m = sub.add_parser("similar"); m.add_argument("path"); m.add_argument("-k", type=int, default=20); m.add_argument("--min-dur", type=float); m.add_argument("--max-dur", type=float)
+    s = sub.add_parser("search"); s.add_argument("text"); s.add_argument("-k", type=int, default=20); s.add_argument("--min-dur", type=float); s.add_argument("--max-dur", type=float); s.add_argument("--contains"); s.add_argument("--per-dir", type=int)
+    m = sub.add_parser("similar"); m.add_argument("path"); m.add_argument("-k", type=int, default=20); m.add_argument("--min-dur", type=float); m.add_argument("--max-dur", type=float); m.add_argument("--per-dir", type=int)
     sub.add_parser("status"); a = ap.parse_args(argv)
     if a.cmd == "build": build(a.root, a.limit, a.shard, a.batch)
     elif a.cmd == "search":
-        for r in search(a.text, a.k, a.min_dur, a.max_dur, contains=a.contains): print(*r, sep="\t")
+        for r in search(a.text, a.k, a.min_dur, a.max_dur, contains=a.contains, per_dir=a.per_dir): print(*r, sep="\t")
     elif a.cmd == "similar":
-        for r in similar(a.path, a.k, a.min_dur, a.max_dur): print(*r, sep="\t")
+        for r in similar(a.path, a.k, a.min_dur, a.max_dur, per_dir=a.per_dir): print(*r, sep="\t")
     else:
         P, E, D = load_index(); bad = os.path.join(index_dir(), "bad.txt"); print(f"{len(P)} files indexed, {len(glob.glob(os.path.join(index_dir(), 'shard_*.npz')))} shards, bad: {sum(1 for _ in open(bad)) if os.path.exists(bad) else 0}")
 
