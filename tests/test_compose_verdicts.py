@@ -38,3 +38,15 @@ def test_report_and_pick(tmp_path, monkeypatch):
     monkeypatch.setattr(CI, "candidates", lambda *a, **k: [bad, good]); monkeypatch.setattr(fresh, "pick", lambda c, rng=None, k=None, title=None, **kw: c[0])
     assert CI.pick("kick", role="kick") == bad                                                   # proposed rule: still allowed
     V.confirm("kick", "crest"); assert CI.pick("kick", role="kick") == good                      # confirmed: refused
+
+# ---- instruments (the growly bass: «пластиковая линейка», «ненастроенная струна») -------------------------------------------------------------------
+def test_instrument_verdict_makes_hf_and_err_rules_for_negative_db_axes_and_check_instrument_warns(tmp_path, monkeypatch):
+    from autodj.compose import verdicts as VV
+    meas = {"sfz:twangy": {"hf": -17.7, "err": 6.6}, "sfz:smooth": {"hf": -70.0, "err": 1.0}, "sfz:mid": {"hf": -44.0, "err": 3.0}}
+    monkeypatch.setattr(VV, "measure_instrument", lambda n: meas[n])
+    VV.add("T", "bass", "bass", "sfz:twangy", "как пластиковая линейка, дребезжит, ненастроенная струна", False); VV.add("T", "bass", "bass", "sfz:smooth", "нормально", True)
+    r = VV.rules("bass"); assert r["hf"]["status"] == "proposed" and -66 < r["hf"]["max"] < -17.7 and "err" in r
+    assert VV.check_instrument("sfz:twangy", "bass")[1] and not VV.check_instrument("sfz:smooth", "bass")[1] and not VV.check_instrument("sfz:mid", "bass")[1]      # the mid one passes
+    assert not VV.check_instrument("sfz:twangy", "keys")[0] and VV.axes_of("брынчит как линейка") == ["hf", "err"]
+    VV.confirm("bass", "hf"); assert VV.check_instrument("sfz:twangy", "bass")[0] and not VV.check_instrument("sfz:smooth", "bass")[0]
+    from autodj.compose import fresh; fresh.reset(); fresh.used("sfz:twangy"); assert any("sfz:twangy" in l for l in VV.report(list(fresh.USED)))
