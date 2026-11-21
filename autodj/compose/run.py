@@ -109,12 +109,13 @@ def main(argv=None):
     summ["silent_layers"] = ears.silent_layers(info.get("layers_db")); summ["layers_db"] = info.get("layers_db")
     try: summ["literal"] = ears.literal_runs(trk.notes, trk.BAR, trk.S16)                  # P149: layers that loop the same bars (step + pitch) for a long time
     except Exception as e: summ["literal"] = {}; summ["problems"].append(f"literal_runs: {type(e).__name__}: {e}")
+    summ["bands"] = ears.band_owners(trk)                                                      # P155: who owns which band + level to the ear
     summ["top"] = ears.top_balance(trk)                                                        # P151: do the hats own the top of the spectrum
     summ["kick_bass"] = ears.kick_bass(trk)                                                   # P150: share of bass notes on kick hits (None = unknown)
     try: summ["arc"] = ears.arc(mp3, trk.bpm)
     except Exception as e: summ["arc"] = {"error": f"{type(e).__name__}: {str(e)[:100]}"}
     if a.ears or meta.get("ears"): summ["ears"] = ears.abx(mp3)
-    summ["problems"] += [f"слой {n} беззвучен (layers_db пуст): проверь env/секции" for n in summ["silent_layers"]] + ears.ears_gates(summ, meta.get("gates")) + ears.top_problems(summ["top"], meta) + ears.kick_tuning_problems(info.get("sources"), info.get("harmony")) + ears.drum_sharp_problems(info.get("sources")) + [f"бас и бочка: {x}; строй бас от бочки: Plan.bass(kick=...)" for x in ears.kick_bass_failures(summ, meta)] + [f"слой {x} играет те же такты подряд, это петля, а не развитие: lines.evolve / develop" for x in ears.literal_failures(summ, meta)]
+    summ["problems"] += [f"слой {n} беззвучен (layers_db пуст): проверь env/секции" for n in summ["silent_layers"]] + ears.ears_gates(summ, meta.get("gates")) + ears.top_problems(summ["top"], meta) + ears.band_problems(summ["bands"]) + ears.kick_tuning_problems(info.get("sources"), info.get("harmony")) + ears.drum_sharp_problems(info.get("sources")) + [f"бас и бочка: {x}; строй бас от бочки: Plan.bass(kick=...)" for x in ears.kick_bass_failures(summ, meta)] + [f"слой {x} играет те же такты подряд, это петля, а не развитие: lines.evolve / develop" for x in ears.literal_failures(summ, meta)]
     from . import depth                                                                       # P133: where the track is flat (always reported; gates opt-in)
     summ["depth"] = info.get("depth"); summ["depth_notes"] = (info.get("depth") or {}).get("notes", []); summ["problems"] += depth.gates(info.get("depth"), meta.get("gates"))
     from . import tonal                                                                       # P137: is it harmonious (always reported; gates opt-in)

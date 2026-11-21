@@ -70,6 +70,35 @@ def top_failures(summ, meta=None):
     g = (meta or {}).get("gates") or {}; t = (summ or {}).get("top")
     return ["hat_top"] if t and "hat_top_max" in g and t["hat_share_of_top"] > g["hat_top_max"] and t["top_vs_body_db"] > TOP_VS_BODY_MAX_DB else []
 
+BAND_GROUPS = (("sub", 30, 120), ("low", 120, 500), ("mid", 500, 2000), ("presence", 2000, 5000), ("top", 5000, 16000))
+def _aweight(f):
+    f2 = np.asarray(f, float) ** 2; ra = (12194 ** 2 * f2 ** 2) / ((f2 + 20.6 ** 2) * np.sqrt((f2 + 107.7 ** 2) * (f2 + 737.9 ** 2)) * (f2 + 12194 ** 2)); return ra / 0.7943
+
+def band_owners(trk):
+    """P155: who owns which part of the spectrum, from what the layers played (trk.act): {"bands": {group: [[layer, share], ...] top 3}, "heard_db": {layer: A-weighted
+    level relative to the loudest layer}}. The A-weighting is the ear's: a kick at -23 dB RMS can be quieter to the ear than a hook at -33."""
+    try:
+        from .depth import EDGES
+        E = {n: np.asarray(e, float).sum(0) for n, e in (getattr(trk, "act", {}) or {}).items() if e is not None}
+        if not E: return None
+        lo, hi = np.asarray(EDGES[:-1]), np.asarray(EDGES[1:]); mid = np.sqrt(lo * hi); w = _aweight(mid) ** 2; out = {}
+        for g, a, b in BAND_GROUPS:
+            sel = (mid >= a) & (mid < b); tot = sum(float(e[sel].sum()) for e in E.values())
+            if tot > 0: out[g] = [[n, round(float(e[sel].sum()) / tot, 2)] for n, e in sorted(E.items(), key=lambda kv: -float(kv[1][sel].sum()))[:3]]
+        heard = {n: 10 * np.log10(float((e * w).sum()) + 1e-30) for n, e in E.items()}; top = max(heard.values())
+        return {"bands": out, "heard_db": {n: round(v - top, 1) for n, v in sorted(heard.items(), key=lambda kv: -kv[1])}}
+    except Exception: return None
+
+def band_problems(bo):
+    """report lines: one drum layer owning most of the presence/top band (the ear goes there first), the lead layer far below the loudest one to the ear"""
+    if not bo: return []
+    from .fresh import drum_class
+    out = []
+    for g in ("presence", "top"):
+        r = (bo["bands"].get(g) or [[None, 0]])[0]
+        if r[0] and drum_class(r[0]) in ("kick", "backbeat") and r[1] > .6: out.append(f"полосу {g} занимает {r[0]} ({r[1]:.0%}): ухо слышит его щелчок раньше музыки")
+    return out
+
 def drum_sharp_problems(sources):
     """P154: problem lines for kick / clap / snare sources that drumq finds too sharp"""
     try:
