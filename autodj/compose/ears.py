@@ -70,6 +70,13 @@ def top_failures(summ, meta=None):
     g = (meta or {}).get("gates") or {}; t = (summ or {}).get("top")
     return ["hat_top"] if t and "hat_top_max" in g and t["hat_share_of_top"] > g["hat_top_max"] and t["top_vs_body_db"] > TOP_VS_BODY_MAX_DB else []
 
+def drum_sharp_problems(sources):
+    """P154: problem lines for kick / clap / snare sources that drumq finds too sharp"""
+    try:
+        from . import drumq
+        return [f"ударный {n} слишком острый: {'; '.join(r)} (выбери мягче: drumq / CI.pick)" for n, r in drumq.report(sources).items()]
+    except Exception: return []
+
 def kick_tuning_problems(sources, harmony):
     """P153: problem lines for kicks whose body is not on the tonic or the fifth of the track and that the score did not retune (kicktune.kick_in_key)"""
     try:

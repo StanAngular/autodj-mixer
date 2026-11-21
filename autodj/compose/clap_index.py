@@ -167,7 +167,13 @@ def pick(text=None, role=None, lo=None, hi=None, rng=None, title=None, near=None
     from . import soundgate, fresh
     c = candidates(text, top, near, role=role, margin=margin, **kw)        # only the relevant ones go to freshness: least-used must not mean least-fitting
     if not c: raise ValueError(f"clap_index.pick: no candidates for {text!r} (is the index built? python -m autodj.compose.clap_index status)")
-    if role in UNPITCHED: return fresh.pick(c, rng, k=k, title=title)      # soundgate measures PITCH (a kick's pitch drop reads as «wobble»): drums skip it
+    if role in UNPITCHED:                                                   # soundgate measures PITCH (a kick's pitch drop reads as «wobble»): drums skip it
+        from . import drumq                                                 # P154: ... but a drum hit is measured for sharpness before freshness may choose it
+        good = [p for p in c if drumq.ok(p, role)]
+        if not good:
+            if strict and role in drumq.LIMITS: raise ValueError(f"clap_index.pick: all {len(c)} {role} candidates for {text!r} are too sharp (drumq): describe a softer sound or widen top")
+            good = c
+        return fresh.pick(good, rng, k=k, title=title)
     return soundgate.pick(c, role=role, lo=lo, hi=hi, rng=rng, title=title, k=k, strict=strict)
 
 class _Timeout(Exception): pass
