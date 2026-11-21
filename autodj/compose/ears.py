@@ -18,12 +18,40 @@ def gate_override(meta=None):
     import os
     return os.environ.get("AUTODJ_GATE_OVERRIDE") == "1" and bool(str((meta or {}).get("allow_reason", "")).strip())
 
+LITERAL_RUN_MAX = 32          # P149: a layer that plays the very same bars (same steps, same pitches) for more than this many bars is a loop, not music
+
+def literal_runs(notes, bar_s, s16_s, min_notes=2):
+    """P149: {layer: (bars, period)} the longest stretch of consecutive bars in which a pitched layer repeats the bar `period` (1..4) bars earlier
+    note for note (16th step + midi). notes: {layer: [(t_seconds, midi, vel, dur)]} (Track.notes). Layers with fewer than min_notes notes per bar
+    (held pads, single hits) are skipped. A stretch of L equal bars with period p covers L + p bars."""
+    out = {}
+    for name, ev in (notes or {}).items():
+        by = {}
+        for e in ev: by.setdefault(int(e[0] / bar_s + 1e-6), []).append((int(round((e[0] % bar_s) / s16_s)) % 16, int(e[1])))
+        if not by: continue
+        n = max(by) + 1; sig = [tuple(sorted(by.get(b, ()))) for b in range(n)]; best = (0, 0)
+        for p in range(1, 5):
+            run = 0
+            for b in range(p, n):
+                run = run + 1 if (sig[b] and sig[b] == sig[b - p] and len(sig[b]) >= min_notes) else 0
+                if run and run + p > best[0]: best = (run + p, p)
+        if best[0]: out[name] = best
+    return out
+
+def literal_failures(summ, meta=None, override=None):
+    """names of the layers that loop literally for more than LITERAL_RUN_MAX bars. META["gates"]["literal_run_max"] moves the limit only under
+    gate_override(meta) (P146: Стас asked for it + reason); otherwise it is ignored."""
+    meta = meta or {}; ov = gate_override(meta) if override is None else override
+    lim = ((meta.get("gates") or {}).get("literal_run_max") if ov else None) or LITERAL_RUN_MAX
+    return [f"{n} ({r} тактов, период {p})" for n, (r, p) in ((summ or {}).get("literal") or {}).items() if r > lim]
+
 def gate_failures(summ, meta=None, override=None):
     """2026-11-16 (friction top-3): HARD stops. A silent layer means a muted part of the arrangement (15 tracks went out without drums on 2026-11-11);
     reporting it as a problem was not enough. P146: the opt-out flags only count under gate_override(meta) (env + reason), otherwise they are ignored. Returns the list of failed gate names."""
     meta = meta or {}; ov = gate_override(meta) if override is None else override
     out = []
     if (summ or {}).get("silent_layers") and not (ov and meta.get("allow_silent")): out.append("silent_layers")
+    if literal_failures(summ, meta, ov): out.append("literal_repeat")                     # P149: a layer that loops the same bars for > 32 bars
     if ov and meta.get("allow_bad_sounds"): return out
     if summ.get("bad_sounds"): out.append("bad_sounds")                       # P139: a detuned/wobbling/noisy one-shot, or a sample played > 7 st from its note on > 30 % of notes
     return out

@@ -13,6 +13,8 @@ flat. Here every note knows what it is over its chord (chord tone / colour 9-11-
   arp        the voicing's notes (plus one colour) run as a pattern that does not restart with the chord
   topline    one slow colour note per chord: give it to Plan.voicings(top=...) and the chords sing a melody on top
   counter    answers in the rests of a melody, on guide tones, moving the other way
+  develop    P149: a line becomes a developed copy of itself (sequence / invert / fragment / displace), re-fitted to the chords
+  evolve     P149: a line over many bars: every copy is a different development of the one before, the last copy returns
   fit / fix  measure a line against the plan (held avoid notes, rubs, share of colours) and repair it
 
 All lines are [(step_abs, len_16ths, midi, vel)]."""
@@ -251,3 +253,43 @@ def fit(notes, plan, ctx=None, min_len=2):
 def fix(notes, plan, lo, hi, ctx=None):
     """repair a hand-written or imported line: held avoid notes and rubs move to the nearest good pitch (refit in place)"""
     return refit(notes, plan, lo, hi, ctx, 0)
+
+
+# ---- P149 (2026-11-21, audit of the composition core): the idea is DEVELOPED, not looped -------------------------------------------
+DEVELOP_KINDS = ("sequence", "invert", "fragment", "displace")
+
+def _scale(plan, lo, hi):
+    return [m for m in range(lo - 12, hi + 13) if m % 12 in plan.key]
+
+def develop(notes, plan, kind, lo, hi, rng, ctx=None, shift=0):
+    """one development of a line [(step, len, midi, vel)] placed `shift` steps later and re-fitted to the chords it meets there.
+    sequence: the contour moves 1-2 scale steps up or down; invert: the contour is mirrored around its first note; fragment: the first
+    bar, twice (the second time where the line's second bar was); displace: every note a 16th later and a little shorter (needs room).
+    The rhythm or the contour or the register changes, so the copy is the same idea and not the same notes."""
+    if not notes: return []
+    sc = _scale(plan, lo, hi); near = lambda m: min(range(len(sc)), key=lambda i: abs(sc[i] - m)); a0 = notes[0][0]
+    if kind == "sequence":
+        d = int(rng.choice([-2, -1, 1, 2])); out = [(s, ln, sc[int(np.clip(near(m) + d, 0, len(sc) - 1))], v) for s, ln, m, v in notes]
+    elif kind == "invert":
+        p = near(notes[0][2]); out = [(s, ln, sc[int(np.clip(2 * p - near(m), 0, len(sc) - 1))], v) for s, ln, m, v in notes]
+    elif kind == "fragment":
+        first = [n for n in notes if n[0] < a0 + 16] or list(notes[:2]); out = list(first) + [(s + 16, ln, m, v) for s, ln, m, v in first]
+    elif kind == "displace":
+        out = [(s + 1, max(1, ln - 1), m, v) for s, ln, m, v in notes]
+    else: raise ValueError(f"unknown development {kind!r}: {DEVELOP_KINDS}")
+    out = [n for n in out if n[0] - a0 < 16 * 64]
+    return smooth(refit(out, plan, lo, hi, ctx, shift), plan, lo, hi, ctx)
+
+def evolve(notes, plan, rng, lo, hi, bars, period=8, ctx=None, origin=None, kinds=DEVELOP_KINDS, ret=True):
+    """put a `period`-bar line on every bar in `bars` (where a copy STARTS), like tile(), but copy k is a development of the line
+    (a different one from copy k-1, never the same kind twice in a row). The first copy and, with ret=True, the last one are the line itself:
+    the idea comes back recognisably (Intro / Development / Return). Returns the notes of all copies."""
+    if not notes: return []
+    bars = list(bars); o = (notes[0][0] // 16 // period * period) if origin is None else origin; out = []; last = None
+    for k, b in enumerate(bars):
+        sh = (b - o) * 16; before = out[-1][2] if out else None
+        if k == 0 or (ret and k == len(bars) - 1 and k > 0): part = refit(notes, plan, lo, hi, ctx, sh, before=before)
+        else:
+            pool = [x for x in kinds if x != last] or list(kinds); last = str(rng.choice(pool)); part = develop(notes, plan, last, lo, hi, rng, ctx, sh)
+        out += [n for n in part if n[0] < plan.bars * 16]
+    return smooth(out, plan, lo, hi, ctx)
