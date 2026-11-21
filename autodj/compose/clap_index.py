@@ -114,7 +114,7 @@ ROLE_PROMPTS = {"kick": "a kick drum hit", "snare": "a snare drum hit", "clap": 
 UNPITCHED = {"kick", "snare", "clap", "hats", "open", "ride", "cymbal", "shaker", "perc", "rim", "tom", "fx"}
 ROLE_OK = {"hats": ("hats", "cymbal"), "open": ("hats", "cymbal"), "ride": ("cymbal", "hats"), "shaker": ("perc", "hats"), "rim": ("snare", "perc", "clap"), "sub": ("bass",),
            "chords": ("pad", "keys"), "rhodes": ("keys",), "pluck": ("lead", "keys"), "arp": ("lead", "keys"), "texture": ("fx", "pad")}
-NAME_DENY = {"kick": r"synth|bass|pad|lead|chord|stab|hat|snare|clap|perc|tom|fx|loop|vox|vocal", "snare": r"kick|bass|synth|pad|hat|loop", "clap": r"kick|bass|synth|pad|hat|loop|snare|snr",
+NAME_DENY = {"kick": r"synth|bass|pad|lead|chord|stab|hat|snare|clap|perc|tom|fx|loop|vox|vocal", "snare": r"kick|bass|synth|pad|hat|loop", "clap": r"kick|bass|synth|pad|hat|loop|snare|snr|whip|crack|gun|laser|zap|slap",
              "hats": r"kick|snare|clap|bass|synth|pad|loop|tamb|shak|perc", "bass": r"kick|(^|[^a-z])bd|snare|hat|clap|loop"}
 # the file name is a weak signal, but a name that clearly says another role vetoes the zero-shot label (2026-11-21: «kick» found WATS_Synth_Shot_10_C)
 # zero-shot check on the 17746 files (2026-11-21; file names as truth): kick 0.99, clap 0.82, snare 0.74, hats 0.67 (+cymbal 0.29), bass 0.43 (one-shot basses often sound like kicks)
@@ -171,6 +171,7 @@ def pick(text=None, role=None, lo=None, hi=None, rng=None, title=None, near=None
         from . import drumq                                                 # P154: ... but a drum hit is measured for sharpness before freshness may choose it
         from . import verdicts                                              # P159: a confirmed rule from Стас's verdicts refuses too
         good = [p for p in c if drumq.ok(p, role) and not verdicts.check(p, role)[0]]
+        good = [p for p in good if not verdicts.check(p, role)[1]] or good        # prefer the ones that do not even RESEMBLE what Стас rejected (a proposed rule only warns)
         if not good:
             if strict and role in drumq.LIMITS: raise ValueError(f"clap_index.pick: all {len(c)} {role} candidates for {text!r} are too sharp (drumq): describe a softer sound or widen top")
             good = c

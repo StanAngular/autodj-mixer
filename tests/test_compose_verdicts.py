@@ -36,8 +36,9 @@ def test_report_and_pick(tmp_path, monkeypatch):
     V.add("T", "kick", "kick", bad, "резкий", False); fresh.used(bad); fresh.used(good)
     assert V.report(list(fresh.USED)) and "не подтверждено" in V.report(list(fresh.USED))[0]
     monkeypatch.setattr(CI, "candidates", lambda *a, **k: [bad, good]); monkeypatch.setattr(fresh, "pick", lambda c, rng=None, k=None, title=None, **kw: c[0])
-    assert CI.pick("kick", role="kick") == bad                                                   # proposed rule: still allowed
-    V.confirm("kick", "crest"); assert CI.pick("kick", role="kick") == good                      # confirmed: refused
+    assert CI.pick("kick", role="kick") == good                                                  # proposed rule: the resembling hit is passed over (but allowed when it is the only one)
+    monkeypatch.setattr(CI, "candidates", lambda *a, **k: [bad]); assert CI.pick("kick", role="kick") == bad
+    monkeypatch.setattr(CI, "candidates", lambda *a, **k: [bad, good]); V.confirm("kick", "crest"); assert CI.pick("kick", role="kick") == good      # confirmed: refused
 
 # ---- instruments (the growly bass: «пластиковая линейка», «ненастроенная струна») -------------------------------------------------------------------
 def test_instrument_verdict_makes_hf_and_err_rules_for_negative_db_axes_and_check_instrument_warns(tmp_path, monkeypatch):
@@ -50,3 +51,14 @@ def test_instrument_verdict_makes_hf_and_err_rules_for_negative_db_axes_and_chec
     assert not VV.check_instrument("sfz:twangy", "keys")[0] and VV.axes_of("брынчит как линейка") == ["hf", "err"]
     VV.confirm("bass", "hf"); assert VV.check_instrument("sfz:twangy", "bass")[0] and not VV.check_instrument("sfz:smooth", "bass")[0]
     from autodj.compose import fresh; fresh.reset(); fresh.used("sfz:twangy"); assert any("sfz:twangy" in l for l in VV.report(list(fresh.USED)))
+
+def test_pick_prefers_candidates_without_a_proposed_rule_warning_and_falls_back(tmp_path, monkeypatch):
+    from autodj.compose import clap_index as CI
+    bad = wav(tmp_path, "sharp_kick.wav", kick(True)); good = wav(tmp_path, "round_kick.wav", kick(False)); monkeypatch.setattr(drumq, "LIMITS", {"kick": {}})
+    V.add("T", "kick", "kick", bad, "резкий", False); monkeypatch.setattr(CI, "candidates", lambda *a, **k: [bad, good]); monkeypatch.setattr(fresh, "pick", lambda c, rng=None, k=None, title=None, **kw: c[0])
+    assert CI.pick("kick", role="kick") == good                                     # the proposed rule steers away from the one that resembles the rejected hit
+    monkeypatch.setattr(CI, "candidates", lambda *a, **k: [bad]); assert CI.pick("kick", role="kick") == bad     # ... but never leaves nothing
+
+def test_cabasa_and_friends_are_percussion_not_pitched_sources():
+    from autodj.compose import fresh as F
+    assert all(F.drum_class(n) == "perc" for n in ("Cabasa.wav", "Cowbell-01.wav", "Guiro.wav", "808Stk.wav", "Wblk.wav")) and F.drum_class("WART_Kick_5.wav") == "kick"

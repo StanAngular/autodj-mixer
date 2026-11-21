@@ -27,7 +27,7 @@ PATHS = {}                                       # P153: file name -> full path 
 TITLE = None                                     # P147: title of the render in progress (set by run.py): switches the harmony repeat check of chords.Plan.build on
 WORN = 3                                         # a source / pattern found in this many earlier tracks is «worn»
 CLASS = (("kick", ("kick", "bd")), ("hat", ("hat", "hh", "ride", "cymbal")), ("backbeat", ("clap", "snare", "rim", "snr")), ("shaker", ("shk", "shaker", "tamb")),
-         ("perc", ("perc", "conga", "tom", "clave", "bongo", "tumba", "click")))
+         ("perc", ("perc", "conga", "tom", "clave", "bongo", "tumba", "click", "cabasa", "cowbell", "guiro", "maraca", "agogo", "triangle", "stk", "snap", "wblk", "woodblock")))
 
 def key_of(path):
     """a portable name for a source: the file name (sample packs keep unique names), or "sfz:NAME" for a library instrument"""
