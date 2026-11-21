@@ -79,7 +79,7 @@ def main(argv=None):
     from . import fresh
     fresh.reset()                                                                             # P135: sources are counted per render, from the score's import on
     mod = load_score(a.score); meta = getattr(mod, "META", {})
-    from . import drumq; drumq.set_task(**(meta.get("task") or {}))                          # P161: sharpness limits of THIS task (mood / references / explicit numbers)
+    from . import drumq, rhythm; drumq.set_task(**(meta.get("task") or {}))                          ; rhythm.set_task(**{k: v for k, v in (meta.get("task") or {}).items() if k in ("mood",)})            # P161: sharpness limits of THIS task (mood / references / explicit numbers)
     name = a.name or os.path.splitext(os.path.basename(a.score))[0]
     outdir = a.outdir or os.path.join(os.path.dirname(os.path.abspath(a.score)), "out"); os.makedirs(outdir, exist_ok=True)
     target = a.target if a.target is not None else meta.get("target", -14.0); title = clean_title(a.title or meta.get("title", name)); fresh.TITLE = title                # P147: from here chords.Plan.build refuses a progression the latest tracks opened with
@@ -127,6 +127,9 @@ def main(argv=None):
     except Exception as e: summ["literal"] = {}; summ["problems"].append(f"literal_runs: {type(e).__name__}: {e}")
     summ["bands"] = ears.band_owners(trk)                                                      # P155: who owns which band + level to the ear
     summ["top"] = ears.top_balance(trk)                                                        # P151: do the hats own the top of the spectrum
+    try:
+        from . import rhythm; summ["rhythm_drive"], summ["rhythm_notes"] = rhythm.report(trk, info.get("sources"))                          # P162: report only
+    except Exception as e: summ["rhythm_drive"], summ["rhythm_notes"] = None, [f"rhythm.report: {type(e).__name__}: {e}"]
     summ["kick_bass"] = ears.kick_bass(trk)                                                   # P150: share of bass notes on kick hits (None = unknown)
     try: summ["arc"] = ears.arc(mp3, trk.bpm)
     except Exception as e: summ["arc"] = {"error": f"{type(e).__name__}: {str(e)[:100]}"}

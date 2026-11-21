@@ -87,10 +87,15 @@ class Track:
         return int(br * self.BAR * self.sr)
     def buf(self):
         return np.zeros((self.N, 2), np.float32)
-    def place(self, buf, smp, t, g=1.0, pan=0.0):
-        """add a recording at time t. P140: a recording that starts or ends mid-wave (cut on its transient) gets a 0.5 ms /
+    def place(self, buf, smp, t, g=1.0, pan=0.0, align=None):
+        """add a recording at time t. P163: align="onset" puts the ATTACK of the recording on t, not its first sample (a file that starts with 25 ms of
+        silence lands 25 ms late otherwise: the LM-2 clap of Slate Harbor was 31 ms behind the beat); align=None (default) = the old behaviour, or set
+        Track.align = "onset" for every place() of the track. P140: a recording that starts or ends mid-wave (cut on its transient) gets a 0.5 ms /
         3 ms ramp on that edge only (clicks.declick); Track.declick = False places it untouched."""
         i = int(round(t * self.sr))
+        if (align or getattr(self, "align", None)) == "onset":
+            from .rhythm import onset_samples
+            k = onset_samples(smp); i -= k; self.aligned = getattr(self, "aligned", 0) + (1 if k else 0)
         if i < 0 or i >= len(buf): return
         smp = smp if smp.ndim == 2 else mono2(smp)
         if self.declick:
