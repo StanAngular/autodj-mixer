@@ -8,7 +8,7 @@
 import numpy as np
 from . import chords as C
 
-PATTERNS = ([2, 6, 10, 14], [2, 3, 6, 10, 14], [2, 6, 7, 10, 14, 15], [3, 6, 10, 13], [2, 5, 6, 10, 13, 14], [2, 6, 9, 10, 14])
+PATTERNS = ([2, 6, 10, 14], [1, 2, 5, 6, 9, 10, 13, 14], [2, 5, 7, 10, 13, 15], [2, 3, 6, 10, 14], [2, 6, 7, 10, 14, 15], [3, 6, 10, 13], [2, 5, 6, 10, 13, 14], [2, 6, 9, 10, 14])
 
 def stab_plan(tonic, sections, rng=None, journey="iv"):
     rng = rng or np.random.default_rng(0); t = C.pc_of(tonic); slots = []
@@ -23,7 +23,7 @@ def stab_plan(tonic, sections, rng=None, journey="iv"):
     nb = max(int(s[1]) for s in sections)
     return C.Plan(t, "aeolian", nb, slots, {"home": "stab_tonic", "journey": journey, "palette": "stab"}, palette="consonant")
 
-def rolling_bass(plan, rng, kick_steps=None, lo=28, hi=45, pattern=None, phrase=8):
+def rolling_bass(plan, rng, kick_steps=None, lo=26, hi=42, pattern=None, phrase=8):
     """[(step_abs, len_16ths, midi, vel)]: the riff is chosen once, varied at every phrase end (the last bar of 8 gets a pickup / a moved note)"""
     rng = rng or np.random.default_rng(0); base = list(pattern or PATTERNS[int(rng.integers(0, len(PATTERNS)))]); out = []
     second = [int(rng.choice([12, 10]))]                                                   # the octave or the flat seventh above the root

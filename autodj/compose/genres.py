@@ -12,12 +12,18 @@ mix targets) and are hypotheses until Стас has heard them."""
 import copy, os, re
 import numpy as np
 
-S = os.path.expanduser("~/samples/")
+S = (os.environ.get("AUTODJ_SAMPLES") or "/home/cclaw/samples").rstrip("/") + "/"              # the library lives in /home/cclaw/samples for EVERY user (Hermes sees it through a symlink)
+ALT_ROOTS = ("/home/hermes/samples/", os.path.expanduser("~/samples/"))
+def _norm(p):
+    p = str(p)
+    for a in ALT_ROOTS:
+        if p.startswith(a) and a != S: return S + p[len(a):]
+    return p
 WA, WA2, T909, T808 = S + "wa_techno/WAV MIDI Presets/", S + "wa2/WAV MIDI Loops/", S + "tidal-drum-machines/machines/RolandTR909/", S + "tidal-drum-machines/machines/RolandTR808/"
 AFRO_LOFI = r"conga|bongo|cabasa|clave|maraca|guiro|agogo|djembe|tumba|shekere|marimba|kalimba|vibra|xylo|bell|glock|chime|rhodes|piano|pianet|wurl|cp80|e-piano|epiano|harp|flute|sitar|steel|tabla|udu|cajon|kora|acoustic|upright|dbass|tuba|sax"
 CARDS = {
     "tech_house": dict(
-        bpm=(124, 128), default_bpm=126, rhythm="tech_house", mood="club", harmony="stab", bass="rolling_riff",
+        bpm=(124, 130), default_bpm=128, rhythm="tech_house", mood="club", harmony="stab", bass="rolling_riff",
         layers=("kick", "hats", "ohat", "shaker", "clap", "rim", "bass", "stab", "fx"),
         dirs={"kick": [WA + "Kicks", WA2 + "Percussion", T909 + "rolandtr909-bd", T808], "hats": [WA + "Cymbals", WA2 + "Percussion", T909 + "rolandtr909-hh"],
               "ohat": [WA + "Cymbals", WA2 + "Percussion", T909 + "rolandtr909-oh"], "clap": [WA + "Claps", WA2 + "Percussion", T909 + "rolandtr909-cp"],
@@ -29,12 +35,44 @@ CARDS = {
                "shaker": "short shaker, steady sixteenth", "clap": "tech house clap, dry and wide", "rim": "909 rimshot, short click", "perc": "short machine percussion hit, techy",
                "bass": "deep humming synth bass note, short", "stab": "dark dub chord stab or organ stab, short", "fx": "riser sweep or downlifter effect", "vox": "short vocal chop shout"},
         roles={"kick": "kick", "hats": "hats", "ohat": "hats", "shaker": "shaker", "clap": "clap", "rim": "rim", "perc": "perc", "bass": "bass", "stab": None, "fx": None, "vox": None},
-        mix={"hats_vs_kick_db": (-21, -15), "bass_vs_kick_db": (-0.5, 6.0), "perc_vs_kick_db": (-13, -11)},
+        mix={"hats_vs_kick_db": (-21, -12), "bass_vs_kick_db": (-2.0, 6.0), "perc_vs_kick_db": (-13, -11), "clap_vs_kick_db": (-12, -8), "stab_vs_kick_db": (-9, -6), "vocal_vs_kick_db": (-9, -3),
+             "bass_duck_db": (-17, -13), "bass_note_s": (.12, .23), "bass_midi": (25, 33), "hat_odd_shift_16th": (.12, .28)},      # measured on NO STATIC and DANGER (Стас's references, 130 BPM)
         fx={"riser": "Uplifter", "downlifter": "Downlifter", "impact": "Kick_Boom", "sweep": "Sweep", "vox": "Vox_Crazy"},
         need={"ohat": r"open|^oh|_oh", "shaker": r"shak|^sh|_sh|shk"},                      # the file name must say it (CLAP alone called a cabasa an open hat)
         name_deny={"hats": r"open|^oh|_oh|crash|ride|cymbal_crash", "shaker": r"tamb|vib|guir"},
         refs=("sven_v_th_face_it", "mike_morrisey_ollie_bc_d"), labels=("tech house", "afro house", "deep house", "lo-fi hip hop", "techno")),
 }
+# ---- the other genres (Стас 2026-11-22: «ты сделал под tech house отдельные жёсткие правила, а что с другими стилями») ----------------------------------
+KITS = [WA + "Kicks", WA + "Claps", WA + "Cymbals", WA + "Percussion", WA2 + "Percussion", T909, T808, S + "tidal-drum-machines/machines/RolandTR707", S + "musicradar/house", S + "musicradar/drums"]
+ROLE_Q = {"bass": "bass note, short", "stab": "chord stab, short", "fx": "riser sweep or downlifter effect", "vox": "short vocal chop", "kick": "kick drum", "hats": "closed hi-hat, short", "ohat": "open hi-hat", "shaker": "shaker", "clap": "clap", "rim": "rimshot", "perc": "percussion hit", "snare": "snare drum"}
+ROLE_R = {"kick": "kick", "hats": "hats", "ohat": "hats", "shaker": "shaker", "clap": "clap", "rim": "rim", "perc": "perc", "snare": "snare", "bass": "bass", "stab": None, "fx": None, "vox": None}
+def _card(bpm, default, rhythm, mood, harmony, bass, deny, queries=None, dirs=None, keys=(), basses=(), labels=(), master=None, extra_need=None, name_deny=None):
+    c = dict(bpm=bpm, default_bpm=default, rhythm=rhythm, mood=mood, harmony=harmony, bass=bass, layers=("kick", "hats", "clap", "perc", "bass"),
+             dirs={r: list(KITS) for r in ("kick", "hats", "ohat", "shaker", "clap", "rim", "perc", "snare")}, deny=deny, query={**ROLE_Q, **(queries or {})}, roles=dict(ROLE_R),
+             need={"ohat": r"open|^oh|_oh", "shaker": r"shak|^sh|_sh|shk", **(extra_need or {})}, name_deny={"hats": r"open|^oh|_oh|crash|ride", "shaker": r"tamb|vib|guir", **(name_deny or {})},
+             instruments={"keys": list(keys), "bass": list(basses)}, mix={}, fx={"riser": "Uplifter", "downlifter": "Downlifter", "impact": "Kick_Boom", "sweep": "Sweep"}, refs=(), labels=labels,
+             master=master or {"target": -14.0, "master": "warm", "premaster": "sat"})
+    c["dirs"]["bass"] = [WA + "Synth & Bass Shots"]; c["dirs"]["stab"] = [WA + "Synth Shot", WA2 + "Synth Shots"]; c["dirs"]["fx"] = [WA + "Effects", WA + "FX", WA2 + "FX"]; return c
+HARSH = r"conga|bongo|cabasa|clave|maraca|guiro|agogo|djembe|tabla|sitar|shekere|udu|kora"
+CARDS.update({
+    "house": _card((120, 126), 124, "house", "club", "chords", "groove", HARSH + r"|trap|dist", keys=("rhodes", "wurlitzer", "cp80", "pianet"), basses=("bass", "bass_pluck", "fashionbass"), labels=("house", "tech house", "deep house", "afro house")),
+    "deep": _card((118, 124), 122, "deep", "soft", "jazz-ish chords", "round sub", HARSH + r"|trap|hard|aggress|dist|industrial", keys=("rhodes", "wurlitzer", "cp80", "pianet", "piano"), basses=("bass", "bass_pluck", "dbass"), labels=("deep house", "house", "tech house", "lo-fi hip hop")),
+    "melodic": _card((120, 126), 124, "melodic", "club", "chords+hook", "round sub", HARSH + r"|trap|hard|aggress|dist", keys=("rhodes", "wurlitzer", "cp80", "pianet", "piano"), basses=("bass", "bass_pluck", "fashionbass"), labels=("melodic house", "deep house", "tech house", "techno")),
+    "afro_house": _card((118, 126), 122, "afro_house", "warm", "chords", "round sub", r"trap|hard|aggress|dist|industrial", queries={"perc": "conga, bongo, shaker or wooden percussion hit, organic", "kick": "round soft kick drum, warm"},
+                        keys=("rhodes", "wurlitzer", "pianet", "piano"), basses=("bass", "bass_pluck", "dbass"), labels=("afro house", "deep house", "house", "tech house")),
+    "garage": _card((128, 134), 130, "garage", "soft", "chords", "sub", HARSH + r"|aggress|dist|industrial", keys=("rhodes", "wurlitzer", "cp80", "pianet"), basses=("bass", "bass_pluck", "fashionbass"), labels=("uk garage", "house", "deep house", "drum and bass")),
+    "minimal": _card((120, 128), 124, "minimal", "club", "stab", "short", r"piano|rhodes|pianet|wurl|cp80|bell|marimba|harp|flute|sax|pad|aggress", basses=("bass", "bass_pluck"), labels=("minimal techno", "tech house", "techno", "ambient")),
+    "techno": _card((126, 140), 132, "techno", "hard", "stab", "rumble", r"conga|bongo|cabasa|clave|maraca|guiro|agogo|marimba|kalimba|rhodes|piano|pianet|wurl|cp80|harp|flute|sax|acoustic", basses=("bass",), labels=("techno", "tech house", "house", "ambient")),
+    "downtempo": _card((70, 105), 90, "downtempo", "soft", "chords", "round sub", r"hard|aggress|dist|industrial|trap|crash", keys=("rhodes", "wurlitzer", "cp80", "pianet", "piano"), basses=("bass", "bass_pluck", "dbass", "fashionbass"), labels=("downtempo", "lo-fi hip hop", "trip hop", "ambient")),
+    "breaks": _card((125, 140), 132, "breaks", "club", "chords", "reese-ish", r"conga|bongo|cabasa|clave|djembe|tabla|bell|marimba", keys=("rhodes", "wurlitzer", "cp80", "pianet"), basses=("bass", "growlybass", "fashionbass"), labels=("breakbeat", "drum and bass", "techno", "house")),
+    "witch_house": _card((60, 80), 70, "witch_house", "soft", "dark chords", "sub", r"conga|bongo|cabasa|clave|bright|bell|marimba|kalimba|shaker", keys=("piano", "wurlitzer"), basses=("bass", "dbass"), labels=("witch house", "ambient", "trap", "downtempo")),
+    "ambient": _card((60, 90), 72, "ambient", "ambient", "pads", "drone", r"kick|snare|hat|clap|conga|bongo|cabasa|clave|aggress|dist|industrial", queries={"perc": "soft bell or chime hit"}, keys=("rhodes", "wurlitzer", "piano", "pianet"), basses=("bass", "dbass_arco"), labels=("ambient", "downtempo", "lo-fi hip hop", "techno")),
+})
+for _n, _c in CARDS.items():
+    _c.setdefault("master", {"target": -14.0, "master": "warm", "premaster": "sat"}); _c.setdefault("instruments", {"keys": [], "bass": []}); _c.setdefault("name_deny", {}); _c.setdefault("need", {})
+CARDS["tech_house"]["master"] = {"target": -10.0, "master": "studio", "premaster": "clip", "premaster_knee": -8.0, "gates": {"limiter_max_db": 9.0}}     # loud on purpose: a gentler clipper in front, a wider limiter gate
+CARDS["tech_house"]["instruments"] = {"keys": [], "bass": []}
+CARDS["techno"]["master"] = {"target": -10.0, "master": "studio", "premaster": "clip", "premaster_knee": -8.0, "gates": {"limiter_max_db": 9.0}}
 ALIAS = {"tech house": "tech_house", "tech-house": "tech_house", "berlin tech house": "tech_house", "techhouse": "tech_house"}
 
 def card(name):
@@ -43,17 +81,36 @@ def card(name):
     c = copy.deepcopy(CARDS[n]); c["name"] = n; return c
 
 def in_palette(path, c, role):
-    p = str(path); low = os.path.basename(p).lower()
+    p = _norm(path); low = os.path.basename(p).lower()
     if re.search(c["deny"], low) or re.search(c["deny"], p.lower().replace(S.lower(), "")): return False
     if (c.get("need") or {}).get(role) and not re.search(c["need"][role], low): return False
     if (c.get("name_deny") or {}).get(role) and re.search(c["name_deny"][role], low): return False
     return any(p.startswith(d) for d in c["dirs"].get(role, []))
+
+def _true_root(p):
+    import librosa
+    y, sr = librosa.load(p, sr=22050, duration=.4); return float(np.median(librosa.hz_to_midi(librosa.yin(y, fmin=40, fmax=2000, sr=sr))))
+
+def tonal_ok(p, role="bass"):
+    """a pitched shot (bass / stab) is usable only when soundgate finds no hard defect (wobble, noisy stack) AND a second pitch detector agrees on the octave
+    (Hermes's tech house track died on Bass_Shot_4 ±142 cents and Chord_Shot_1 ±193 cents; Copper Rain on a G6 read as G5)"""
+    from . import soundgate as SG
+    m = SG.measure(p)
+    if not m or m.get("error") or m.get("root") is None or SG.quality(m, role)[1]: return False
+    try: return abs(_true_root(p) - m["root"]) <= 1.5
+    except Exception: return False
+
+def pick_kick(c, tonic, rng=None, title=None, near=None, **kw):
+    """(path, semitones to retune): the least used kick of the palette that kicktune can put on the tonic or the fifth (<= 3 st); the shift is registered for the report"""
+    from . import kicktune
+    return kicktune.kick_in_key(candidates(c, "kick", 24, near=near, **kw), tonic, rng, title)
 
 def candidates(c, role, k=12, near=None, **kw):
     """CLAP candidates for the role restricted to the card's folders (contains is not enough: several folders) and deny words; drumq + verdicts for drum roles"""
     from . import clap_index as CI
     r = c["roles"].get(role); cand = CI.candidates(c["query"][role], 400, near=near, role=r, per_dir=None, **kw)
     cand = [p for p in cand if in_palette(p, c, role)]
+    if role in ("bass", "stab"): cand = [p for p in cand if tonal_ok(p, "bass" if role == "bass" else "pad")]                 # P176: pitched shots must pass the gate BEFORE the render
     if r in ("kick", "clap", "snare", "hats", "rim", "perc", "shaker"):
         from . import drumq, verdicts
         lim = "kick" if r == "kick" else ("clap" if r in ("clap", "rim") else None)
@@ -100,3 +157,21 @@ def similarity(mp3, labels, clips=(.3, .55, .8), clip_s=10.0):
         arrs.append(seg)
     A = CI.embed_audio(arrs).mean(0); A = A / (np.linalg.norm(A) + 1e-9); T = CI.embed_text([f"a {l} track" for l in labels])
     return {l: round(float(t @ A), 3) for l, t in zip(labels, T)}
+
+
+def palette_problems(sources, c):
+    """P176: problem lines for sources of a render that belong to a DENIED family of the card's genre (name or path), file names and sfz names alike"""
+    out = []
+    for src in sources or []:
+        low = str(src).lower().replace(S.lower(), "")
+        if re.search(c["deny"], low): out.append(f"{os.path.basename(str(src))}: семейство запрещено в жанре {c['name']} (карточка): подбери звук из палитры жанра (genres.pick)")
+    return out
+
+def meta_defaults(c):
+    """what a score's META takes from the card (explicit META values win): target loudness, master mode, premaster mode and knee, limiter gate"""
+    m = dict(c.get("master") or {}); g = m.pop("gates", None)
+    return {"target": m.get("target", -14.0), "master": m.get("master", "warm"), "premaster": m.get("premaster", "sat"), **({"premaster_knee": m["premaster_knee"]} if "premaster_knee" in m else {}), **({"gates": g} if g else {})}
+
+ALIAS.update({"afro": "afro_house", "afro house": "afro_house", "deep house": "deep", "melodic house": "melodic", "deep melodic house": "melodic", "uk garage": "garage", "2-step": "garage", "lofi": "downtempo",
+              "lo-fi": "downtempo", "trip hop": "downtempo", "witch house": "witch_house", "breakbeat": "breaks", "dnb": "breaks", "minimal techno": "minimal", "hard techno": "techno",
+              "deep techno": "techno", "magical ambient": "ambient", "drone": "ambient", "house music": "house"})

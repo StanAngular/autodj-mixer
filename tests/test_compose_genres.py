@@ -5,8 +5,9 @@ from autodj.compose import genres as G, riffs as RF, rhythm_profiles as RP, arra
 SECS = [(0, 16, "intro"), (16, 32, "home1"), (32, 48, "journey1"), (48, 56, "break"), (56, 64, "build"), (64, 80, "home2"), (80, 96, "outro")]
 
 def test_card_aliases_and_unknown():
-    assert G.card("Tech House")["name"] == "tech_house" and G.card("berlin tech house")["default_bpm"] == 126 and G.card("tech_house")["rhythm"] == "tech_house"
-    with pytest.raises(ValueError): G.card("afro house")
+    assert G.card("Tech House")["name"] == "tech_house" and G.card("berlin tech house")["default_bpm"] == 128 and G.card("tech_house")["rhythm"] == "tech_house"
+    assert G.card("afro house")["name"] == "afro_house" and G.card("UK garage")["name"] == "garage"
+    with pytest.raises(ValueError): G.card("polka")
 
 def test_palette_keeps_the_genre_folders_and_refuses_afro_lofi_families():
     c = G.card("tech house")
@@ -53,9 +54,9 @@ def test_stab_events_follow_energy_and_change_cell_every_8_bars():
 
 # ---- tech house rhythm ----------------------------------------------------------------------------------------------------------------------------------
 def test_tech_house_profile_has_16th_hats_shaker_fills_and_short_open_hat_and_no_afro_perc():
-    p = RP.profile("tech house"); assert p["style"] == "tech_house" and p["hat16"] and p["shaker"] and p["fill_every"] == 8 and p["open_hat_s"][1] <= .2 and p["perc_per_bar"][1] <= 2
+    p = RP.profile("tech house"); assert p["style"] == "tech_house" and p["shaker"] and p["fill_every"] == 8 and p["open_hat_s"][1] <= .3 and p["perc_per_bar"][1] <= 2
     d = A.drum_plan_v2(SECS, A.energy_arc(SECS), p, np.random.default_rng(1)); home = [x for x in d["hats"] if 64 <= x[0] < 80]
-    assert {1, 3, 5, 7, 9, 11, 13, 15} <= {s for _, s, v in home} and d["shaker"] and d["fill"] and all(s in (12, 13, 14, 15) for _, s, v in d["fill"])
+    assert {2, 6, 10, 14} <= {s for _, s, v in home} and d["shaker"] and d["fill"] and all(s in (12, 13, 14, 15) for _, s, v in d["fill"])      # P176: 8th hats with accents, the 16th line only when a style asks (hat16)
     assert not [x for x in d["shaker"] if 48 <= x[0] < 56]                                                                  # no shaker in the break
     h = A.drum_plan_v2(SECS, A.energy_arc(SECS), RP.profile("house"), np.random.default_rng(1)); assert h["shaker"] == [] and h["fill"] == []       # house unchanged
 
@@ -64,3 +65,47 @@ def test_role_names_closed_vs_open_hat_and_real_shakers():
     assert G.in_palette(G.WA + "Cymbals/WATE_Hithat_02.wav", c, "hats") and not G.in_palette(G.WA + "Cymbals/WATS_Open_HiHat_05.wav", c, "hats")
     assert G.in_palette(G.WA + "Cymbals/WATS_Open_HiHat_05.wav", c, "ohat") and not G.in_palette(G.WA + "Cymbals/WATE_Hithat_02.wav", c, "ohat")
     assert G.in_palette(G.S + "tidal-drum-machines/machines/KorgT3/korgt3-sh/Shaker-01.wav", c, "shaker") and not G.in_palette(G.S + "tidal-drum-machines/machines/X/x-perc/Tambourine.wav", c, "shaker")
+
+# ---- P176: every genre has a card; the palette differs by genre; Hermes's home sees the same library; the master follows the genre ------------------------------
+def test_every_genre_card_resolves_to_a_rhythm_profile_and_has_queries_for_its_roles():
+    for n, c in G.CARDS.items():
+        assert RP.profile(c["rhythm"])["style"] and c["bpm"][0] <= c["default_bpm"] <= c["bpm"][1] and c["labels"] and "master" in c
+        for r in c["dirs"]: assert r in c["query"], (n, r)
+
+def test_the_same_family_is_denied_in_one_genre_and_welcome_in_another():
+    conga = G.WA + "Percussion/WATE_Conga_01.wav"
+    assert not G.in_palette(conga, G.card("tech house"), "perc") and G.in_palette(conga, G.card("afro house"), "perc")                       # afro house is built on them
+    rhodes = G.S + "x/Rhodes_chord.wav"; assert G.palette_problems([rhodes], G.card("techno")) and not G.palette_problems([rhodes], G.card("deep"))
+    assert G.palette_problems(["sfz:pianet"], G.card("minimal")) and not G.palette_problems(["sfz:pianet"], G.card("deep"))
+    assert G.palette_problems([G.S + "x/Kick_01.wav"], G.card("ambient")) and not G.palette_problems([G.S + "x/Kick_01.wav"], G.card("house"))   # no drums in ambient
+    assert G.palette_problems(["/x/WART_Kick_5.wav", "/x/Hat.wav"], G.card("tech house")) == []
+
+def test_hermes_home_paths_are_the_same_library():
+    c = G.card("tech house"); assert G.in_palette("/home/hermes/samples/wa_techno/WAV MIDI Presets/Kicks/WART_Kick_5.wav", c, "kick") and G.in_palette(G.WA + "Kicks/WART_Kick_5.wav", c, "kick")
+    assert G.S.startswith("/home/cclaw/samples/")
+
+def test_master_defaults_follow_the_genre_and_explicit_values_win():
+    t = G.meta_defaults(G.card("tech house")); assert t["target"] == -10.0 and t["master"] == "studio" and t["premaster"] == "clip" and t["premaster_knee"] == -8.0 and t["gates"]["limiter_max_db"] == 9.0
+    d = G.meta_defaults(G.card("deep")); assert d["target"] == -14.0 and d["master"] == "warm" and "gates" not in d
+    import inspect; from autodj.compose import run; src = inspect.getsource(run.main); assert "meta_defaults" in src and 'meta.get("premaster_knee"' in src
+    from autodj.compose import master; assert "knee_db" in inspect.signature(master.premaster).parameters
+
+def test_tech_house_card_carries_the_numbers_measured_on_the_references():
+    c = G.card("tech house"); assert c["mix"]["bass_duck_db"] == (-17, -13) and c["mix"]["clap_vs_kick_db"][1] >= -8 and 125 <= 130 <= c["bpm"][1]
+    assert RP.profile("tech_house")["swing"] >= .12 and RP.profile("tech_house")["hat_accent_db"] >= 6 and not RP.profile("tech_house")["hat16"]
+    assert [1, 2, 5, 6, 9, 10, 13, 14] in RF.PATTERNS and [2, 5, 7, 10, 13, 15] in RF.PATTERNS
+
+def test_pitched_shots_must_pass_soundgate_and_a_second_pitch_detector(monkeypatch):
+    from autodj.compose import soundgate as SG, clap_index as CI
+    meas = {"/x/ok.wav": {"root": 40.0, "wobble": 3, "noise": .001, "cents": 2, "kind": "note", "pcs": 1}, "/x/wobbly.wav": {"root": 40.0, "wobble": 142, "noise": .001, "cents": 0, "kind": "note", "pcs": 1},
+            "/x/octave.wav": {"root": 40.0, "wobble": 3, "noise": .001, "cents": 2, "kind": "note", "pcs": 1}}
+    monkeypatch.setattr(SG, "measure", lambda p: meas[p]); monkeypatch.setattr(G, "_true_root", lambda p: 52.0 if "octave" in p else 40.2)
+    assert G.tonal_ok("/x/ok.wav") and not G.tonal_ok("/x/wobbly.wav") and not G.tonal_ok("/x/octave.wav")                       # wobble refused; the detectors disagree by an octave: refused
+    c = G.card("tech house"); paths = [G.WA + "Synth & Bass Shots/ok.wav", G.WA + "Synth & Bass Shots/wobbly.wav"]
+    monkeypatch.setattr(CI, "candidates", lambda *a, **k: list(paths)); monkeypatch.setattr(G, "tonal_ok", lambda p, role="bass": "wobbly" not in p)
+    assert G.candidates(c, "bass") == [paths[0]]
+
+def test_pick_kick_goes_through_kicktune(monkeypatch):
+    from autodj.compose import kicktune
+    monkeypatch.setattr(G, "candidates", lambda *a, **k: ["/x/k.wav"]); monkeypatch.setattr(kicktune, "kick_in_key", lambda cands, tonic, rng=None, title=None, **kw: (cands[0], 2.0))
+    assert G.pick_kick(G.card("tech house"), "A") == ("/x/k.wav", 2.0)

@@ -16,7 +16,7 @@ def test_styles_differ_where_they_should_and_clubs_accents_are_not_everywhere():
     assert a["hat_accent_db"] == 0 and a["ghost_hat_db"] is None and a["open_hat_s"] == (0.0, 0.0) and a["perc_per_bar"][1] <= 2 and a["backbeat_min_energy"] > 1.0     # no club hats in ambient
 
 def test_aliases_and_unknown_styles():
-    assert RP.profile("Tech House")["style"] == "tech_house" and RP.profile("tech_house")["hat16"] and RP.profile("deep melodic house")["style"] == "melodic" and RP.profile("UK garage")["style"] == "garage"
+    assert RP.profile("Tech House")["style"] == "tech_house" and RP.profile("tech_house")["shaker"] and RP.profile("deep melodic house")["style"] == "melodic" and RP.profile("UK garage")["style"] == "garage"
     with pytest.raises(ValueError): RP.profile("polka")
 
 def test_mood_scales_the_expectations_and_overrides_win_and_are_checked():
