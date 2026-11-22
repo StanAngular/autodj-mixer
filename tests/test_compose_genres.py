@@ -97,11 +97,11 @@ def test_tech_house_card_carries_the_numbers_measured_on_the_references():
 
 def test_pitched_shots_must_pass_soundgate_and_a_second_pitch_detector(monkeypatch):
     from autodj.compose import soundgate as SG, clap_index as CI
-    meas = {"/x/ok.wav": {"root": 40.0, "wobble": 3, "noise": .001, "cents": 2, "kind": "note", "pcs": 1}, "/x/wobbly.wav": {"root": 40.0, "wobble": 142, "noise": .001, "cents": 0, "kind": "note", "pcs": 1},
-            "/x/octave.wav": {"root": 40.0, "wobble": 3, "noise": .001, "cents": 2, "kind": "note", "pcs": 1}}
+    meas = {"/x/ok_bass.wav": {"root": 40.0, "wobble": 3, "noise": .001, "cents": 2, "kind": "note", "pcs": 1}, "/x/wobbly_bass.wav": {"root": 40.0, "wobble": 142, "noise": .001, "cents": 0, "kind": "note", "pcs": 1},
+            "/x/octave_bass.wav": {"root": 40.0, "wobble": 3, "noise": .001, "cents": 2, "kind": "note", "pcs": 1}}
     monkeypatch.setattr(SG, "measure", lambda p: meas[p]); monkeypatch.setattr(G, "_true_root", lambda p: 52.0 if "octave" in p else 40.2)
-    assert G.tonal_ok("/x/ok.wav") and not G.tonal_ok("/x/wobbly.wav") and not G.tonal_ok("/x/octave.wav")                       # wobble refused; the detectors disagree by an octave: refused
-    c = G.card("tech house"); paths = [G.WA + "Synth & Bass Shots/ok.wav", G.WA + "Synth & Bass Shots/wobbly.wav"]
+    assert G.tonal_ok("/x/ok_bass.wav") and not G.tonal_ok("/x/wobbly_bass.wav") and not G.tonal_ok("/x/octave_bass.wav")                       # wobble refused; the detectors disagree by an octave: refused
+    c = G.card("tech house"); paths = [G.WA + "Synth & Bass Shots/WART_Gm_Bass_Shot_ok.wav", G.WA + "Synth & Bass Shots/WART_Gm_Bass_Shot_wobbly.wav"]
     monkeypatch.setattr(CI, "candidates", lambda *a, **k: list(paths)); monkeypatch.setattr(G, "tonal_ok", lambda p, role="bass": "wobbly" not in p)
     assert G.candidates(c, "bass") == [paths[0]]
 
@@ -127,3 +127,9 @@ def test_card_levels_and_the_mix_report_both_sides():
 def test_drumq_accepts_the_whole_task_dict_with_genre():
     from autodj.compose import drumq
     drumq.set_task(genre="tech house", style="tech_house", mood="club"); assert drumq.TASK["mood"] == "club"; drumq.set_task()
+
+def test_role_names_snare_is_not_a_hat_lead_is_not_a_bass_perc_is_not_a_clap():
+    c = G.card("techno")
+    assert not G.in_palette(G.S + "tidal-drum-machines/machines/X/x-hh/sd02.wav", c, "hats") and G.in_palette(G.WA + "Cymbals/WATE_Hithat_02.wav", c, "hats")
+    assert not G.in_palette(G.WA + "Synth & Bass Shots/WATE_Gm_Lead_01.wav", c, "bass") and G.in_palette(G.WA + "Synth & Bass Shots/WART_Gm_Bass_Shot_2.wav", c, "bass")
+    assert not G.in_palette(G.WA2 + "Percussion/WAFTH_Perc_01.wav", c, "clap") and G.in_palette(G.WA + "Claps/WATE_Clap_01.wav", c, "clap")

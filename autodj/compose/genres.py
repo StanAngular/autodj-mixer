@@ -44,7 +44,7 @@ CARDS = {
 }
 # ---- the other genres (Стас 2026-11-22: «ты сделал под tech house отдельные жёсткие правила, а что с другими стилями») ----------------------------------
 KITS = [WA + "Kicks", WA + "Claps", WA + "Cymbals", WA + "Percussion", WA2 + "Percussion", T909, T808, S + "tidal-drum-machines/machines/RolandTR707", S + "musicradar/house", S + "musicradar/drums"]
-ROLE_Q = {"bass": "bass note, short", "stab": "chord stab, short", "fx": "riser sweep or downlifter effect", "vox": "short vocal chop", "kick": "kick drum", "hats": "closed hi-hat, short", "ohat": "open hi-hat", "shaker": "shaker", "clap": "clap", "rim": "rimshot", "perc": "percussion hit", "snare": "snare drum"}
+ROLE_Q = {"bass": "deep humming synth bass note, short", "stab": "chord stab, short", "fx": "riser sweep or downlifter effect", "vox": "short vocal chop", "kick": "kick drum", "hats": "closed hi-hat, short", "ohat": "open hi-hat", "shaker": "shaker", "clap": "clap", "rim": "rimshot", "perc": "percussion hit", "snare": "snare drum"}
 ROLE_R = {"kick": "kick", "hats": "hats", "ohat": "hats", "shaker": "shaker", "clap": "clap", "rim": "rim", "perc": "perc", "snare": "snare", "bass": "bass", "stab": None, "fx": None, "vox": None}
 def _card(bpm, default, rhythm, mood, harmony, bass, deny, queries=None, dirs=None, keys=(), basses=(), labels=(), master=None, extra_need=None, name_deny=None):
     c = dict(bpm=bpm, default_bpm=default, rhythm=rhythm, mood=mood, harmony=harmony, bass=bass, layers=("kick", "hats", "clap", "perc", "bass"),
@@ -108,7 +108,7 @@ def pick_kick(c, tonic, rng=None, title=None, near=None, **kw):
 def candidates(c, role, k=12, near=None, **kw):
     """CLAP candidates for the role restricted to the card's folders (contains is not enough: several folders) and deny words; drumq + verdicts for drum roles"""
     from . import clap_index as CI
-    r = c["roles"].get(role); cand = CI.candidates(c["query"][role], 400, near=near, role=r, per_dir=None, **kw)
+    r = c["roles"].get(role); cand = CI.candidates(c["query"][role], 1500 if role in ("bass", "stab") else 400, near=near, role=r, per_dir=None, **kw)
     cand = [p for p in cand if in_palette(p, c, role)]
     if role in ("bass", "stab"): cand = [p for p in cand if tonal_ok(p, "bass" if role == "bass" else "pad")]                 # P176: pitched shots must pass the gate BEFORE the render
     if r in ("kick", "clap", "snare", "hats", "rim", "perc", "shaker"):
@@ -199,3 +199,11 @@ def mix_problems(layers_db, c, tol=4.0):
         d = (v - k) - c["levels_db"][role]
         if abs(d) > tol: out.append(f"слой {n}: {v - k:+.1f} дБ к бочке, по карточке {c['name']} {c['levels_db'][role]:+.1f} ({'громче' if d > 0 else 'тише'} на {abs(d):.1f} дБ): поставь genres.level(card, '{role}')")
     return out
+
+
+# ---- P180 (2026-11-22, Reel Techno: the «hat» was sd02 = a snare, the «bass» a lead shot, the «clap» a perc): role NAMES for every genre --------------------------------
+for _n, _c in CARDS.items():
+    _c["need"] = {**_c.get("need", {}), "bass": r"bass|sub", "clap": r"clap|(^|[^a-z])cp|snap|hand"}
+    nd = _c.get("name_deny", {})
+    _c["name_deny"] = {**nd, "hats": (nd.get("hats", "") + "|" if nd.get("hats") else "") + r"(^|[^a-z])sd|snare|snr|(^|[^a-z])sn[0-9_]|tom|rim|clap|ophat|op_hat|ophh|oh[0-9]",
+                       "bass": r"lead|chord|arp|pluck|pad|vox|stab", "clap": r"perc|snare|(^|[^a-z])sd|rim|tom|kick|hat", "kick": r"snare|clap|hat|(^|[^a-z])sd|synth|lead|bass_shot"}
