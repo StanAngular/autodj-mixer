@@ -70,9 +70,9 @@ CARDS.update({
 })
 for _n, _c in CARDS.items():
     _c.setdefault("master", {"target": -14.0, "master": "warm", "premaster": "sat"}); _c.setdefault("instruments", {"keys": [], "bass": []}); _c.setdefault("name_deny", {}); _c.setdefault("need", {})
-CARDS["tech_house"]["master"] = {"target": -10.0, "master": "studio", "premaster": "clip", "premaster_knee": -8.0, "gates": {"limiter_max_db": 9.0}}     # loud on purpose: a gentler clipper in front, a wider limiter gate
+CARDS["tech_house"]["master"] = {"target": -11.5, "master": "studio", "premaster": "clip", "premaster_knee": -11.0, "gates": {"limiter_max_db": 8.0}}     # loud on purpose (references NO STATIC / DANGER measure -8.1 / -7.1 LUFS, crest 9 dB, a commercial clipped master): -11.5 LUFS needs only 6-7 dB of limiting on a normal mix; -10 needs 12-13 dB
 CARDS["tech_house"]["instruments"] = {"keys": [], "bass": []}
-CARDS["techno"]["master"] = {"target": -10.0, "master": "studio", "premaster": "clip", "premaster_knee": -8.0, "gates": {"limiter_max_db": 9.0}}
+CARDS["techno"]["master"] = {"target": -11.5, "master": "studio", "premaster": "clip", "premaster_knee": -11.0, "gates": {"limiter_max_db": 8.0}}
 ALIAS = {"tech house": "tech_house", "tech-house": "tech_house", "berlin tech house": "tech_house", "techhouse": "tech_house"}
 
 def card(name):

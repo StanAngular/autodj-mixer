@@ -85,7 +85,7 @@ def test_hermes_home_paths_are_the_same_library():
     assert G.S.startswith("/home/cclaw/samples/")
 
 def test_master_defaults_follow_the_genre_and_explicit_values_win():
-    t = G.meta_defaults(G.card("tech house")); assert t["target"] == -10.0 and t["master"] == "studio" and t["premaster"] == "clip" and t["premaster_knee"] == -8.0 and t["gates"]["limiter_max_db"] == 9.0
+    t = G.meta_defaults(G.card("tech house")); assert t["target"] == -11.5 and t["master"] == "studio" and t["premaster"] == "clip" and t["premaster_knee"] == -11.0 and t["gates"]["limiter_max_db"] == 8.0
     d = G.meta_defaults(G.card("deep")); assert d["target"] == -14.0 and d["master"] == "warm" and "gates" not in d
     import inspect; from autodj.compose import run; src = inspect.getsource(run.main); assert "meta_defaults" in src and 'meta.get("premaster_knee"' in src
     from autodj.compose import master; assert "knee_db" in inspect.signature(master.premaster).parameters
