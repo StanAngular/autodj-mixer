@@ -142,6 +142,9 @@ def main(argv=None):
     except Exception as e: summ["genre_similarity"] = {"error": f"{type(e).__name__}: {e}"}
     try: summ["layer_peaks_db"], _pk = ears.peak_report(trk); summ["problems"] += _pk                  # P179
     except Exception as e: summ["layer_peaks_db"] = {"error": f"{type(e).__name__}: {e}"}
+    try:                                                                                        # P184: layer morphs (morph.apply) and their checks
+        from . import morph as _M; summ["morphs"] = getattr(trk, "morphs", None) or None; summ["problems"] += _M.problems(summ["morphs"])
+    except Exception as e: summ["morphs"] = {"error": f"{type(e).__name__}: {e}"}
     summ["kick_bass"] = ears.kick_bass(trk)
     try:
         from . import rhythm; cl = rhythm.checklist(trk, summ, summ.get("rhythm_drive")); summ["rhythm_checklist"] = [list(x) for x in cl]                       # P164: six questions, every render
