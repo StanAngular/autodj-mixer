@@ -140,6 +140,8 @@ def main(argv=None):
         if g:
             from . import genres; c = genres.card(g); summ["genre_similarity"] = genres.similarity(mp3, c["labels"]); summ["problems"] += genres.palette_problems(info.get("sources"), c) + genres.mix_problems(info.get("layers_db"), c)
     except Exception as e: summ["genre_similarity"] = {"error": f"{type(e).__name__}: {e}"}
+    try: summ["layer_peaks_db"], _pk = ears.peak_report(trk); summ["problems"] += _pk                  # P179
+    except Exception as e: summ["layer_peaks_db"] = {"error": f"{type(e).__name__}: {e}"}
     summ["kick_bass"] = ears.kick_bass(trk)
     try:
         from . import rhythm; cl = rhythm.checklist(trk, summ, summ.get("rhythm_drive")); summ["rhythm_checklist"] = [list(x) for x in cl]                       # P164: six questions, every render

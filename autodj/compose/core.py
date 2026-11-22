@@ -67,7 +67,7 @@ class Track:
         self._mix = np.zeros((self.N, 2), np.float32); self.ref = None; self.tl = []; self.voice = []; self.layers = {}
         self.tt = np.arange(self.N, dtype=np.float32) / sr; self.roles = {}; self.notes = {}
         self.ctl = {}; self.buses = {}; self.bus_cfg = {}; self.spaces = {}; self.routing = {}; self.flushes = {}      # P130: the mix graph
-        self.act = {}; self.act_err = []; self.followed = set(); self.analyze = True                                   # P133: what every layer played (depth.py)
+        self.peaks = {}; self.act = {}; self.act_err = []; self.followed = set(); self.analyze = True                                   # P133: what every layer played (depth.py)
         self.declick = True; self.declicked = 0; self.steps = {}                                                      # P140: clicks.py
     @property
     def mix(self):
@@ -145,6 +145,7 @@ class Track:
         if level is None: level = 10 ** (self.roles.get(role or name, ROLE_DB.get(role or name, -12)) / 20)
         if self.ref is None: self.ref = rms(act)
         x = x * (level * self.ref / rms(act)) * (self.env(name, smooth_bars) if env is None else env)
+        self.peaks[name] = max(self.peaks.get(name, 0.0), float(np.abs(x).max()))                  # P179: the PEAK of every layer (an impact has a small RMS and a huge peak)
         if depth: x = _bus.distance(x, depth, self.sr)
         if duck and key is not None: x = _bus.duck(x, self.sr, self.key_env(key), duck, band=band, release_ms=release_ms)
         elif duck: x = sidechain_duck(x, self.sr, self.BEAT, duck, release_ms=release_ms)

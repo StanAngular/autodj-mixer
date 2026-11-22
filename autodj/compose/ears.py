@@ -210,3 +210,13 @@ def ears_gates(summ, gates):
     if "arc_same8_max" in g and isinstance(ar.get("same_as_8_bars_ago"), (int, float)) and ar["same_as_8_bars_ago"] > g["arc_same8_max"]: out.append(f"повтор: {ar['same_as_8_bars_ago']} тактов совпадает с тактом 8 назад > {g['arc_same8_max']}")
     if "arc_run_max" in g and isinstance(ar.get("longest_unchanged_run_bars"), (int, float)) and ar["longest_unchanged_run_bars"] > g["arc_run_max"]: out.append(f"{ar['longest_unchanged_run_bars']} тактов без изменений > {g['arc_run_max']}")
     return out
+
+
+PEAK_OVER_KICK_DB = 1.5
+def peak_report(trk):
+    """P179 (Hermes: the master needed 17.9 dB of limiting because two fx impacts peaked far above the kick): per-layer peak relative to the kick's peak, dB, and the
+    lines for layers that peak more than PEAK_OVER_KICK_DB above it. Level is set by RMS, so a short loud hit (impact, riser end, clap) hides here."""
+    pk = getattr(trk, "peaks", None) or {}; k = next((v for n, v in pk.items() if n.lower().startswith("kick")), None)
+    if not k: return {}, []
+    rel = {n: round(float(20 * np.log10(v / k + 1e-12)), 1) for n, v in pk.items() if v > 0 and not n.lower().startswith("kick")}
+    return rel, [f"слой {n} по пику на {d:+.1f} дБ выше бочки (> {PEAK_OVER_KICK_DB}): короткий громкий удар заставит лимитер тянуть мастер; опусти слой или срежь пик (клиппер на слое)" for n, d in rel.items() if d > PEAK_OVER_KICK_DB]
