@@ -12,7 +12,7 @@ def add(self, name, x, *a, **k):
     if np.abs(d).max() > 1e-6: LAY[name] = d.astype(np.float32)
 core.Track.add = add
 from autodj.compose import run
-args = sys.argv[1:]; outdir = args[args.index("--outdir") + 1]; run.main(["run"] + args)
+args = sys.argv[1:]; outdir = args[args.index("--outdir") + 1]; run.main(["run"] + [a for a in args if a != "--clips"])
 ld = os.path.join(outdir, "layers"); os.makedirs(ld, exist_ok=True); peak = max(np.abs(v).max() for v in LAY.values()); g = 10 ** (-3 / 20) / peak
 for n, v in LAY.items():
     p = os.path.join(ld, n + ".wav"); sf.write(p, v * g, 44100); subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", p, "-b:a", "192k", p[:-4] + ".mp3"], check=True); os.remove(p)
