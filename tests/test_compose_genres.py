@@ -109,3 +109,21 @@ def test_pick_kick_goes_through_kicktune(monkeypatch):
     from autodj.compose import kicktune
     monkeypatch.setattr(G, "candidates", lambda *a, **k: ["/x/k.wav"]); monkeypatch.setattr(kicktune, "kick_in_key", lambda cands, tonic, rng=None, title=None, **kw: (cands[0], 2.0))
     assert G.pick_kick(G.card("tech house"), "A") == ("/x/k.wav", 2.0)
+
+# ---- P177 ------------------------------------------------------------------------------------------------------------------------------------------------------
+def test_retune_does_not_wrap_the_tail_onto_the_start():
+    from autodj.compose import kicktune as KT
+    t = np.arange(int(.3 * 44100)) / 44100; x = (np.sin(2 * np.pi * 60 * t) * np.exp(-t / .1)).astype(np.float32); x[-200:] = .8          # a loud end: the FFT resample would leak it to the start
+    y = KT.retune(x, 2.0); assert abs(len(y) - len(x) / 2 ** (2 / 12)) <= 1 and abs(y[0]) < .01 and abs(y[1]) < .05
+    z = KT.retune(np.stack([x, x], 1), -3.0); assert z.shape[1] == 2 and abs(z[0, 0]) < .01
+
+def test_card_levels_and_the_mix_report_both_sides():
+    c = G.card("tech house"); assert abs(20 * np.log10(G.level(c, "hats")) - c["levels_db"]["hats"]) < 1e-6 and c["levels_db"]["kick"] == 0
+    bad = {"kick": -12.5, "stab": 0.0, "clap": -4.1, "hats": -23.8, "bass": -6.5}; lines = G.mix_problems(bad, c)
+    assert any("stab" in l and "громче" in l for l in lines) and any("clap" in l for l in lines) and any("bass" in l and "громче" in l for l in lines)
+    good = {"kick": -12.0, "stab": -22.5, "clap": -24.0, "hats": -28.5, "bass": -16.0}; assert G.mix_problems(good, c) == [] and G.mix_problems({}, c) == []
+    assert G.meta_defaults(c)["ceil_db"] == -2.5 and "ceil_db" not in G.meta_defaults(G.card("deep"))
+
+def test_drumq_accepts_the_whole_task_dict_with_genre():
+    from autodj.compose import drumq
+    drumq.set_task(genre="tech house", style="tech_house", mood="club"); assert drumq.TASK["mood"] == "club"; drumq.set_task()

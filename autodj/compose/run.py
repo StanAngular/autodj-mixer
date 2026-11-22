@@ -101,14 +101,14 @@ def main(argv=None):
                 from .blueprint import match_eq, eq_plugins
                 ref_curve = match_eq(raw, meta["reference"], amount=float(meta["match_eq"])); ref_eq = eq_plugins(ref_curve)
             except Exception as ex: ref_curve = {"error": f"{type(ex).__name__}: {str(ex)[:120]}"}
-        premaster(raw, pre, drive_db=drv, mode=pm, pre_eq=list(ref_eq), knee_db=meta.get("premaster_knee", -5.0)); ms = warm(pre, mp3, target, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
+        premaster(raw, pre, drive_db=drv, mode=pm, pre_eq=list(ref_eq), knee_db=meta.get("premaster_knee", -5.0)); ms = warm(pre, mp3, target, mode=meta.get("master", "warm"), ceil_db=meta.get("ceil_db", -1.5)); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
         fixed = []; eq_all, dt_all = list(ref_eq), 0.0
         for _ in range(2):                                         # at most two master-side rounds (an EQ cut can raise the limiter)
             eq, dt = fixes_for(bad, met, ms, meta.get("gates"))
             if not (eq or dt): break
             fixed.append({"codes": [c for c, _ in bad if c in FIXABLE], "before": {"high_db": met["high_db"], "sub_mean": met["sub_mean"], "limiter_max_db": ms["limiter_max_db"]}})
             eq_all += eq; dt_all += dt
-            premaster(raw, pre, drive_db=drv, pre_eq=eq_all, mode=pm, knee_db=meta.get("premaster_knee", -5.0)); ms = warm(pre, mp3, target + dt_all, mode=meta.get("master", "warm")); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
+            premaster(raw, pre, drive_db=drv, pre_eq=eq_all, mode=pm, knee_db=meta.get("premaster_knee", -5.0)); ms = warm(pre, mp3, target + dt_all, mode=meta.get("master", "warm"), ceil_db=meta.get("ceil_db", -1.5)); met = analyze(mp3, info); bad = gates(met, ms, meta.get("gates"))
     if not a.keep_wav:
         for p in (raw, pre): os.path.exists(p) and os.remove(p)
     summ = {"name": name, "title": title, "file": mp3, "dur_s": round(trk.N / trk.sr), "bpm": trk.bpm, "seed": a.seed, "master": ms,
@@ -138,7 +138,7 @@ def main(argv=None):
     try:                                                                                        # P175: how much the mix sounds like its genre card's genre (CLAP, a report)
         g = (meta.get("task") or {}).get("genre")
         if g:
-            from . import genres; c = genres.card(g); summ["genre_similarity"] = genres.similarity(mp3, c["labels"]); summ["problems"] += genres.palette_problems(info.get("sources"), c)
+            from . import genres; c = genres.card(g); summ["genre_similarity"] = genres.similarity(mp3, c["labels"]); summ["problems"] += genres.palette_problems(info.get("sources"), c) + genres.mix_problems(info.get("layers_db"), c)
     except Exception as e: summ["genre_similarity"] = {"error": f"{type(e).__name__}: {e}"}
     summ["kick_bass"] = ears.kick_bass(trk)
     try:

@@ -42,8 +42,11 @@ def kick_in_key(cands, tonic, rng=None, title=None, max_shift=3.0, db=None):
 def retune(x, st):
     """resample a hit (n, ch) or (n,) by st semitones; |st| < .05 returns it unchanged"""
     if abs(st) < .05: return x
-    from scipy.signal import resample
-    return resample(x, max(8, int(round(len(x) / 2 ** (st / 12)))), axis=0).astype(np.float32)
+    # P177: linear-time resampling (np.interp), NOT scipy.signal.resample: the FFT one treats the hit as periodic and wraps its tail onto its
+    # start, so every retuned kick began with a jump (Hermes: 396 wave breaks in the kick layer = one per hit)
+    x = np.asarray(x, np.float32); r = 2 ** (st / 12); n = max(8, int(round(len(x) / r))); src = np.arange(n) * r
+    if x.ndim == 1: return np.interp(src, np.arange(len(x)), x).astype(np.float32)
+    return np.stack([np.interp(src, np.arange(len(x)), x[:, c]) for c in range(x.shape[1])], 1).astype(np.float32)
 
 def report(sources, tonic, tuned=None, max_off=1.5):
     """[(kick file, off semitones)] for the kicks among `sources` (file names or paths) whose body is more than max_off from the tonic and the fifth and that the score did not retune"""

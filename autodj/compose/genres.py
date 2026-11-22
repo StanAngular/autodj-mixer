@@ -170,8 +170,32 @@ def palette_problems(sources, c):
 def meta_defaults(c):
     """what a score's META takes from the card (explicit META values win): target loudness, master mode, premaster mode and knee, limiter gate"""
     m = dict(c.get("master") or {}); g = m.pop("gates", None)
-    return {"target": m.get("target", -14.0), "master": m.get("master", "warm"), "premaster": m.get("premaster", "sat"), **({"premaster_knee": m["premaster_knee"]} if "premaster_knee" in m else {}), **({"gates": g} if g else {})}
+    return {**({"ceil_db": m["ceil_db"]} if "ceil_db" in m else {}), "target": m.get("target", -14.0), "master": m.get("master", "warm"), "premaster": m.get("premaster", "sat"), **({"premaster_knee": m["premaster_knee"]} if "premaster_knee" in m else {}), **({"gates": g} if g else {})}
 
 ALIAS.update({"afro": "afro_house", "afro house": "afro_house", "deep house": "deep", "melodic house": "melodic", "deep melodic house": "melodic", "uk garage": "garage", "2-step": "garage", "lofi": "downtempo",
               "lo-fi": "downtempo", "trip hop": "downtempo", "witch house": "witch_house", "breakbeat": "breaks", "dnb": "breaks", "minimal techno": "minimal", "hard techno": "techno",
               "deep techno": "techno", "magical ambient": "ambient", "drone": "ambient", "house music": "house"})
+
+
+# ---- P177 (Hermes's tech house: «stab громче бочки на 12.5 дБ, хэты на -25, верх тихий»): levels per role as numbers, and a report against them ---------------
+# active-RMS of each stem relative to the kick (drums stem 35-140 Hz) on NO STATIC / DANGER: hats -15.2 / -17.7, clap -10.7 / -13.4, bass -3.1 / -4.4, other (stabs) -11.1 / -9.8, vocals -10.5 / -5.8
+CARDS["tech_house"]["levels_db"] = {"kick": 0.0, "bass": -4.0, "clap": -12.0, "hats": -16.5, "ohat": -17.0, "shaker": -20.0, "rim": -16.0, "perc": -16.0, "stab": -10.5, "vocal": -8.0, "fx": -14.0}
+for _n, _c in CARDS.items():
+    _c.setdefault("levels_db", {"kick": 0.0, "bass": -3.0, "clap": -12.0, "hats": -18.0, "ohat": -18.0, "shaker": -20.0, "rim": -16.0, "perc": -17.0, "stab": -11.0, "keys": -11.0, "pad": -14.0, "hook": -10.0, "vocal": -8.0, "fx": -15.0})
+CARDS["tech_house"]["master"]["ceil_db"] = -2.5; CARDS["techno"]["master"]["ceil_db"] = -2.5            # the mp3 of a hard-limited master overshoots: true peak -0.88 with a -2 dB ceiling
+
+def level(c, role):
+    """linear level for Track.add (RMS relative to the first layer = the kick) from the card's levels_db"""
+    return 10 ** (c["levels_db"].get(role, -12.0) / 20)
+
+def mix_problems(layers_db, c, tol=4.0):
+    """report lines: a layer whose ACTIVE level (layers_db, dBFS) relative to the kick is more than tol dB off the card's levels_db"""
+    if not layers_db or layers_db.get("kick") is None: return []
+    k = layers_db["kick"]; out = []
+    for n, v in layers_db.items():
+        if v is None or n == "kick": continue
+        role = next((r for r in c["levels_db"] if n.startswith(r)), None)
+        if role is None: continue
+        d = (v - k) - c["levels_db"][role]
+        if abs(d) > tol: out.append(f"слой {n}: {v - k:+.1f} дБ к бочке, по карточке {c['name']} {c['levels_db'][role]:+.1f} ({'громче' if d > 0 else 'тише'} на {abs(d):.1f} дБ): поставь genres.level(card, '{role}')")
+    return out
