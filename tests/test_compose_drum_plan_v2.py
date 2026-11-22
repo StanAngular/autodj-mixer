@@ -4,7 +4,7 @@ from autodj.compose import arrange as A, rhythm_profiles as RP, rhythm as R
 
 SECS = [(0, 16, "intro"), (16, 32, "home1"), (32, 48, "journey1"), (48, 52, "break"), (52, 56, "build"), (56, 72, "home2"), (72, 88, "journey2"), (88, 104, "home3"), (104, 120, "outro")]
 ARC = A.energy_arc(SECS)
-def plan(style, seed=1, **kw): return A.drum_plan_v2(SECS, ARC, RP.profile(style, **kw), np.random.default_rng(seed))
+def plan(style, seed=1, **kw): return A.drum_plan_v2(SECS, ARC, RP.profile(style, **{"clap": True, **kw}), np.random.default_rng(seed))
 def inbars(ev, a, b): return [x for x in ev if a <= x[0] < b]
 
 @pytest.fixture(autouse=True)
@@ -61,3 +61,8 @@ def test_style_accuracy_follows_the_task_profile():
     R.set_task(style="house"); assert R.checklist(fake_trk(True), {})[5][1] == "ok"                                 # a four-on-the-floor for house
     R.set_task(style="garage"); assert R.checklist(fake_trk(True), {})[5][1] == "warn"                              # the same drums are wrong for garage
     R.set_task(style="ambient"); assert R.checklist(fake_trk(True), {})[5][1] == "warn"
+
+
+def test_no_clap_unless_the_score_asks():
+    assert A.drum_plan_v2(SECS, ARC, RP.profile("house"), np.random.default_rng(1))["clap"] == [] and not RP.profile("techno")["clap"]
+    assert A.drum_plan_v2(SECS, ARC, RP.profile("house", clap=True), np.random.default_rng(1))["clap"]

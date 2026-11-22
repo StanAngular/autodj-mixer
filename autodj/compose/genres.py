@@ -24,7 +24,7 @@ AFRO_LOFI = r"conga|bongo|cabasa|clave|maraca|guiro|agogo|djembe|tumba|shekere|m
 CARDS = {
     "tech_house": dict(
         bpm=(124, 130), default_bpm=128, rhythm="tech_house", mood="club", harmony="stab", bass="rolling_riff",
-        layers=("kick", "hats", "ohat", "shaker", "clap", "rim", "bass", "stab", "fx"),
+        layers=("kick", "hats", "ohat", "shaker", "rim", "bass", "stab", "fx"),            # no clap by default (Стас 2026-11-22)
         dirs={"kick": [WA + "Kicks", WA2 + "Percussion", T909 + "rolandtr909-bd", T808], "hats": [WA + "Cymbals", WA2 + "Percussion", T909 + "rolandtr909-hh"],
               "ohat": [WA + "Cymbals", WA2 + "Percussion", T909 + "rolandtr909-oh"], "clap": [WA + "Claps", WA2 + "Percussion", T909 + "rolandtr909-cp"],
               "rim": [T909 + "rolandtr909-rim", WA + "Percussion", WA2 + "Percussion"], "shaker": [S + "tidal-drum-machines/machines/", WA + "Percussion", WA2 + "Percussion"],
@@ -47,7 +47,7 @@ KITS = [WA + "Kicks", WA + "Claps", WA + "Cymbals", WA + "Percussion", WA2 + "Pe
 ROLE_Q = {"bass": "deep humming synth bass note, short", "stab": "chord stab, short", "fx": "riser sweep or downlifter effect", "vox": "short vocal chop", "kick": "kick drum", "hats": "closed hi-hat, short", "ohat": "open hi-hat", "shaker": "shaker", "clap": "clap", "rim": "rimshot", "perc": "percussion hit", "snare": "snare drum"}
 ROLE_R = {"kick": "kick", "hats": "hats", "ohat": "hats", "shaker": "shaker", "clap": "clap", "rim": "rim", "perc": "perc", "snare": "snare", "bass": "bass", "stab": None, "fx": None, "vox": None}
 def _card(bpm, default, rhythm, mood, harmony, bass, deny, queries=None, dirs=None, keys=(), basses=(), labels=(), master=None, extra_need=None, name_deny=None):
-    c = dict(bpm=bpm, default_bpm=default, rhythm=rhythm, mood=mood, harmony=harmony, bass=bass, layers=("kick", "hats", "clap", "perc", "bass"),
+    c = dict(bpm=bpm, default_bpm=default, rhythm=rhythm, mood=mood, harmony=harmony, bass=bass, layers=("kick", "hats", "perc", "bass"),
              dirs={r: list(KITS) for r in ("kick", "hats", "ohat", "shaker", "clap", "rim", "perc", "snare")}, deny=deny, query={**ROLE_Q, **(queries or {})}, roles=dict(ROLE_R),
              need={"ohat": r"open|^oh|_oh", "shaker": r"shak|^sh|_sh|shk", **(extra_need or {})}, name_deny={"hats": r"open|^oh|_oh|crash|ride", "shaker": r"tamb|vib|guir", **(name_deny or {})},
              instruments={"keys": list(keys), "bass": list(basses)}, mix={}, fx={"riser": "Uplifter", "downlifter": "Downlifter", "impact": "Kick_Boom", "sweep": "Sweep"}, refs=(), labels=labels,

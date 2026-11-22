@@ -81,7 +81,7 @@ def drum_plan_v2(sections, arc, profile, rng=None, phrase=8):
     16th ghosts (ghost_hat_db) from energy .7, the open hat ringing open_hat_s low..high energy, percussion perc_per_bar low..high with a cell that changes every
     8 bars (the density grows at the PEAK while the kick stays), and the BREATH: dropout_beats (<= 4) of silence for kick and perc at the end of the bar before a
     home (always before the peak), at most once in 16 bars, never inside a home. Nothing is written for a style that has none of it (ambient: no hats, no clap)."""
-    rng = rng or np.random.default_rng(0); P = {**{"hat16": False, "shaker": False, "fill_every": 0}, **profile}; out = {k: [] for k in ("kick", "clap", "hats", "perc", "ohat", "shaker", "fill")}; last_drop = -99; bseed = int(rng.integers(0, 1 << 30))
+    rng = rng or np.random.default_rng(0); P = {**{"hat16": False, "shaker": False, "fill_every": 0, "clap": False}, **profile}; out = {k: [] for k in ("kick", "clap", "hats", "perc", "ohat", "shaker", "fill")}; last_drop = -99; bseed = int(rng.integers(0, 1 << 30))
     fam = P["kick_family"]; secs = [(int(a), int(b), name) for a, b, name, *_ in sections if int(b) > int(a)]
     for si, (a, b, name) in enumerate(secs):
         e = arc.get(name, .5); r = role_of(name); n = b - a; nxt = secs[si + 1] if si + 1 < len(secs) else None
@@ -104,7 +104,7 @@ def drum_plan_v2(sections, arc, profile, rng=None, phrase=8):
             for st in [x for x in ks if x < cut]: out["kick"].append((br, st, int(np.clip((118 if st == 0 else 92 + 20 * e) + rng.integers(-4, 5), 60, 127))))
             if breath: out["kick"].append((br, 15, int(40 + 15 * e)))                                                          # a soft pickup out of the breath
             # -- backbeat
-            if r in ("home", "journey", "build") and e >= P["backbeat_min_energy"] and fam != "sparse":
+            if P.get("clap") and r in ("home", "journey", "build") and e >= P["backbeat_min_energy"] and fam != "sparse":      # clap only when the score asks (Стас 2026-11-22)
                 cs = {"half": [8], "four": [4, 12], "two_step": [4, 12], "broken": [4, 12]}[fam] if e >= P["backbeat_min_energy"] + .2 else ([12] if fam != "half" else [8])
                 out["clap"] += [(br, st, int(np.clip(80 + 30 * e + rng.integers(-5, 6), 50, 120))) for st in cs]
                 if P["ghost_backbeat"] and e >= .7 and k % 4 == 3: out["clap"].append((br, 15, 40))

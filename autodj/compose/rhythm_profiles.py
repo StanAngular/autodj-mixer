@@ -24,6 +24,7 @@ BASE = dict(
     kick_spread_db=1.0,         # expected spread of the kick hits (accent shape), dB
     density_range_min=.12,      # report: (max - min) / mean of the drum onsets per bar over the sections
     hat_contrast_min_db=1.5,    # report: contrast of the hat hits
+    clap=False,                 # Стас 2026-11-22: «clap бесполезный, добавляет банальности, в большинстве треков ухудшает восприятие: отменяем». OFF unless a score asks (profile(..., clap=True))
     hat16=False,                # P171: a steady 16th hat line (accents on the offbeat) from energy .6 instead of random ghosts
     shaker=False,               # P171: a shaker layer on 16ths (its own accent shape) from energy .5
     fill_every=0,               # P171: a short machine fill (rim / perc) in the last beat of every N bars (0 = none)
