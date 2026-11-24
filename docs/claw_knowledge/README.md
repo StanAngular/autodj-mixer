@@ -1,4 +1,4 @@
-# Claw music knowledge (exported 2026-11-23 02:30)
+# Claw music knowledge (exported 2026-11-24 02:30)
 Auto-exported nightly by ClaudeClaw (`scripts/export-music-knowledge.py`). Read-only mirror for Hermes and GitHub: what Стас liked/disliked, how tracks are recreated and generated, tools.
 Rules in one line each live in `notes/` (feedback_*), tools in `tools/`, working examples in `examples/`, Hermes guides in `guides/`. Scores of finished tracks are NOT here (kept on disk by decision 2026-10-17).
 
@@ -64,5 +64,4 @@ Rules in one line each live in `notes/` (feedback_*), tools in `tools/`, working
 - [Copper Rain garage](notes/project_copper_rain_garage.md) — 2026-11-21 first full-stack track (P147-P168), pitch-detector octave trap, what is unheard
 - [Berlin Pulse tech house](notes/project_berlin_pulse_techhouse.md) — 2026-11-21 full-stack tech house; P147 exhaustion fallback, perc class fix, clap picks
 - [Reel Techno](notes/project_reel_techno_2026_11_22.md) — 2026-11-22 techno from a reel's sounds; palette name fixes; loudness numbers (refs -7..-8 LUFS, our target -11.5)
-- [Reel Techno](notes/project_reel_techno_2026_11_22.md) — 2026-11-22 techno from an instagram reel's sounds; palette name bugs; loudness numbers of the references
 - [No clap](notes/feedback_no_clap.md) — 2026-11-22: clap off by default in every track (banal, makes tracks worse); engine default clap=False; only on request

@@ -18,3 +18,5 @@ metadata:
 
 **Why:** each of these took a full render round to find; the same mistakes recur across tracks.
 **How to apply:** when he flags a sound, solo the layer at that second and check this list first; name the exact cause in the reply (he accepted that well). When he says he likes an earlier version best (2026-10-17: «больше нравится 3 версия» of the Lasha house remix), refine that version, don't start a new one.
+
+2026-11-24 Tape Memory: «касета тянется, хрипит» = flutter ~80 cents at 7.3 Hz (displacement amplitude not converted to pitch), sample-rate crush + 10-bit (aliasing grit), and two differently wowed copies of one part playing at once (comb/flanging). Fix that worked in the full track: wow in CENTS (3-12, slow 0.13-0.45 Hz, flutter <= 2), no crush/bits, wear = zero-phase LP bank blended in phase on ONE signal, then one wow; ghost reverse in with equal-power crossfade.
