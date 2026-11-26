@@ -1,4 +1,4 @@
-# Claw music knowledge (exported 2026-11-25 02:30)
+# Claw music knowledge (exported 2026-11-26 02:30)
 Auto-exported nightly by ClaudeClaw (`scripts/export-music-knowledge.py`). Read-only mirror for Hermes and GitHub: what Стас liked/disliked, how tracks are recreated and generated, tools.
 Rules in one line each live in `notes/` (feedback_*), tools in `tools/`, working examples in `examples/`, Hermes guides in `guides/`. Scores of finished tracks are NOT here (kept on disk by decision 2026-10-17).
 
@@ -65,3 +65,7 @@ Rules in one line each live in `notes/` (feedback_*), tools in `tools/`, working
 - [Berlin Pulse tech house](notes/project_berlin_pulse_techhouse.md) — 2026-11-21 full-stack tech house; P147 exhaustion fallback, perc class fix, clap picks
 - [Reel Techno](notes/project_reel_techno_2026_11_22.md) — 2026-11-22 techno from a reel's sounds; palette name fixes; loudness numbers (refs -7..-8 LUFS, our target -11.5)
 - [No clap](notes/feedback_no_clap.md) — 2026-11-22: clap off by default in every track (banal, makes tracks worse); engine default clap=False; only on request
+- [Lab closer to track](notes/feedback_lab_closer_to_track.md) — 2026-11-25: bare technique stretched endlessly = boring; mini-arc, restarts, transitions; ambient liked; waiting for Стас's technique files
+- [Au5 techniques](notes/project_lab_techniques_2026_11_25.md) — 2026-11-25 crunch/tempo reese/chordal filter as workspace helpers; Chord Reese + Organ Bass sent; engine integration waits
+- [Specs = examples](notes/feedback_specs_are_examples.md) — 2026-11-25: technique specs are seeds to fix, adapt and extend with web research, not strict rules or the only methods
+- [Layers by automation](notes/feedback_layers_enter_by_automation.md) — 2026-11-26: no on/off layer switches (step_env); fade/filter over 4-16 bars, changes on 8/16-bar lines; hard techno = main kick + rumble kick at 145+
