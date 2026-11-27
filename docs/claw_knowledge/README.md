@@ -1,4 +1,4 @@
-# Claw music knowledge (exported 2026-11-26 02:30)
+# Claw music knowledge (exported 2026-11-27 02:30)
 Auto-exported nightly by ClaudeClaw (`scripts/export-music-knowledge.py`). Read-only mirror for Hermes and GitHub: what Стас liked/disliked, how tracks are recreated and generated, tools.
 Rules in one line each live in `notes/` (feedback_*), tools in `tools/`, working examples in `examples/`, Hermes guides in `guides/`. Scores of finished tracks are NOT here (kept on disk by decision 2026-10-17).
 

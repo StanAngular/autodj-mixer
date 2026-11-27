@@ -11,3 +11,5 @@ type: feedback
 - melodic texture never alone without a pulse unless it is a deliberate breakdown with a filtered kick still present;
 - harmony slower in techno (chord per 4 bars);
 - hard techno drums 2025: ~145-155 BPM, TWO kicks: short distorted main kick on the beat + rumble kick (kick -> long dark reverb -> LP ~170 Hz -> drive, ducked by the main kick); offbeat hats, ride faded in, open hats in the peak, industrial metal hits, DJ high-pass on the kick in the build that snaps back on the drop. No clap.
+
+2026-11-26 Low Pulse (techno, no cymbals) verdict: «ерунда, очень острые и не в попад, то ли cymbal то ли что-то похожее». Likely causes found in my code: pc_common.widen() builds a second side signal from np.roll(hp, 11 ms) = a flam/echo 11 ms after every transient when used on hats/percussion (off-grid, sharp); hats band 4.5-13 kHz with 16th ghost notes; metal hit on the offbeat. Rule: widen() only for sustained material (pads, stabs, cymbal textures), never on hats/drums (use a plain Haas/stereo sample pair or leave them mono-centred); no extra metal/ride-like sounds unless asked. Next: Стас sends samples for psy trance.
