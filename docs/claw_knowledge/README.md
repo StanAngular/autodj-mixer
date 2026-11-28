@@ -1,4 +1,4 @@
-# Claw music knowledge (exported 2026-11-27 02:30)
+# Claw music knowledge (exported 2026-11-28 02:30)
 Auto-exported nightly by ClaudeClaw (`scripts/export-music-knowledge.py`). Read-only mirror for Hermes and GitHub: what Стас liked/disliked, how tracks are recreated and generated, tools.
 Rules in one line each live in `notes/` (feedback_*), tools in `tools/`, working examples in `examples/`, Hermes guides in `guides/`. Scores of finished tracks are NOT here (kept on disk by decision 2026-10-17).
 
@@ -69,3 +69,6 @@ Rules in one line each live in `notes/` (feedback_*), tools in `tools/`, working
 - [Au5 techniques](notes/project_lab_techniques_2026_11_25.md) — 2026-11-25 crunch/tempo reese/chordal filter as workspace helpers; Chord Reese + Organ Bass sent; engine integration waits
 - [Specs = examples](notes/feedback_specs_are_examples.md) — 2026-11-25: technique specs are seeds to fix, adapt and extend with web research, not strict rules or the only methods
 - [Layers by automation](notes/feedback_layers_enter_by_automation.md) — 2026-11-26: no on/off layer switches (step_env); fade/filter over 4-16 bars, changes on 8/16-bar lines; hard techno = main kick + rumble kick at 145+
+- [Beats vary per section](notes/feedback_beats_vary_per_section.md) — 2026-11-27: beats one-type everywhere; change the drum idea per section; Tape Brake full 4:07
+- [FREAK BLACKBOX pack](notes/reference_freak_blackbox.md) — 2026-11-27 psy/forest/dark sample pack in ~/samples/freak_blackbox: 143.6/150 BPM loops, kicks ~G#, names' keys unreliable
+- [Full = sketch extended](notes/feedback_fragment_vs_full_track.md) — 2026-11-27: full version = copy sketch config, lengthen only; Night Engine v1/v2 were «another track»

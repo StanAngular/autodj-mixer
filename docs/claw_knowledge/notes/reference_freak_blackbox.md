@@ -1,0 +1,12 @@
+---
+name: FREAK AUDIO BLACKBOX pack (psy trance)
+description: 2026-11-27 Стас's psy/forest/dark psytrance sample pack, where it lives and what our analysis found
+type: reference
+---
+Downloaded 2026-11-27 from Стас's Google Drive (curl drive.usercontent.google.com/download?id=..&confirm=t works for big files; Telegram bot cannot fetch > 20 MB).
+Path: ~/samples/freak_blackbox/ (558 wav/aif, 2.0 GB; Serum 2 presets and .asd skipped - no Serum here). CLAP index build started for it (python -m autodj.compose.clap_index build --root ~/samples/freak_blackbox).
+Contents: BASS LOOPS (PSY-PROG) 36 x 13.4 s at ~143.6 BPM (8 bars, key in name: chroma agrees only 23/36, mismatches a semitone off -> measure, do not trust names); CODEX (FOREST & DARK) 63 at 150 BPM (leads, atmospheres, textures/FX, shamanic grooves, pads, drones); DARK FX 104 x 12.3 s; DRUMS (FOREST & DARK) 58 loops 150 BPM (drum loops wet, percussive high loops dry, top loops dry); KICKS (PSY-PROG) 5 x 0.4 s (body ~G#); MELODIES 5 at 142 (Gm, Am...); PADS - ATMOS 24 x 41 s (named C, Cm...); PERCS 30 (shots + 140/142 loops); PERCS (ORION 2) 24 shots; SYNTH GROOVES 11 (~143.6, key in name); SYNTHS (ORION) 94 (shots with note name, acids, noises); SYNTHS ONE SHOT 104 (note + 138 in name).
+soundgate: synth shots are mostly chords/dyads (not single notes); ~35-40% of synth one-shots wobble > 15 cents (many glides/FM) -> pass through tonal_ok/bad_sounds; name vs measured root agrees 43/54 (ORION shots) and 30/48 (ONE SHOT).
+
+CAVEAT 2026-11-27: «names lie» was measured with the chroma PEAK of the first 6 s; for minor / gliding bass loops the peak is often the third, fifth or a glide target, so a semitone «mismatch» may be my metric, not the file. Check with soundgate.measure (one-shots) or chroma vs a key profile before shifting a loop. Shaman Root (dark forest psytrance, psy_dark/score.py) shifted G and A loops by +-1 on that basis; musicality FAIL key_fit .45 (blind Gemini «немузыкально», Audiobox CE 6.5 PQ 7.7) - the shift is a suspect.
+Second pack 2026-11-27: «Leviathan 5 - Leaked Samples» (46 wav, 112 MB) in ~/samples/leviathan5: bass loops 128-174 (key in name), drum loops (classic breaks 80/100, 125/126 fills), kicks C/G, snare, clap, synth arp/pad/lead/chord/stab loops 125-130, lead one-shots (soundgate agrees with names), vocal loops 124/126 (chants, choir). 8 Serum2 presets skipped. Name says «Leaked» - licence unclear, ask Стас before releasing tracks built on it.
